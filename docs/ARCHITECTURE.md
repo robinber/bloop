@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 2 (2026-10-31). No components exist yet.
+Status: Proposed design, revision 2 (2026-10-31). Only the core state machine exists.
 
 ## Principles
 
@@ -70,14 +70,17 @@ Job:     Processing -> Ready -> Inserting -> end
 
 | Job status | Starts when | Ends when |
 | --- | --- | --- |
-| `Processing` | The capture stops. | Text: `Ready`. Nothing heard: end, with no paste. Error: end, with the error view. |
+| `Processing` | The capture stops. | Text: `Ready`. Nothing heard: end, with no paste. Error: end, with the error view if no capture is active. |
 | `Ready` | The final text is available. | All earlier jobs are complete: `Inserting`. |
 | `Inserting` | The paste module receives the text. | Paste or fallback card: end. |
 
 - Bloop permits one capture at a time.
 - A new capture can start while jobs run. Thus the user can dictate again before the previous text lands.
 - Jobs paste their text in session order.
-- No more than 3 jobs wait at the same time. If 3 jobs wait, a key press starts no capture and the orb shows the error view.
+- No more than 3 jobs exist at the same time: processing, ready, or pasting. If 3 jobs exist when the hold threshold
+  passes, the capture does not start and the orb shows the error view.
+- While a capture is active, the orb shows no error view for an earlier job.
+- A fallback card for an earlier job waits until the capture ends. Then the orb shows it.
 - Escape cancels the capture. It does not cancel a job.
 - Microphone loss cancels the capture. System sleep cancels the capture and all jobs.
 - Cancellation deletes the audio, stops the network task, and closes the orb.

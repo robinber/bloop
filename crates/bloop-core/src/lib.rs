@@ -3,3 +3,7 @@
 //! This crate has no I/O, no async runtime, and no platform API.
 
 #![forbid(unsafe_code)]
+
+pub mod domain;
+pub mod error;
+pub mod session;

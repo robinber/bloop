@@ -30,7 +30,7 @@ This phase uses fixed test text. It does not use audio.
 - [ ] Add the menu bar item with the status, "Copy last result", and "Quit".
 - [ ] Check the Accessibility and Input Monitoring permissions.
 - [ ] Add the event tap for Right Command, other input, and Escape.
-- [ ] Write the core state machine and its unit tests.
+- [x] Write the core state machine and its unit tests.
 - [ ] Show the orb after 220 ms. Animate it with a test level.
 - [ ] Paste the test text through the on-demand clipboard item.
 - [ ] Restore the previous clipboard content.

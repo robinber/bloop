@@ -1,6 +1,7 @@
 # Rust contracts
 
-Status: Proposed signatures, revision 3. No implementations or compilation checks exist.
+Status: revision 3. `bloop-core` implements the session state machine, the domain values, and the errors.
+The other signatures are proposals without implementation.
 
 All types and traits in this document are in `bloop-core`.
 The [code structure](STRUCTURE.md) gives the file for each type.
@@ -11,28 +12,29 @@ The core is a pure state machine. It receives events and returns commands.
 The core does not call macOS APIs, start threads, or read the clock.
 `Core::handle(&mut self, event: Event) -> Vec<Command>` is the only entry point for events.
 `Core::capture_active(&self) -> bool` tells the event tap when to block Escape.
+`Capture`, `JobStatus`, and `Job` are private to `session.rs`. Only the core creates a `Generation`.
 
 ```rust
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Generation(pub u64);
+pub struct Generation(pub(crate) u64);
 
-pub enum Capture {
+enum Capture {
     Idle,
     Pending(Generation),
     Listening(Generation),
 }
 
-pub enum JobStatus {
+enum JobStatus {
     Processing,
     Ready(FinalText),
-    Inserting,
+    Inserting(FinalText),
 }
 
-pub struct Job {
-    pub generation: Generation,
-    pub status: JobStatus,
+struct Job {
+    generation: Generation,
+    status: JobStatus,
 }
 
 pub struct Core {
@@ -40,6 +42,7 @@ pub struct Core {
     jobs: VecDeque<Job>,
     next_generation: u64,
     last_result: Option<FinalText>,
+    pending_card: Option<FinalText>,
 }
 
 pub enum Event {
@@ -82,7 +85,7 @@ pub enum InsertOutcome {
     Fallback(FallbackReason),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FallbackReason {
     TargetChanged,
     SecureInput,
@@ -119,14 +122,15 @@ pub struct TargetInfo {
     pub app_name: Option<String>,
 }
 
-pub struct Transcript(pub String);
+pub struct Transcript(String);
 
-#[derive(Clone)]
-pub struct FinalText(pub String);
+#[derive(Clone, PartialEq, Eq)]
+pub struct FinalText(String);
 ```
 
 `RawAudio` is the capture output in the native sample rate.
 `AudioClip` is the 16 kHz mono WAV data that a `Transcriber` receives.
+`FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
 
 ## AI ports
 
@@ -216,7 +220,7 @@ pub trait SecretStore {
 ## Errors
 
 ```rust
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderError {
     Network,
     Timeout,
@@ -231,14 +235,14 @@ pub enum StepError {
     Rejected(&'static str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Permission {
     Microphone,
     Accessibility,
     InputMonitoring,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppError {
     PermissionMissing(Permission),
     Microphone,
@@ -284,18 +288,19 @@ pub struct Pipeline {
 | --- | --- |
 | Generation | `DictationKeyDown` with the capture in `Idle` creates a new generation. The core ignores events for an unknown generation. |
 | One capture | `DictationKeyDown` with the capture outside `Idle` has no effect. Running jobs do not block a new capture. |
-| Job limit | `DictationKeyDown` with 3 jobs in the queue starts no capture and shows the error view. |
-| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle`. The core emits no orb command. |
-| Combination | `OtherInputDuringHold` in `Pending` or `Listening` cancels the capture and closes the orb. |
+| Job limit | If 3 jobs exist (processing, ready, or pasting) when `HoldElapsed` arrives, the capture does not start and the core shows the error view. A combination during `Pending` stays silent. |
+| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
+| Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
 | Order | The core emits `Insert` only for the first job in the queue. |
-| Escape | `Escape` in `Pending` or `Listening` cancels the capture and closes the orb. It has no effect on jobs. |
-| Sleep | `SystemSleep` cancels the capture and all jobs. |
+| Last result | The core keeps the text of the last `Insert` for `CopyLastResult`. |
+| Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
+| Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
 | Nothing heard | `NothingHeard` removes the job. The core emits no orb command. |
-| Error | `CaptureFailed` and `WorkFailed` show the error view. `WorkFailed` removes the job. |
-| Fallback | `InsertDone` with `Fallback` shows the card with the last final text. |
+| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a job that is processing, `CaptureFailed` has the same effect as `WorkFailed`: the driver sends it when `AudioInput::stop` fails. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
+| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card and shows it when the capture ends. A newer card replaces a kept card. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
-| Privacy | `Transcript` and `FinalText` do not implement `Debug`. Logs never contain audio or text. |
+| Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.

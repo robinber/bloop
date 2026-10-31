@@ -249,7 +249,7 @@ The state machine and the text steps do not change.
 - `rustfmt.toml` sets `style_edition = "2024"`. `Cargo.lock` is under version control.
 - Library crates use `thiserror`. Only `bloop-app` uses `anyhow`, for start errors.
 - All crates use `tracing` for logs.
-- Types that contain text or audio do not implement `Debug`.
+- Types that contain text or audio implement a redacting `Debug` that never shows the content.
 - `LevelMeter` uses `Relaxed` ordering. The level is one independent value: no other data is published through it.
 
 ## Implementation plan

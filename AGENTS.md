@@ -80,7 +80,8 @@ These are explicit owner decisions, not hypothetical reuse:
 
 - The API key of each provider is in Keychain: service `bloop`, account = vendor name.
 - Never put an API key in source, settings, logs, errors, argv, or `Debug` output. Use `secrecy::SecretString`.
-- `Transcript`, `FinalText`, and audio types do not implement `Debug`. Logs never contain audio or text.
+- `Transcript`, `FinalText`, and audio types implement only a redacting `Debug` that never shows their content.
+  Logs never contain audio or text.
 - Tabi is a behavior reference only. Do not copy Tabi code, prompts, or assets.
   Do not read its dictation history (`~/Library/Application Support/app.heytabi/history.json`).
 
