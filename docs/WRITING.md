@@ -1,0 +1,46 @@
+# Writing rules
+
+The repository uses Markdown and ASD-STE100 Simplified Technical English.
+Use [ASD-STE100 Issue 9](https://www.asd-ste100.org/) as the language reference.
+The current documents are drafts. A complete STE vocabulary review remains open.
+
+## Review checks
+
+- Limit an instruction sentence to 20 words.
+- Limit a descriptive sentence to 25 words.
+- Give each sentence one purpose.
+- Name the component that performs the action.
+- Prefer short sentences with simple verb forms.
+- Put a condition before its required action.
+- Keep terminology consistent across documents.
+- Use dictionary words with their approved meaning and part of speech.
+- Preserve official names, API fields, and Rust identifiers.
+- Define project terms before their first use.
+- Identify proposals and test results separately.
+
+## Project terms
+
+| Term | Meaning |
+| --- | --- |
+| Dictation key | The key that the user holds during speech input |
+| Hold threshold | The minimum hold time before a session shows the orb and starts the capture |
+| Session | One dictation, from key press to paste, fallback card, or cancellation |
+| Capture | The first part of a session: the microphone records while the user holds the key |
+| Job | The second part of a session: transcription, correction, and paste, without a visible indicator |
+| Generation | The number that identifies a session; the core ignores results with an old generation |
+| Orb | The small pill panel that shows the target application icon and the voice level |
+| Fallback card | The orb view that shows the final text when a paste is not possible |
+| Transcript | The text that the speech model returns |
+| Final text | The text that Bloop pastes: the corrected text or the raw transcript |
+| Focused field | The text field that has keyboard focus when the user releases the key |
+| Target check | The checks before the paste: same application, no new input, no secure input |
+| Landed | The result when the target reads the clipboard item after the paste command |
+| Core | The pure Rust state machine that receives events and returns commands |
+| Provider | An external AI service, for example Mistral |
+| Port | A trait in `bloop-core` that an adapter implements |
+| Adapter | The component that implements a port for a provider or a system API |
+| Text step | One change to the text after the transcription, for example the correction |
+| Driver | The `bloop-app` component that sends events to the core and executes its commands |
+| MVP | Minimum viable product; the smallest version that proves the complete process |
+
+This term list supports a later vocabulary review. It does not replace the STE dictionary.
