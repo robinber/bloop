@@ -1,0 +1,15 @@
+[package]
+name = "bloop-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bloop-audio.workspace = true
+bloop-core.workspace = true
+bloop-macos.workspace = true
+bloop-providers.workspace = true
+
+[lints]
+workspace = true

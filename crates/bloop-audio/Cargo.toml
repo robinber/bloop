@@ -1,0 +1,12 @@
+[package]
+name = "bloop-audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bloop-core.workspace = true
+
+[lints]
+workspace = true

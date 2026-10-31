@@ -23,7 +23,7 @@ Acceptance: The owner approves [Scope](SCOPE.md), [Architecture](ARCHITECTURE.md
 
 This phase uses fixed test text. It does not use audio.
 
-- [ ] Create the Cargo workspace and the five crates from [Code structure](STRUCTURE.md),
+- [x] Create the Cargo workspace and the five crates from [Code structure](STRUCTURE.md),
   with the lint floor, `rustfmt.toml`, and `clippy.toml` from `AGENTS.md`.
 - [ ] Add the script that builds the application bundle.
 - [ ] Sign the bundle with a stable identity.

@@ -17,8 +17,7 @@ Do not choose the interpretation that permits more work.
 
 ## Package facts
 
-Status: planned. No Cargo file exists yet.
-When the workspace exists, its manifests are the source of truth. Update this section in the same commit.
+The workspace manifests are the source of truth. When they change, update this section in the same commit.
 
 - Layout: virtual workspace with `resolver = "3"`. Members in `crates/`: `bloop-core`, `bloop-providers`,
   `bloop-audio`, `bloop-macos`, `bloop-app`.
@@ -26,7 +25,7 @@ When the workspace exists, its manifests are the source of truth. Update this se
 - MSRV (`rust-version`): 1.99, the stable release on the reference Mac (rustc 1.99.1).
 - Toolchain: stable. No `rust-toolchain.toml` and no nightly unless a documented need appears.
 - Platform: macOS on arm64 only. No other target is supported or tested.
-- Features: `bloop-providers` has one feature for each vendor. `mistral` is the default.
+- Features: none yet. `bloop-providers` gets one feature for each vendor, and `mistral` becomes the default.
   Verify with the default features unless the task changes a feature.
 - Lint floor: the rust-strict starter policy (`references/project-setup.md`, section 3) in `[workspace.lints]`,
   plus `raw_borrows_via_references`. Every member inherits it with `[lints] workspace = true`. Do not weaken it.
