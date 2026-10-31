@@ -21,3 +21,4 @@ The first version is for personal use on one Mac.
 - [Code structure](docs/STRUCTURE.md)
 - [Rust contracts](docs/CONTRACTS.md)
 - [Writing rules](docs/WRITING.md)
+- [Agent contract](AGENTS.md)

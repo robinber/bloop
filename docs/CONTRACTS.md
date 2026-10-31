@@ -284,6 +284,7 @@ pub struct Pipeline {
 | --- | --- |
 | Generation | `DictationKeyDown` with the capture in `Idle` creates a new generation. The core ignores events for an unknown generation. |
 | One capture | `DictationKeyDown` with the capture outside `Idle` has no effect. Running jobs do not block a new capture. |
+| Job limit | `DictationKeyDown` with 3 jobs in the queue starts no capture and shows the error view. |
 | Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle`. The core emits no orb command. |
 | Combination | `OtherInputDuringHold` in `Pending` or `Listening` cancels the capture and closes the orb. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |

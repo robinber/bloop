@@ -47,7 +47,9 @@ bloop/
 6. `bloop-core` has no I/O, no async runtime, and no platform API. It uses only small pure crates (`thiserror`, `secrecy`).
 
 Cargo enforces rules 1 to 5, because a crate cannot use a crate that is not in its dependencies.
-The workspace lints set `unsafe_code = "forbid"`. All crates use these lints, except `bloop-macos`.
+All crates inherit the workspace lints. The workspace sets `unsafe_code = "deny"`.
+In `bloop-macos`, each module that needs `unsafe` carries a scoped `#![expect(unsafe_code, reason = "...")]`.
+The other crates add `#![forbid(unsafe_code)]` at their root.
 
 ## Design decisions
 
@@ -242,9 +244,13 @@ The state machine and the text steps do not change.
 ## Shared rules
 
 - `[workspace.dependencies]` keeps one version for each dependency.
+- The workspace lints are the rust-strict starter policy, with `undocumented_unsafe_blocks` and
+  `multiple_unsafe_ops_per_block` denied. `AGENTS.md` records the lint floor.
+- `rustfmt.toml` sets `style_edition = "2024"`. `Cargo.lock` is under version control.
 - Library crates use `thiserror`. Only `bloop-app` uses `anyhow`, for start errors.
 - All crates use `tracing` for logs.
 - Types that contain text or audio do not implement `Debug`.
+- `LevelMeter` uses `Relaxed` ordering. The level is one independent value: no other data is published through it.
 
 ## Implementation plan
 
@@ -253,7 +259,7 @@ Thus the application operates at the end of each phase.
 
 | Phase | Crates and files |
 | --- | --- |
-| 1: Key, orb, and paste | `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `config.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
+| 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `config.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and transcription | `bloop-audio`: `capture.rs`, `convert.rs`. `bloop-core`: `Transcriber` in `ports/ai.rs`, and `pipeline.rs` without steps. `bloop-providers`: `http.rs`, `mistral/transcribe.rs`. `bloop-macos`: `keychain.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
@@ -266,11 +272,14 @@ Phase 2 removes these two parts.
 
 ## Work method
 
+Agents follow `AGENTS.md` and the rust-strict skill (`.claude/skills/rust-strict`, v2.0.0).
+
 1. Write the types and the unit tests in `bloop-core` before the adapter.
 2. Add a fake implementation for tests at the same time as each new port.
 3. Write the adapter. Then connect it in the driver.
 4. Do the manual acceptance checks of the phase on the reference Mac.
-5. Before each commit, run `cargo fmt`, `cargo clippy --workspace -- -D warnings`, and `cargo test --workspace`.
+5. Before each commit, run the gates in `AGENTS.md`: `cargo fmt --all --check`,
+   `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace`.
 
 - Add each new dependency to `[workspace.dependencies]` first.
 - If a decision changes, update this document and the [contracts](CONTRACTS.md) in the same commit.

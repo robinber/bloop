@@ -77,6 +77,7 @@ Job:     Processing -> Ready -> Inserting -> end
 - Bloop permits one capture at a time.
 - A new capture can start while jobs run. Thus the user can dictate again before the previous text lands.
 - Jobs paste their text in session order.
+- No more than 3 jobs wait at the same time. If 3 jobs wait, a key press starts no capture and the orb shows the error view.
 - Escape cancels the capture. It does not cancel a job.
 - Microphone loss cancels the capture. System sleep cancels the capture and all jobs.
 - Cancellation deletes the audio, stops the network task, and closes the orb.
