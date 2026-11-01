@@ -49,7 +49,7 @@ Acceptance:
 - A press shorter than 220 ms shows no orb and pastes nothing.
 - The orb never takes keyboard focus. The text lands in TextEdit, a Firefox field, and a terminal.
 - After the paste, the clipboard contains the previous text or image.
-- A clipboard manager, if installed, shows no Bloop entry.
+- After a landed paste, a clipboard manager, if installed, shows no Bloop entry.
 - Escape stops the session and does not go to the target application.
 
 ## Phase 2: Microphone and streaming transcription

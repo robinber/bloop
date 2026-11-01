@@ -79,7 +79,7 @@ These items are outside the structure: plugins loaded at run time, and support f
 src/
 ├── lib.rs
 ├── domain.rs          Generation, AudioChunk, CaptureSummary, LevelMeter, TargetInfo, Transcript, FinalText
-├── session.rs         Core, Capture, Job, Event, Command, OrbView
+├── session.rs         Core, Capture, Job, Event, Command, OrbView, InsertOutcome, FallbackReason
 ├── pipeline.rs        Pipeline: text steps and raw transcript fallback after complete transcription
 ├── steps/
 │   ├── mod.rs
@@ -88,7 +88,7 @@ src/
 ├── ports/
 │   ├── ai.rs          Transcriber, TranscriptionSession, ChatModel, TextStep, BoxFuture
 │   └── platform.rs    EventSink, AudioSink, AudioInput, Overlay, TextOutput, Scheduler, SecretStore
-└── error.rs           AppError, ProviderError, StepError, AudioQueueError
+└── error.rs           AppError, ProviderError, StepError, AudioQueueError, Permission
 ```
 
 ### bloop-providers
@@ -266,7 +266,7 @@ There is no separate file transcription path or later migration.
 | `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Real API tests run manually. |
 | `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
 | `bloop-app` | Driver with fake ports: slow connection, full queue, release, failure, cancellation, and stale results |
-| `bloop-macos` | Manual acceptance checks from the [roadmap](ROADMAP.md) |
+| `bloop-macos` | Unit tests of the logic without macOS types: key state, target list, clipboard transaction, and bar heights. Manual acceptance checks from the [roadmap](ROADMAP.md) for the macOS calls. |
 
 ## Shared rules
 
@@ -286,17 +286,18 @@ Thus the application operates at the end of each phase.
 
 | Phase | Crates and files |
 | --- | --- |
-| 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `config.rs`, `driver.rs`, `logging.rs`, `test_level.rs` (temporary). `scripts/bundle.sh`. |
-| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`. |
+| 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`, `test_level.rs` (temporary). `scripts/bundle.sh`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
-For Phase 1 completion, `bloop-app` needs three temporary behaviors:
+For Phase 1 completion, `bloop-app` needs four temporary behaviors:
 
 - `StartCapture` records no audio and opens no network session.
 - `test_level.rs` writes a synthetic level into the `LevelMeter` from `StartCapture` to `StopCaptureAndProcess` or `CancelCapture`.
 - A driver rule that answers `StopCaptureAndProcess` with a `TextReady` event that contains fixed test text.
+- The hold threshold is the `HOLD` constant in `main.rs` until `config.rs` exists.
 
-Phase 2 replaces these behaviors with capture and streaming.
+Phase 2 replaces these behaviors with capture, streaming, and `config.rs`.
 
 ## Work method
 
