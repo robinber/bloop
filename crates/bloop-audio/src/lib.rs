@@ -1,3 +1,3 @@
-//! Microphone capture and WAV conversion of Bloop.
+//! Microphone capture and incremental PCM conversion of Bloop.
 
 #![forbid(unsafe_code)]

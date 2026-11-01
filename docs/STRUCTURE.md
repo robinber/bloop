@@ -25,6 +25,8 @@ bloop/
 │   └── bloop-app/             Executable: settings, construction, driver
 ├── prompts/
 │   └── natural-clean-v1.md    Correction prompt under version control
+├── bundle/
+│   └── Info.plist             Bundle metadata; LSUIElement for accessory mode
 ├── scripts/
 │   └── bundle.sh              Builds and signs Bloop.app
 └── docs/
@@ -140,8 +142,6 @@ src/
 ├── config.rs          TOML settings with default values
 ├── driver.rs          Driver: events to the core, commands to the ports
 └── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
-bundle/
-└── Info.plist
 ```
 
 ## Runtime flow
