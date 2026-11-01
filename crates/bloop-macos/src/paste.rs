@@ -22,7 +22,7 @@ use std::time::Duration;
 use bloop_core::domain::{FinalText, Generation, TargetInfo};
 use bloop_core::ports::platform::{EventSink, TextOutput};
 use bloop_core::session::{Event, FallbackReason, InsertOutcome};
-use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
+use dispatch2::MainThreadBound;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
@@ -37,6 +37,7 @@ use objc2_core_graphics::{
 use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 
 use crate::events::MainSink;
+use crate::scheduler;
 
 /// The value of `EventSourceUserData` in the events that Bloop posts.
 const POSTED_EVENT: i64 = 0x0042_6C6F_6F70;
@@ -338,18 +339,10 @@ fn restore(pasteboard: &NSPasteboard, saved: Option<Vec<SavedItem>>, written: NS
 
 /// Runs `action` on the provider after `delay`, on the main queue.
 fn after(delay: Duration, provider: &Retained<TextProvider>, action: fn(&TextProvider)) {
-    let Ok(when) = DispatchTime::try_from(delay) else {
-        tracing::error!(?delay, "the delay is too long for a timer");
-        action(provider);
-        return;
-    };
     let target = MainThreadBound::new(provider.clone(), provider.mtm());
-    let queued = DispatchQueue::main().after(when, move || {
+    scheduler::run_after(delay, move || {
         target.get_on_main(|provider| action(provider));
     });
-    if let Err(error) = queued {
-        tracing::error!(?error, "the paste timer did not start");
-    }
 }
 
 /// The steps of one paste, without macOS types: wait for the read, wait for the restore, done.

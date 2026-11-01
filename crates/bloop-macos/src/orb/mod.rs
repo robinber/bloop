@@ -11,13 +11,14 @@ use std::time::Duration;
 use bloop_core::domain::LevelMeter;
 use bloop_core::ports::platform::Overlay;
 use bloop_core::session::OrbView;
-use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
+use dispatch2::{DispatchQueue, MainThreadBound};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPanel, NSWorkspace};
 use objc2_foundation::NSString;
 
 use self::layers::{BAR_COUNT, BAR_MIN, BAR_MOVE, BarHeights, Layers, Palette, SHRINK, Shape};
+use crate::scheduler;
 
 const TICK: Duration = Duration::from_millis(33);
 const ERROR_TIME: Duration = Duration::from_secs(1);
@@ -265,11 +266,7 @@ fn run(
 
 /// Runs `step` on the main queue after `delay`, if the orb exists and its epoch is still `epoch`.
 fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> Next) {
-    let Ok(when) = DispatchTime::try_from(delay) else {
-        tracing::error!(?delay, "the delay is too long for a timer");
-        return;
-    };
-    let queued = DispatchQueue::main().after(when, move || {
+    scheduler::run_after(delay, move || {
         target.get_on_main(|(orb, mtm)| {
             let Some(shared) = orb.upgrade() else {
                 return;
@@ -282,9 +279,6 @@ fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> 
             }
         });
     });
-    if let Err(error) = queued {
-        tracing::error!(?error, "the orb timer did not start");
-    }
 }
 
 #[cfg(test)]
