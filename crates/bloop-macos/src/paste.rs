@@ -135,7 +135,6 @@ impl TextOutput for Paster {
 
     fn copy(&mut self, text: &FinalText) {
         write_text(&NSString::from_str(text.as_str()));
-        self.provider = None;
     }
 
     fn cancel(&mut self, generation: Generation) {
