@@ -93,6 +93,22 @@ fn capture_limit_stops_the_capture_like_a_key_release() {
 }
 
 #[test]
+fn a_duplicate_capture_limit_creates_no_second_job() {
+    let mut core = Core::new();
+    let generation = start_listening(&mut core);
+    assert_eq!(
+        core.handle(Event::CaptureLimitReached(generation)),
+        vec![
+            Command::RecordTarget(generation),
+            Command::StopCaptureAndProcess(generation),
+            Command::CloseOrb
+        ]
+    );
+
+    assert_eq!(core.handle(Event::CaptureLimitReached(generation)), vec![]);
+}
+
+#[test]
 fn combination_during_pending_cancels_without_commands() {
     let mut core = Core::new();
     let generation = press(&mut core);
@@ -497,6 +513,43 @@ fn deferred_card_keeps_its_text_when_a_later_job_pastes() {
     assert_eq!(
         core.handle(Event::CopyLastResult),
         vec![Command::CopyToClipboard(text("deux"))]
+    );
+}
+
+#[test]
+fn a_newer_fallback_card_replaces_the_kept_card() {
+    let mut core = Core::new();
+    let first = start_job(&mut core);
+    let second = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(first, text("un"))),
+        vec![Command::Insert(first, text("un"))]
+    );
+    assert_eq!(core.handle(Event::TextReady(second, text("deux"))), vec![]);
+    let current = start_listening(&mut core);
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            first,
+            InsertOutcome::Fallback(FallbackReason::TargetChanged)
+        )),
+        vec![Command::Insert(second, text("deux"))]
+    );
+
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            second,
+            InsertOutcome::Fallback(FallbackReason::NotRead)
+        )),
+        vec![]
+    );
+    assert_eq!(
+        core.handle(Event::DictationKeyUp),
+        vec![
+            Command::RecordTarget(current),
+            Command::StopCaptureAndProcess(current),
+            Command::CloseOrb,
+            Command::ShowOrb(OrbView::Card(text("deux")))
+        ]
     );
 }
 
