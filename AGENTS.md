@@ -108,3 +108,5 @@ Add or update tests when you change these surfaces:
 - Add a dependency with `cargo add` to `[workspace.dependencies]` first, and check it with `cargo info`.
 - The lint floor enforces this rule in non-test code: no `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!`,
   or `dbg!`.
+- Commit messages: the subject is one imperative sentence with a capital letter, no type prefix
+  (no `docs:` or `feat:`), and no final period. The body says what changed and why, wrapped at 72 characters.
