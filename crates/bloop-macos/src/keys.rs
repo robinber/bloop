@@ -166,7 +166,7 @@ impl TapState {
             | CGEventType::OtherMouseDown => (Verdict::Pass, keys.other_input()),
             CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
                 self.enable_again(event_type);
-                (Verdict::Pass, None)
+                (Verdict::Pass, keys.interrupted())
             }
             _ => (Verdict::Pass, None),
         };
@@ -258,6 +258,14 @@ impl Keys {
 
     fn other_input(self) -> Option<Event> {
         self.held.then_some(Event::OtherInputDuringHold)
+    }
+
+    /// The tap can miss events while macOS disables it, for example the key release.
+    /// Thus a hold ends as a combination, and the key state starts again.
+    fn interrupted(&mut self) -> Option<Event> {
+        let signal = self.other_input();
+        *self = Self::default();
+        signal
     }
 }
 
@@ -392,5 +400,22 @@ mod tests {
 
         assert_matches!(keys.key_down(ESCAPE, false, false), (Verdict::Pass, None));
         assert_eq!(keys.key_up(ESCAPE), Verdict::Pass);
+    }
+
+    #[test]
+    fn an_interruption_during_the_hold_ends_it_and_ignores_the_missed_release() {
+        let mut keys = holding();
+
+        assert_matches!(keys.interrupted(), Some(Event::OtherInputDuringHold));
+        assert_matches!(keys.flags_changed(RIGHT_COMMAND, 0), None);
+        assert_matches!(
+            keys.flags_changed(RIGHT_COMMAND, COMMAND | RIGHT_COMMAND_DOWN),
+            Some(Event::DictationKeyDown)
+        );
+    }
+
+    #[test]
+    fn an_interruption_without_a_hold_sends_nothing() {
+        assert_matches!(Keys::default().interrupted(), None);
     }
 }
