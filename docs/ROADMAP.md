@@ -27,7 +27,8 @@ This phase uses fixed test text. It does not use audio.
   with the lint floor, `rustfmt.toml`, and `clippy.toml` from `AGENTS.md`.
 - [x] Add the script that builds the application bundle.
 - [x] Sign the bundle with a stable identity.
-- [ ] Add the menu bar item with the status, "Copy last result", and "Quit".
+- [x] Start the `AppKit` application. Add the menu bar item with "Quit Bloop".
+- [ ] Add the status and "Copy last result" to the menu.
 - [ ] Check the Accessibility and Input Monitoring permissions.
 - [ ] Add the event tap for Right Command, other input, and Escape.
 - [x] Write the core state machine and its unit tests.

@@ -13,6 +13,9 @@ bloop-audio = { path = "crates/bloop-audio" }
 bloop-core = { path = "crates/bloop-core" }
 bloop-macos = { path = "crates/bloop-macos" }
 bloop-providers = { path = "crates/bloop-providers" }
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

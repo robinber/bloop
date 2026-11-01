@@ -2,4 +2,18 @@
 
 #![forbid(unsafe_code)]
 
-fn main() {}
+use std::process::ExitCode;
+
+use bloop_macos::MainThreadMarker;
+use bloop_macos::app::App;
+use bloop_macos::menu::StatusMenu;
+
+fn main() -> ExitCode {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return ExitCode::FAILURE;
+    };
+    let app = App::new(mtm);
+    let _menu = StatusMenu::new(mtm);
+    app.run();
+    ExitCode::SUCCESS
+}

@@ -10,7 +10,7 @@ The behavior follows the dictation feature of Tabi. Bloop does only this one tas
 
 ## Status
 
-Phase 1 is in progress. The core state machine and the bundle script exist. The app does nothing yet.
+Phase 1 is in progress. The [roadmap](docs/ROADMAP.md) shows the completed tasks.
 The first version is for personal use on one Mac.
 
 ## Build

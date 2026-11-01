@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 2 (2026-10-31). Only the core state machine and the bundle script exist.
+Status: Proposed design, revision 2 (2026-10-31). Phase 1 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
