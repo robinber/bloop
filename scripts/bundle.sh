@@ -5,7 +5,7 @@ identity="${BLOOP_SIGN_IDENTITY:-Bloop Dev}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$root/target/release/Bloop.app"
 
-cargo build --release --package bloop-app --manifest-path "$root/Cargo.toml"
+cargo build --release --package bloop-app --manifest-path "$root/Cargo.toml" --target-dir "$root/target"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS"
