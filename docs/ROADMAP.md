@@ -34,7 +34,7 @@ This phase uses fixed test text. It does not use audio.
 - [x] Add the script that builds the application bundle.
 - [x] Sign the bundle with a stable identity.
 - [x] Start the `AppKit` application. Add the menu bar item with "Quit Bloop".
-- [ ] Add the status and "Copy last result" to the menu.
+- [x] Add the status and "Copy last result" to the menu.
 - [x] Check the Accessibility and Input Monitoring permissions.
 - [x] Add the event tap for Right Command, other input, and Escape.
 - [x] Write the core state machine and its unit tests.

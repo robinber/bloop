@@ -336,6 +336,9 @@ Known limits:
   With an ad hoc signature, macOS removes the permissions after each build.
 - Bloop needs three permissions: Microphone, Accessibility (active event tap and paste command), and Input Monitoring (key events).
 - The menu shows each missing permission and opens the related System Settings pane.
+  Without a missing permission, it shows "Ready: hold Right Command to dictate".
+  macOS can keep the old permission result until Bloop starts again. Thus Bloop checks the status at start.
+- The menu item "Copy last result" puts the last final text in the clipboard. Before the first result, it has no effect.
 
 ## Candidate crates
 

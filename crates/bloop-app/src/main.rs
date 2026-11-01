@@ -36,7 +36,6 @@ fn main() -> ExitCode {
     tracing::info!("Bloop starts");
 
     let app = App::new(mtm);
-    let _menu = StatusMenu::new(mtm);
 
     let missing = permissions::request_missing();
     if !missing.is_empty() {
@@ -48,6 +47,7 @@ fn main() -> ExitCode {
             "macOS refused the event tap, enable Input Monitoring and Accessibility, then open Bloop again"
         );
     }
+    let _menu = StatusMenu::new(mtm, &missing, tap.is_some());
 
     let level = LevelMeter::default();
     let orb = OrbPanel::new(mtm, level.clone());
