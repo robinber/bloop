@@ -268,30 +268,40 @@ The target check before the paste:
 
 If the check passes:
 
-1. Bloop saves all items of the current clipboard.
+1. Bloop saves all items of the current clipboard, with the data of all their types.
+   If macOS cannot list the items, Bloop does not restore the clipboard, and the text stays in it.
+   If some types cannot be read, Bloop restores the other types. The log records the number of missing types.
 2. Bloop writes one clipboard item. Its string type uses an on-demand data provider.
    The item also has the `org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType` markers.
 3. Bloop posts Command-V with key code 9 and the Command flag only.
 4. The data provider supplies the text when the target reads it. A successful read makes the result `Landed`.
 5. 300 ms after the read, Bloop restores the saved items if the clipboard did not change after step 2.
+   The restored items have the `org.nspasteboard.TransientType` marker. Thus a clipboard manager does not record them again.
    Then Bloop reports the result. Thus the next paste saves the restored clipboard, not the text of this paste.
 6. If no read occurs within 1 second, Bloop replaces the item with a normal text item and shows the fallback card.
+   Bloop replaces the item only if the clipboard did not change after step 2.
 
 If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.
 Bloop posts no more than one paste command for each session.
-When a job ends without a paste result, Bloop forgets its target and ignores a later read. A posted paste command can still land.
+When a job ends without a paste result, Bloop forgets its target and reports no result for it.
+A posted paste command can still land. The restore then follows the read as usual.
 Jobs paste in session order.
 The target check does not count the key events that Bloop posts. Thus one paste does not block the paste of the next job.
 
 Measured on the reference Mac (macOS 27, 2026-11-01), with the Phase 1 test text: six pastes in a terminal, WhatsApp,
 Firefox, and TextEdit gave `Landed`. The target read the item 10–27 ms after the `Insert` command.
 This time includes the target check and the paste command. The Tabi reference is 101 ms from paste command to read.
+After a paste in TextEdit, the clipboard contained the copied word or the copied image again.
+After two pastes in a row, it contained the word that was copied before the first paste.
 
 Known limits:
 
 - A clipboard manager that ignores the markers can read the item first. Then Bloop reports `Landed` without a paste.
 - A slow target can read the item after 1 second. Then the field gets the text and the card also shows. This has no bad effect.
-- The restore step reads all saved types. At that time, another application can supply data that it promised.
+- If another application changes the clipboard within the read time limit, the text is not in the clipboard.
+  The fallback card still shows the text, and "Copy last result" copies it.
+- The save step reads all types of the clipboard. At that time, another application must supply data that it promised.
+  For a large image, this can take some time.
 - Key code 9 is the V key on the AZERTY and QWERTY layouts. Other layouts are later work.
 - A terminal without bracketed paste can execute pasted text that contains line breaks. Phase 3 checks the terminal of the reference Mac.
 

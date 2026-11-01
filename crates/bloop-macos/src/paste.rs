@@ -1,7 +1,8 @@
 //! `Paster`: target check, pasteboard, and Command-V. It operates on the main thread.
 //!
-//! The pasteboard item supplies its text only when the target application reads it.
-//! This read is the `Landed` result. Without a read within one second, the item becomes
+//! Before the paste, Bloop saves the clipboard. The pasteboard item supplies its text only when
+//! the target application reads it. 300 ms after this read, Bloop restores the saved clipboard if
+//! nobody changed it, then reports `Landed`. Without a read within one second, the item becomes
 //! a normal text item and the result is `Fallback(NotRead)`.
 
 #![expect(
@@ -20,16 +21,16 @@ use bloop_core::session::{Event, FallbackReason, InsertOutcome};
 use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
     NSPasteboard, NSPasteboardItem, NSPasteboardItemDataProvider, NSPasteboardType,
-    NSPasteboardTypeString, NSWorkspace,
+    NSPasteboardTypeString, NSPasteboardWriting, NSWorkspace,
 };
 use objc2_core_graphics::{
     CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
     CGEventType,
 };
-use objc2_foundation::{NSArray, NSData, NSString, ns_string};
+use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 
 use crate::events::MainSink;
 
@@ -38,6 +39,7 @@ const POSTED_EVENT: i64 = 0x0042_6C6F_6F70;
 /// `kVK_ANSI_V`: the V key on the AZERTY and QWERTY layouts.
 const KEY_V: u16 = 9;
 const READ_TIME: Duration = Duration::from_secs(1);
+const RESTORE_DELAY: Duration = Duration::from_millis(300);
 const INPUT_EVENTS: [CGEventType; 4] = [
     CGEventType::KeyDown,
     CGEventType::LeftMouseDown,
@@ -73,20 +75,20 @@ impl Paster {
     }
 
     fn paste(&mut self, generation: Generation, text: &FinalText) {
-        let provider = TextProvider::new(self.mtm, generation, text);
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let provider = TextProvider::new(self.mtm, generation, text, save(&pasteboard));
         let item = NSPasteboardItem::new();
         let marked = item.setDataProvider_forTypes(
             ProtocolObject::from_ref(&*provider),
             &NSArray::from_slice(&[string_type()]),
-        ) && item
-            .setData_forType(&NSData::new(), ns_string!("org.nspasteboard.TransientType"))
+        ) && item.setData_forType(&NSData::new(), transient_type())
             && item.setData_forType(&NSData::new(), ns_string!("org.nspasteboard.ConcealedType"));
 
-        let pasteboard = NSPasteboard::generalPasteboard();
         pasteboard.clearContents();
         self.provider = Some(provider.clone());
         let written = marked
             && pasteboard.writeObjects(&NSArray::from_slice(&[ProtocolObject::from_ref(&*item)]));
+        provider.ivars().written.set(pasteboard.changeCount());
         if !written {
             tracing::error!("the clipboard refused the paste item");
             provider.give_up();
@@ -97,18 +99,7 @@ impl Paster {
             provider.give_up();
             return;
         }
-
-        let Ok(when) = DispatchTime::try_from(READ_TIME) else {
-            provider.give_up();
-            return;
-        };
-        let provider = MainThreadBound::new(provider, self.mtm);
-        let queued = DispatchQueue::main().after(when, move || {
-            provider.get_on_main(|provider| provider.give_up());
-        });
-        if let Err(error) = queued {
-            tracing::error!(?error, "the read timer did not start");
-        }
+        after(READ_TIME, &provider, TextProvider::give_up);
     }
 }
 
@@ -241,6 +232,174 @@ fn string_type() -> &'static NSPasteboardType {
     unsafe { NSPasteboardTypeString }
 }
 
+fn transient_type() -> &'static NSPasteboardType {
+    ns_string!("org.nspasteboard.TransientType")
+}
+
+/// The data of one clipboard item, for each of its types.
+type SavedItem = Vec<(Retained<NSPasteboardType>, Retained<NSData>)>;
+
+/// Reads all items of the clipboard, with the data of all their types.
+///
+/// Returns `None` if macOS cannot list the items. A type that cannot be read is left out.
+fn save(pasteboard: &NSPasteboard) -> Option<Vec<SavedItem>> {
+    let Some(items) = pasteboard.pasteboardItems() else {
+        tracing::warn!("Bloop cannot read the clipboard, thus it will not restore it");
+        return None;
+    };
+    let mut missing = 0_usize;
+    let saved = items
+        .iter()
+        .map(|item| {
+            item.types()
+                .iter()
+                .filter_map(|data_type| {
+                    let data = item.dataForType(&data_type);
+                    if data.is_none() {
+                        missing += 1;
+                    }
+                    data.map(|data| (data_type, data))
+                })
+                .collect()
+        })
+        .collect();
+    if missing > 0 {
+        tracing::warn!(
+            missing,
+            "Bloop cannot read some clipboard types, it will restore the others"
+        );
+    }
+    Some(saved)
+}
+
+/// Returns `true` if nobody changed the clipboard since Bloop wrote it, at the change count `written`.
+fn owns_clipboard(written: NSInteger) -> bool {
+    let owned = NSPasteboard::generalPasteboard().changeCount() == written;
+    if !owned {
+        tracing::info!("the clipboard changed after the paste, Bloop keeps the new content");
+    }
+    owned
+}
+
+/// Writes the saved items back, if the clipboard did not change since `written`.
+///
+/// Without a saved clipboard, the text stays in the clipboard.
+/// The restored items have the transient marker. Thus a clipboard manager does not record them again.
+fn restore(saved: Option<Vec<SavedItem>>, written: NSInteger) {
+    let Some(saved) = saved else {
+        return;
+    };
+    if !owns_clipboard(written) {
+        return;
+    }
+    let pasteboard = NSPasteboard::generalPasteboard();
+    pasteboard.clearContents();
+    if saved.is_empty() {
+        return;
+    }
+    let mut refused = 0_usize;
+    let items: Vec<Retained<NSPasteboardItem>> = saved
+        .iter()
+        .map(|types| {
+            let item = NSPasteboardItem::new();
+            for (data_type, data) in types {
+                if !item.setData_forType(data, data_type) {
+                    refused += 1;
+                }
+            }
+            if !item.setData_forType(&NSData::new(), transient_type()) {
+                refused += 1;
+            }
+            item
+        })
+        .collect();
+    if refused > 0 {
+        tracing::warn!(refused, "the clipboard refused some restored types");
+    }
+    let objects: Vec<&ProtocolObject<dyn NSPasteboardWriting>> = items
+        .iter()
+        .map(|item| ProtocolObject::from_ref(&**item))
+        .collect();
+    if !pasteboard.writeObjects(&NSArray::from_slice(&objects)) {
+        tracing::error!("the clipboard refused the restored content");
+    }
+}
+
+/// Runs `action` on the provider after `delay`, on the main queue.
+fn after(delay: Duration, provider: &Retained<TextProvider>, action: fn(&TextProvider)) {
+    let Ok(when) = DispatchTime::try_from(delay) else {
+        tracing::error!(?delay, "the delay is too long for a timer");
+        action(provider);
+        return;
+    };
+    let target = MainThreadBound::new(provider.clone(), provider.mtm());
+    let queued = DispatchQueue::main().after(when, move || {
+        target.get_on_main(|provider| action(provider));
+    });
+    if let Err(error) = queued {
+        tracing::error!(?error, "the paste timer did not start");
+    }
+}
+
+/// The steps of one paste, without macOS types: wait for the read, wait for the restore, done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Reading,
+    Restoring,
+    Done,
+}
+
+/// The clipboard transaction of one paste.
+#[derive(Debug, Clone, Copy)]
+struct Transaction {
+    phase: Phase,
+    cancelled: bool,
+}
+
+impl Default for Transaction {
+    fn default() -> Self {
+        Self {
+            phase: Phase::Reading,
+            cancelled: false,
+        }
+    }
+}
+
+impl Transaction {
+    /// The target read the text. Returns `true` if the restore delay must start.
+    fn read(&mut self) -> bool {
+        self.advance(Phase::Reading, Phase::Restoring)
+    }
+
+    /// The read time limit passed. Returns `true` if no read occurred: Bloop gives up.
+    fn read_time_out(&mut self) -> bool {
+        self.advance(Phase::Reading, Phase::Done)
+    }
+
+    /// The restore delay passed. Returns `true` if Bloop must restore the clipboard.
+    fn restore_due(&mut self) -> bool {
+        self.advance(Phase::Restoring, Phase::Done)
+    }
+
+    /// The job ended: the steps continue, but Bloop reports no result.
+    fn cancel(&mut self) {
+        self.cancelled = true;
+    }
+
+    /// The result to report, or nothing after a cancel.
+    fn result(self, outcome: InsertOutcome) -> Option<InsertOutcome> {
+        (!self.cancelled).then_some(outcome)
+    }
+
+    fn advance(&mut self, from: Phase, to: Phase) -> bool {
+        let current = self.phase == from;
+        if current {
+            self.phase = to;
+        }
+        current
+    }
+}
+
 /// Replaces the clipboard content with a normal text item.
 fn write_text(text: &NSString) {
     let pasteboard = NSPasteboard::generalPasteboard();
@@ -253,14 +412,16 @@ fn write_text(text: &NSString) {
 struct ProviderIvars {
     generation: Generation,
     text: Retained<NSString>,
-    pending: Cell<bool>,
+    saved: Cell<Option<Vec<SavedItem>>>,
+    written: Cell<NSInteger>,
+    transaction: Cell<Transaction>,
 }
 
 impl fmt::Debug for ProviderIvars {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProviderIvars")
             .field("generation", &self.generation)
-            .field("pending", &self.pending)
+            .field("transaction", &self.transaction)
             .finish_non_exhaustive()
     }
 }
@@ -285,7 +446,9 @@ define_class!(
             data_type: &NSPasteboardType,
         ) {
             if item.setString_forType(&self.ivars().text, data_type) {
-                self.finish(InsertOutcome::Landed);
+                if self.step(Transaction::read) {
+                    after(RESTORE_DELAY, &self.retain(), Self::restore_now);
+                }
             } else {
                 tracing::error!("the clipboard refused the text for the target");
             }
@@ -294,34 +457,64 @@ define_class!(
 );
 
 impl TextProvider {
-    fn new(mtm: MainThreadMarker, generation: Generation, text: &FinalText) -> Retained<Self> {
+    fn new(
+        mtm: MainThreadMarker,
+        generation: Generation,
+        text: &FinalText,
+        saved: Option<Vec<SavedItem>>,
+    ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ProviderIvars {
             generation,
             text: NSString::from_str(text.as_str()),
-            pending: Cell::new(true),
+            saved: Cell::new(saved),
+            written: Cell::new(0),
+            transaction: Cell::new(Transaction::default()),
         });
         // SAFETY: the `init` method of `NSObject` has no requirements, and the ivars are set.
         unsafe { msg_send![super(this), init] }
     }
 
     /// Without a read, replaces the item with a normal text item and reports `NotRead`.
+    ///
+    /// If another application changed the clipboard, Bloop keeps that content.
     fn give_up(&self) {
-        if self.ivars().pending.get() {
-            write_text(&self.ivars().text);
-            self.finish(InsertOutcome::Fallback(FallbackReason::NotRead));
+        if self.step(Transaction::read_time_out) {
+            drop(self.ivars().saved.take());
+            if owns_clipboard(self.ivars().written.get()) {
+                write_text(&self.ivars().text);
+            }
+            self.report(InsertOutcome::Fallback(FallbackReason::NotRead));
         }
     }
 
-    /// Ignores a later read or time limit of `generation`.
+    /// Restores the saved clipboard after the read, then reports `Landed`.
+    fn restore_now(&self) {
+        if self.step(Transaction::restore_due) {
+            restore(self.ivars().saved.take(), self.ivars().written.get());
+            self.report(InsertOutcome::Landed);
+        }
+    }
+
+    /// Reports no result for `generation`. The read and the restore still follow their steps.
     fn cancel(&self, generation: Generation) {
         if self.ivars().generation == generation {
-            self.ivars().pending.set(false);
+            self.step(|transaction| {
+                transaction.cancel();
+                false
+            });
         }
     }
 
-    /// Sends the result one time.
-    fn finish(&self, outcome: InsertOutcome) {
-        if self.ivars().pending.replace(false) {
+    fn step(&self, change: impl FnOnce(&mut Transaction) -> bool) -> bool {
+        let mut transaction = self.ivars().transaction.get();
+        let next = change(&mut transaction);
+        self.ivars().transaction.set(transaction);
+        next
+    }
+
+    fn report(&self, outcome: InsertOutcome) {
+        let transaction = self.ivars().transaction.get();
+        if let Some(outcome) = transaction.result(outcome) {
             MainSink.send(Event::InsertDone(self.ivars().generation, outcome));
         }
     }
@@ -333,7 +526,9 @@ mod tests {
     use bloop_core::session::{Command, Core, Event};
     use objc2_core_graphics::CGEvent;
 
-    use super::{KEY_V, Target, Targets, is_posted, mark_posted};
+    use bloop_core::session::InsertOutcome;
+
+    use super::{KEY_V, Target, Targets, Transaction, is_posted, mark_posted};
 
     fn generations(count: usize) -> Vec<Generation> {
         let mut core = Core::new();
@@ -416,5 +611,42 @@ mod tests {
         mark_posted(&event);
 
         assert!(is_posted(&event));
+    }
+
+    #[test]
+    fn a_read_reports_landed_only_after_the_restore() {
+        let mut transaction = Transaction::default();
+
+        assert!(transaction.read());
+        assert!(!transaction.read());
+        assert!(!transaction.read_time_out());
+        assert!(transaction.restore_due());
+        assert_eq!(
+            transaction.result(InsertOutcome::Landed),
+            Some(InsertOutcome::Landed)
+        );
+        assert!(!transaction.restore_due());
+    }
+
+    #[test]
+    fn without_a_read_bloop_gives_up_once_and_restores_nothing() {
+        let mut transaction = Transaction::default();
+
+        assert!(!transaction.restore_due());
+        assert!(transaction.read_time_out());
+        assert!(!transaction.read_time_out());
+        assert!(!transaction.read());
+        assert!(!transaction.restore_due());
+    }
+
+    #[test]
+    fn a_cancel_keeps_the_restore_and_drops_the_result() {
+        let mut transaction = Transaction::default();
+        assert!(transaction.read());
+
+        transaction.cancel();
+
+        assert!(transaction.restore_due());
+        assert_eq!(transaction.result(InsertOutcome::Landed), None);
     }
 }

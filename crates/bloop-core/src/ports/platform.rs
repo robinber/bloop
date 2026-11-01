@@ -39,8 +39,8 @@ pub trait TextOutput {
     /// Puts the text in the clipboard.
     fn copy(&mut self, text: &FinalText);
 
-    /// Ends the insertion of this generation without a result: forgets its target, and ignores a later read.
+    /// Ends the insertion of this generation without a result: forgets its target and sends no `InsertDone`.
     ///
-    /// A paste command that the adapter already posted can still land.
+    /// A paste command that the adapter already posted can still land. The clipboard restore still follows the read.
     fn cancel(&mut self, generation: Generation);
 }

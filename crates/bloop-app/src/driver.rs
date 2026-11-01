@@ -296,4 +296,20 @@ mod tests {
         driver.handle(Event::InsertDone(generation, InsertOutcome::Landed));
         assert_eq!(driver.output.inserted.len(), 1);
     }
+
+    #[test]
+    fn the_next_paste_waits_for_the_end_of_the_previous_one() {
+        let mut driver = driver();
+        let first = dictate(&mut driver);
+        let second = dictate(&mut driver);
+
+        assert_eq!(driver.output.inserted, [(first, test_text())]);
+
+        driver.handle(Event::InsertDone(first, InsertOutcome::Landed));
+
+        assert_eq!(
+            driver.output.inserted,
+            [(first, test_text()), (second, test_text())]
+        );
+    }
 }

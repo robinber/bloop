@@ -40,7 +40,7 @@ This phase uses fixed test text. It does not use audio.
 - [x] Write the core state machine and its unit tests.
 - [x] Show the orb after 220 ms. Animate it with a test level.
 - [x] Paste the test text through the on-demand clipboard item.
-- [ ] Restore the previous clipboard content.
+- [x] Restore the previous clipboard content.
 - [ ] Show the fallback card when the target check fails.
 
 Acceptance:

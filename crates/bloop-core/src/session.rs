@@ -80,6 +80,8 @@ pub enum OrbView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertOutcome {
     /// The target application read the text after the paste command.
+    ///
+    /// Bloop does not check the content of the field.
     Landed,
     /// Bloop did not paste the text, or the target did not read it.
     Fallback(FallbackReason),

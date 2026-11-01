@@ -258,7 +258,8 @@ pub trait SecretStore {
 - A full queue fails the capture. An unexpected closed queue also fails it. Expected closure during cancellation produces no second error.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
   after the end of its clipboard transaction.
-- `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and ignores a later read of its text.
+- `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
+  The clipboard restore still follows a later read.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
 - The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
 - At the sample limit, the audio adapter stops adding samples and sends `CaptureLimitReached` with the generation.
