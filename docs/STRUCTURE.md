@@ -159,6 +159,8 @@ event tap ──> EventSink ──> Driver ──> Core::handle ──> commands
 - The task converts the audio, runs the pipeline, and sends the result event through the `EventSink`.
 - The driver keeps the task handle of each job. `CancelWork` stops the related task.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
+- The app validates the capture duration and supplies it to the audio adapter. The core does not read TOML settings.
+- The audio adapter stops at the configured limit and sends `CaptureLimitReached` for that generation.
 
 ## Settings and provider selection
 
@@ -166,6 +168,7 @@ event tap ──> EventSink ──> Driver ──> Core::handle ──> commands
 [dictation]
 key = "right_command"
 hold_ms = 220
+max_duration_secs = 600
 language = "fr"
 vocabulary = ["Rust", "Tokio", "objc2"]
 
@@ -182,6 +185,11 @@ reasoning_effort = "none"
 enabled = true
 prompt = "natural-clean-v1"
 ```
+
+`max_duration_secs` is the maximum duration of one capture, in seconds.
+The value `600` shows a ten-minute configuration. It is not a validated default or a provider limit.
+Phase 2 selects the default and supported range after the long capture tests in the [roadmap](ROADMAP.md).
+Invalid values stop capture setup with a clear error. A duration limit processes the captured audio instead of cancelling it.
 
 The `provider` field selects a variant of a tagged enum in `bloop-providers`:
 

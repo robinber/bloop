@@ -25,14 +25,15 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 | Dictation key | The key that the user holds during speech input |
 | Hold threshold | The minimum hold time before a session shows the orb and starts the capture |
 | Session | One dictation, from key press to paste, fallback card, or cancellation |
-| Capture | The first part of a session: the microphone records while the user holds the key |
+| Capture | The first part of a session: microphone recording until key release, the duration limit, or cancellation |
+| Capture limit | The configured maximum duration of one capture |
 | Job | The second part of a session: transcription, correction, and paste, without a visible indicator |
 | Generation | The number that identifies a session; the core ignores results with an old generation |
 | Orb | The small pill panel that shows the target application icon and the voice level |
 | Fallback card | The orb view that shows the final text when a paste is not possible |
 | Transcript | The text that the speech model returns |
 | Final text | The text that Bloop pastes: the corrected text or the raw transcript |
-| Focused field | The text field that has keyboard focus when the user releases the key |
+| Focused field | The text field that has keyboard focus when the capture ends through key release or the duration limit |
 | Target check | The checks before the paste: same application, no new input, no secure input |
 | Landed | The result when the target reads the clipboard item after the paste command |
 | Core | The pure Rust state machine that receives events and returns commands |

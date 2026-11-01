@@ -14,7 +14,7 @@ Status: Proposed design, revision 2 (2026-10-31). Phase 1 is in progress. The [r
 ```text
 Right Command held for 220 ms
     -> the orb opens and the capture starts
-Right Command released
+Right Command released, or the configured capture limit reached
     -> the capture stops and the orb closes
     -> Voxtral transcription
     -> Mistral Small correction
@@ -66,7 +66,7 @@ Job:     Processing -> Ready -> Inserting -> end
 | Capture state | Starts when | Ends when |
 | --- | --- | --- |
 | `Pending` | The user presses Right Command alone. | 220 ms pass: `Listening`. Key release or other input: `Idle`, with no signal. |
-| `Listening` | The hold threshold passes. | Key release or 120 seconds: `Idle` and a new job. Other input or Escape: `Idle`, with no job. |
+| `Listening` | The hold threshold passes. | Key release or the configured capture limit: `Idle` and a new job. Other input or Escape: `Idle`, with no job. |
 
 | Job status | Starts when | Ends when |
 | --- | --- | --- |
@@ -75,6 +75,7 @@ Job:     Processing -> Ready -> Inserting -> end
 | `Inserting` | The paste module receives the text. | Paste or fallback card: end. |
 
 - Bloop permits one capture at a time.
+- At the capture limit, Bloop stops recording and processes the audio already captured. A later key release creates no second job.
 - A new capture can start while jobs run. Thus the user can dictate again before the previous text lands.
 - Jobs paste their text in session order.
 - No more than 3 jobs exist at the same time: processing, ready, or pasting. If 3 jobs exist when the hold threshold
@@ -149,7 +150,8 @@ During processing, the orb is not visible. Tabi has the same behavior.
 | --- | --- |
 | Opening | The pill grows from 80% to 100% and fades in, in about 150 ms |
 | Listening | The bars follow the voice level |
-| Closing | At key release, the bars go down, then the pill shrinks and fades out, in about 200 ms |
+| Capture warning | Before the duration limit, the orb shows the remaining time. Recording continues. The orb keeps keyboard focus unchanged. |
+| Closing | When the capture ends, the bars go down, then the pill shrinks and fades out, in about 200 ms |
 | Error | The pill opens with red bars for about 1 second, then closes |
 | Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V". It closes after 8 seconds or at the next capture. |
 
@@ -158,13 +160,22 @@ Bloop does not use Tabi code or assets.
 ## Audio
 
 - The capture uses the system default input device in its native format.
-- Bloop allocates the sample buffer once, for 120 seconds of mono audio. The capture stops at this limit.
+- `dictation.max_duration_secs` sets the maximum duration of one capture, in seconds.
+- Bloop validates this value before capture. The value must be a positive integer within the supported memory and provider limits.
+- Bloop reports an invalid setting. It does not silently reduce the duration or treat zero as unlimited.
+- Each capture keeps the duration selected at its start. A settings change applies to later captures.
+- Before capture, Bloop allocates a bounded sample buffer for the selected duration at the input sample rate.
+- The callback stops adding samples at the limit. The audio adapter sends `CaptureLimitReached` with the capture generation.
+- Before the limit, the orb warns the user. At the limit, Bloop processes the captured audio through the normal pipeline.
 - The callback mixes the channels to mono and calculates the level of each buffer.
 - After the capture, the worker converts the samples to 16 kHz mono 16-bit WAV in memory (`rubato`, `hound`).
-  120 seconds of audio gives approximately 3.8 MB.
+  Each minute of encoded audio uses approximately 1.92 MB. Capture and conversion buffers use additional memory.
 - If the capture is shorter than 300 ms, or the level stays below a threshold, Bloop sends no request and pastes nothing.
   The bars already showed the silence during the capture.
 - Bloop deletes the audio after the transcription or a cancellation. Bloop never writes audio to disk.
+
+The default duration, supported range, and warning interval remain open until Phase 2 tests.
+The [settings example](STRUCTURE.md#settings-and-provider-selection) shows a configurable value, not a measured capacity.
 
 ## Mistral requests
 
@@ -176,6 +187,10 @@ The user stores the key with the `security add-generic-password` command.
 | --- | --- | --- | --- |
 | Transcription | `voxtral-small-transcribe-3-0` | Language `fr`; one `context_bias` field for each word list entry | 15 s |
 | Correction | `mistral-small-2603` | `reasoning_effort="none"`; versioned Natural Clean prompt | 8 s |
+
+These request time limits are initial proposed values.
+Phase 2 and Phase 3 must check them with long dictations and adjust them if needed.
+They do not define the capture duration.
 
 The processing has no visible indicator. Thus Bloop must not lose a dictation for a short network problem.
 After a network error, a timeout, or an HTTP 429 or 5xx status, Bloop sends the transcription request again one time.
@@ -208,7 +223,7 @@ and [reasoning settings](https://docs.mistral.ai/studio/conversations/reasoning)
 
 ## Paste
 
-When the user releases the dictation key, the paste module records the target:
+When the capture ends through key release or the duration limit, the paste module records the target:
 
 - the process identifier of the frontmost application;
 - the counters of key-down and mouse-down events (`CGEventSourceCounterForEventType`).
@@ -255,7 +270,7 @@ Known limits:
 - The log records state changes, step durations, fallback reasons, and error categories.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
-- The settings file contains nonsecret settings only: key, hold threshold, language, word list, models, and prompt version.
+- The settings file contains nonsecret settings only: key, hold threshold, capture duration, language, word list, models, and prompt version.
 - Without the settings file, Bloop uses default values.
 
 ## Bundle and permissions

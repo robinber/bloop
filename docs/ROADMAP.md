@@ -15,6 +15,7 @@ The [implementation plan](STRUCTURE.md#implementation-plan) gives the crates and
 - [x] Select Right Command as the first dictation key.
 - [x] Simplify the architecture and the Rust contracts.
 - [x] Define the crate structure and the extension procedures.
+- [x] Define a configurable capture duration, a warning before the limit, and processing of the captured audio at the limit.
 - [ ] Approve revision 2 of the design.
 
 Acceptance: The owner approves [Scope](SCOPE.md), [Architecture](ARCHITECTURE.md), [Code structure](STRUCTURE.md), and [Contracts](CONTRACTS.md).
@@ -51,7 +52,10 @@ Acceptance:
 - [ ] Check the microphone permission.
 - [ ] Start the capture at the hold threshold. Send the audio level to the orb.
 - [ ] Convert the audio to 16 kHz mono WAV in memory.
-- [ ] Stop the capture at 120 seconds, on system sleep, and on microphone loss.
+- [ ] Read and validate `dictation.max_duration_secs`. Reject zero and unsupported values with a clear error.
+- [ ] Warn before the configured limit. Stop at the limit and process the captured audio once.
+- [ ] Cancel the capture on system sleep and microphone loss.
+- [ ] Select the default duration, supported range, and warning interval from tests at 5, 10, and 20 minutes.
 - [ ] Detect a low audio level without a network request.
 - [ ] Read the API key from Keychain.
 - [ ] Send the WAV data to Voxtral with French and the word list.
@@ -63,6 +67,10 @@ Acceptance:
 
 - The transcript contains the first word of each test phrase. If not, start the capture at key press.
 - An interruption releases the microphone and returns Bloop to `Idle`.
+- A configured limit stops capture once and preserves the captured audio for transcription. A later key release creates no second job.
+- A warning keeps keyboard focus unchanged. A warning from a finished capture has no effect.
+- A settings change does not change an active capture. Invalid values prevent capture with a clear error.
+- Record memory use and transcription time at 5, 10, and 20 minutes. Check provider limits and request time limits.
 - Ten dictations give a median transcription time. Record it next to the Tabi median of 512 ms.
 
 ## Phase 3: Correction and daily use
@@ -71,6 +79,7 @@ Acceptance:
 - [ ] Send the transcript to Mistral Small.
 - [ ] Apply the raw fallback rules.
 - [ ] Compare raw and final text on a fixed set of French dictations.
+- [ ] Check correction completeness and request time limits with long dictations up to the supported capture duration.
 - [ ] Use Bloop for one working day on the reference Mac.
 
 Include questions, negations, numbers, names, technical terms, and spoken corrections in the test set.

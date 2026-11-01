@@ -18,6 +18,7 @@ Simple behavior and low latency have priority over additional features.
 - Mistral Voxtral converts speech to text.
 - Mistral Small corrects the text.
 - The user holds Right Command to speak.
+- The user can set the maximum capture duration in the TOML settings.
 - A small orb shows the session state. The orb is part of the MVP.
 - The application does not send messages or execute commands.
 - The repository uses English and ASD-STE100 writing rules.
@@ -73,11 +74,11 @@ Bloop starts with one upload request. Phase 2 measures the difference.
 | --- | --- |
 | Dictation key | Hold Right Command for 220 ms. A combination or a short press does nothing. |
 | Cancel | Escape during a session. Bloop blocks this Escape event. |
-| Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes at key release. |
-| Audio | System default microphone; capture in memory; limit of 120 seconds |
-| Network | One upload request after key release, then one correction request |
+| Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
+| Audio | System default microphone; capture in memory; configurable duration limit; warning before the limit |
+| Network | One upload request after the capture ends, then one correction request |
 | Text profile | Natural Clean; one prompt; raw transcript if the correction fails |
-| Target check | Same frontmost application and no new click or key press since key release |
+| Target check | Same frontmost application and no new click or key press since capture ended |
 | Insertion | Command-V with a clipboard item that the target reads on demand |
 | Clipboard | Restore the previous content after the target reads the text |
 | Fallback | Show the text in the orb card and keep it in the clipboard |
@@ -124,5 +125,6 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 ## Open decisions
 
+- Select the default capture duration after tests at 5, 10, and 20 minutes. These durations are test cases, not validated limits.
 - Confirm the French typography rules of Natural Clean.
 - Confirm the capture start: at the hold threshold or at key press. Phase 2 checks for a lost first word.

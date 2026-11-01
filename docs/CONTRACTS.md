@@ -2,6 +2,7 @@
 
 Status: revision 3. `bloop-core` implements the session state machine, `Generation`, `FinalText`, and the error enums.
 `ProviderError::is_retryable` and the other signatures are proposals without implementation.
+Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
 
 All types and traits in this document are in `bloop-core`.
 The [code structure](STRUCTURE.md) gives the file for each type.
@@ -215,7 +216,14 @@ pub trait SecretStore {
 - Platform ports operate on the main thread. They have no `Send` bound.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
+- The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
+- At the sample limit, the audio adapter stops adding samples and sends `CaptureLimitReached` with the generation.
+- `AudioInput::stop` returns the captured audio after this event. Reaching the duration limit is not a capture failure.
 - `SecretString` does not show its value in `Debug` output.
+
+Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
+The warning must carry the capture generation. A warning for a finished capture has no effect.
+The warning must keep recording active and must not create a job or change keyboard focus.
 
 ## Errors
 
@@ -292,6 +300,7 @@ pub struct Pipeline {
 | Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
 | Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
+| Capture limit | `CaptureLimitReached` for the active capture has the same effect as key release. Duplicate limit events and a later key release create no second job. |
 | Order | The core emits `Insert` only for the first job in the queue. |
 | Last result | The core keeps the text of the last `Insert` for `CopyLastResult`. |
 | Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
