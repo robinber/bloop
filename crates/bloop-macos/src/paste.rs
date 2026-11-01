@@ -434,8 +434,11 @@ define_class!(
     #[derive(Debug)]
     struct TextProvider;
 
+    // SAFETY: `NSObject` implements all methods of `NSObjectProtocol`.
     unsafe impl NSObjectProtocol for TextProvider {}
 
+    // SAFETY: the method is the only required method of the protocol. Its selector, argument
+    // types (with a nullable pasteboard), and empty result match the `objc2-app-kit` declaration.
     unsafe impl NSPasteboardItemDataProvider for TextProvider {
         #[unsafe(method(pasteboard:item:provideDataForType:))]
         fn provide_data_for_type(
