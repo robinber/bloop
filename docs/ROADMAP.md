@@ -41,7 +41,7 @@ This phase uses fixed test text. It does not use audio.
 - [x] Show the orb after 220 ms. Animate it with a test level.
 - [x] Paste the test text through the on-demand clipboard item.
 - [x] Restore the previous clipboard content.
-- [ ] Show the fallback card when the target check fails.
+- [x] Show the fallback card when the target check fails.
 
 Acceptance:
 
