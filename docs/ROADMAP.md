@@ -21,7 +21,7 @@ Streaming is the only STT path. There is no file transcription stage or later st
 - [x] Define the crate structure and the extension procedures.
 - [x] Define a configurable capture duration, a warning before the limit, and processing of the captured audio at the limit.
 - [x] Select streaming as the only STT path from Phase 2.
-- [ ] Review the Phase 2 streaming contracts before implementation.
+- [x] Review the Phase 2 streaming contracts before implementation.
 
 Acceptance: The owner approves [Scope](SCOPE.md), [Architecture](ARCHITECTURE.md), [Code structure](STRUCTURE.md), and [Contracts](CONTRACTS.md).
 
@@ -62,24 +62,29 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 
 ## Phase 2: Microphone and streaming transcription
 
-- [ ] Review `Transcriber`, `TranscriptionSession`, `AudioSink`, and `AudioInput` before their adapters.
-- [ ] Test start, ordered audio, finish, cancellation, and failure with a fake provider.
-- [ ] Check the microphone permission.
-- [ ] Read the API key from Keychain.
-- [ ] Start the capture at the hold threshold. Send the audio level to the orb.
+- [x] Review `Transcriber`, `TranscriptionSession`, `AudioSink`, and `AudioInput` before their adapters.
+- [ ] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
+- [ ] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
+- [ ] Read the API key from Keychain. Without the key, show it in the menu status.
+- [ ] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
+- [ ] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
 - [ ] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
 - [ ] Convert audio incrementally to 16 kHz mono PCM in the worker. Keep network work outside the audio callback.
+- [ ] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.
 - [ ] Send audio chunks to Voxtral during capture, with French and the word list configured at session start.
+- [ ] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
+- [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
+- [ ] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
+- [ ] Cancel capture and its stream on Escape, other input, or microphone loss. Cancel all work on system sleep.
+- [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
+- [ ] Let a new capture start while a job runs. Paste the texts in session order.
 - [ ] Read and validate `dictation.max_duration_secs`. Reject zero and unsupported values with a clear error.
 - [ ] Warn before the configured limit. Stop at the limit and finalize the stream once.
-- [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
-- [ ] Cancel capture and its stream on Escape, other input, or microphone loss. Cancel all work on system sleep.
 - [ ] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
 - [ ] Select queue capacities and connection, inactivity, and completion time limits from measurements.
+- [ ] Select `target_streaming_delay_ms` from accuracy and completion time measurements.
 - [ ] Select the default duration, supported range, and warning interval from tests at 5, 10, and 20 minutes.
-- [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
-- [ ] Paste the complete raw transcript. Keep partial transcripts outside the insertion path.
-- [ ] Let a new capture start while a job runs. Paste the texts in session order.
+- [ ] Record the provider behavior that its documentation does not give: sample rates, session length, inactivity limit, silent session.
 - [ ] Log the duration of each step.
 
 Acceptance:

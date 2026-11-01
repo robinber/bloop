@@ -1,8 +1,8 @@
 # Rust contracts
 
-Status: revision 4. `bloop-core` implements the session state machine, `Generation`, `FinalText`, `LevelMeter`,
+Status: revision 5 (2026-11-01). `bloop-core` implements the session state machine, `Generation`, `FinalText`, `LevelMeter`,
 `TargetInfo`, the existing error enums, and the `EventSink`, `Scheduler`, `Overlay`, and `TextOutput` ports.
-The audio and streaming signatures below are Phase 2 proposals without implementation.
+The audio and streaming signatures below are Phase 2 proposals without implementation. The owner approved them on 2026-11-01.
 The text step signatures are Phase 3 proposals. `AudioQueueError` is a proposed addition to the error types.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
 
@@ -160,9 +160,6 @@ pub trait TranscriptionSession: Send + 'static {
 
     fn finish(self: Box<Self>)
         -> BoxFuture<'static, Result<Transcript, ProviderError>>;
-
-    fn cancel(self: Box<Self>)
-        -> BoxFuture<'static, Result<(), ProviderError>>;
 }
 
 pub struct ChatRequest<'a> {
@@ -199,9 +196,9 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 - One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
 - The adapter reads provider messages while it sends audio. Its receive task and buffers belong to the session.
 - `finish` consumes the session, ends audio input, and waits for one complete transcript.
-- `cancel` consumes the session and closes it without a transcript.
+- Cancellation drops the session. The Mistral protocol has no abort message: closing the connection cancels the session.
 - Partial provider results stay inside the adapter. They never enter the text pipeline or insertion queue.
-- Dropping the session, or its pending `start`, `finish`, or `cancel` future, releases local resources and stops owned tasks.
+- Dropping the session, or its pending `start` or `finish` future, releases local resources and stops owned tasks.
 - Dropping `send_audio` stops that send operation. Cancellation also drops the session; Bloop never retries the interrupted chunk.
 - The driver applies connection, inactivity, and completion limits. Cancellation must also work during any pending operation.
 - Bloop does not reconnect or replay audio automatically. No adapter can replace streaming with a complete-file upload.
@@ -218,13 +215,12 @@ pub trait EventSink: Send + Sync {
 }
 
 pub trait AudioSink: Send {
-    fn try_push(&mut self, samples: &[f32], sample_rate: u32)
-        -> Result<(), AudioQueueError>;
+    fn try_push(&mut self, samples: &[f32]) -> Result<(), AudioQueueError>;
 }
 
 pub trait AudioInput {
     fn start(&mut self, generation: Generation, sink: Box<dyn AudioSink>)
-        -> Result<(), AppError>;
+        -> Result<u32, AppError>;
     fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
     fn cancel(&mut self);
 }
@@ -252,18 +248,27 @@ pub trait SecretStore {
 
 - Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
 - `AudioInput::start` starts capture without waiting for the provider connection.
-- `AudioSink` receives mono samples at the native sample rate. The sample rate stays fixed during the capture.
+- `AudioInput::start` returns the native sample rate of the device, in Hz. The rate stays fixed during the capture.
+  The worker creates its converter with this rate before the first chunk.
+- `AudioSink` receives mono samples at the native sample rate.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
-- The worker receives samples from that queue, converts them incrementally, and calls `send_audio`.
-- A full queue fails the capture. An unexpected closed queue also fails it. Expected closure during cancellation produces no second error.
+- The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
+- When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
+- The worker reads the queue every 10 to 20 ms. The callback does not wake it.
+  The worker converts the samples incrementally and calls `send_audio`.
+- The worker reports the overflow mark as `AudioQueueError::Full`. Thus a full queue fails the capture.
+- Each queue has an end mark. For `StopCaptureAndProcess`, the driver sets this mark, then calls `AudioInput::stop`.
+  The worker reads the samples until the producer goes away, then flushes the converter and calls `finish`.
+- If the producer goes away without the end mark, the worker reports `AudioQueueError::Closed`.
+  Cancellation stops the worker first. Thus it produces no second error.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
   after the end of its clipboard transaction.
 - `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
   The clipboard restore still follows a later read.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
 - The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
-- At the sample limit, the audio adapter stops adding samples and sends `CaptureLimitReached` with the generation.
-- `AudioInput::stop` closes the queue producer after the final samples and returns the capture summary.
+- At `StartCapture`, the driver schedules `CaptureLimitReached` with the `Scheduler`. The core ignores it for a finished capture.
+- `AudioInput::stop` stops the producer after the final samples and returns the capture summary.
 - The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
 - `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.
 - `SecretString` does not show its value in `Debug` output.
@@ -271,6 +276,8 @@ pub trait SecretStore {
 Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
 The warning must carry the capture generation. A warning for a finished capture has no effect.
 The warning must keep recording active and must not create a job or change keyboard focus.
+At `StartCapture`, the driver schedules the warning with the `Scheduler`.
+The orb view of the warning shows the remaining time as one fixed value. It does not count down.
 
 ## Errors
 
@@ -314,6 +321,8 @@ pub enum AppError {
 
 `AudioQueueError` and `AppError::AudioQueue` are Phase 2 additions. The other error variants already exist.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
+A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
+A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
 Before reporting a failure, the driver stops audio and network work for that generation, even if capture already ended.
@@ -377,6 +386,8 @@ These rules apply from Phase 2. Test them with fake ports before implementing th
 - `StartCapture` starts the microphone and opens the provider session asynchronously. Initial audio stays in a bounded queue during setup.
 - Audio chunks retain capture order. The adapter must also bound its internal buffers.
 - `StopCaptureAndProcess` signals the existing task to finish; it never opens a second transcription session.
+- `CancelCapture` carries no generation. The driver keeps the generation of the active capture from `StartCapture`.
+- `CancelWork` stops the task of its generation and calls `TextOutput::cancel`.
 - The task drains accepted audio, flushes conversion, and calls `finish` once. Release and duration limit events cannot finish it twice.
 - `TextReady` requires a complete transcript and an existing job. Partial transcripts never create jobs.
 - Escape, other input, and microphone loss stop the active capture and its stream. System sleep also cancels all jobs.

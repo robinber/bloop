@@ -54,6 +54,8 @@ Unit tests drive the core with event sequences, without macOS.
 | Worker | Incremental audio conversion, transcription stream, and correction request; asynchronous I/O through Tokio |
 
 - The audio callback does not allocate memory, lock, access files, or wait for the network.
+- The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
+- The worker reads the audio queue every 10 to 20 ms. The callback does not wake it.
 - The audio level is an atomic value. The orb reads it on the main thread.
 - The worker sends each result to the main queue with its generation.
 - The core ignores a result for an unknown generation, for example a cancelled job.
@@ -184,7 +186,7 @@ Bloop does not use Tabi code or assets.
 - Each capture keeps the duration selected at its start. A settings change applies to later captures.
 - Before capture, Bloop allocates bounded queues. Their capacity does not grow with the selected capture duration.
 - Capture starts while the provider connection opens. A queue keeps the initial samples until the connection is ready.
-- The callback stops adding samples at the limit. The audio adapter sends `CaptureLimitReached` with the capture generation.
+- At capture start, the driver schedules the capture limit and the warning. At the limit, the driver stops the capture.
 - Before the limit, the orb warns the user. At the limit, Bloop finishes the stream through the normal path.
 - The callback mixes the channels to mono and calculates the level of each buffer.
 - During capture, the worker converts samples incrementally to 16 kHz mono signed 16-bit little-endian PCM.
@@ -206,13 +208,33 @@ The user stores the key with the `security add-generic-password` command.
 
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
-| Transcription | `voxtral-mini-transcribe-realtime-3` | PCM audio; language `fr`; `context_bias` word list, set before the first chunk | Connection, inactivity, and completion limits: select in Phase 2 |
+| Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection, inactivity, and completion limits: select in Phase 2 |
 | Correction | `mistral-small-2603` | `reasoning_effort="none"`; versioned Natural Clean prompt | 8 s |
 
 The correction time limit is an initial proposal. Phase 3 checks it with long dictations.
 The connection limit covers setup. The inactivity limit detects a stalled transport, not speech silence.
-The completion limit starts after capture ends and includes queued audio, converter flush, and the final provider response.
-No short request timeout covers the full capture duration.
+The completion limit applies after capture ends. It counts the time since the last progress: a sent chunk or a provider message.
+Thus a backlog after a slow connection can still drain. No short request timeout covers the full capture duration.
+The queue capacity is a number of seconds of audio at the native rate. The connection limit is shorter than this capacity.
+Thus a slow connection fails with a timeout before the queue is full.
+During capture, each audio send has the inactivity limit.
+
+The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed identifier, not the alias.
+`target_streaming_delay_ms` (80 to 1200, or 2400) sets the balance between delay and accuracy.
+The provider never corrects the text that it sent. Thus this value also changes the final text.
+Phase 2 selects the value from accuracy and completion time measurements.
+
+The transcription session follows the provider protocol, checked in Mistral documentation on 2026-11-01:
+
+1. The adapter opens the WebSocket with the model in the query string and the API key in the `Authorization` header.
+2. The provider sends `session.created`. The adapter sends one `session.update` with the audio format, language, word list, and delay.
+3. The provider answers `session.updated`. The settings are fixed from the first audio chunk.
+4. The adapter sends each chunk in an `input_audio.append` message, as base64 PCM.
+5. At capture end, the adapter sends `input_audio.end`. The `text` of `transcription.done` is the complete transcript.
+6. The provider has no abort message. To cancel, the adapter closes the connection.
+
+The adapter ignores the `transcription.text.delta` messages. The documentation does not give the accepted sample rates other than 16 kHz,
+the maximum session length, the inactivity limit of the provider, or the result of a silent session. Phase 2 records them.
 
 On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
 It does not insert a partial transcript or retry the stream automatically. The user can dictate again.
@@ -252,7 +274,8 @@ The provider implements the streaming contract in [Rust contracts](CONTRACTS.md#
 - `StartCapture` starts audio capture and opens the provider session asynchronously.
 - `StopCaptureAndProcess` stops capture and tells the existing task to finish. It does not start another transcription.
 - The driver sends `TextReady` only after the core creates a job and the complete transcript passes through the text steps.
-- `CancelCapture` stops capture and its stream. `CancelWork` stops the task for the specified generation.
+- `CancelCapture` stops capture and its stream. It carries no generation: the driver keeps the generation of the active capture.
+- `CancelWork` stops the task for the specified generation and forgets its paste target.
 - A failure during capture produces `CaptureFailed`. A failure after capture produces `WorkFailed`.
 - Target capture stays at key release or the capture limit. Insertion still follows session order.
 - Phase 2 tests release, failure, and cancellation races with a fake provider before the real adapter.
@@ -339,6 +362,8 @@ Known limits:
   Without a missing permission, it shows "Ready: hold Right Command to dictate".
   macOS can keep the old permission result until Bloop starts again. Thus Bloop checks the status at start.
 - The menu item "Copy last result" puts the last final text in the clipboard. Before the first result, it has no effect.
+- Bloop requests the microphone permission at start. Without it, a capture fails with the error view, and the menu shows the permission.
+- Without the Mistral API key in Keychain, the menu status shows the missing key at start. A capture then fails with the error view.
 
 ## Candidate crates
 
@@ -348,8 +373,9 @@ Known limits:
 | Core Animation | `objc2-quartz-core` |
 | Event tap and events | `objc2-core-graphics`, or direct FFI |
 | Main queue | `dispatch2` |
-| Audio | `cpal`, `rubato`; bounded queue implementation selected in Phase 2 |
-| Network | `reqwest` with `rustls`, `tokio`; WebSocket client selected in Phase 2 |
+| Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
+| Microphone permission | `objc2-av-foundation`; check if it gives the check without `unsafe` |
+| Network | `tokio`, `tokio-tungstenite` with `rustls` (one root store feature), `serde_json`, `base64`; `reqwest` with `rustls` for correction |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |
 | Errors | `thiserror`, `anyhow` (application start only) |
