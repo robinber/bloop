@@ -31,6 +31,7 @@ const ERROR_LOUDNESS: f64 = 0.6;
 #[derive(Debug)]
 pub struct OrbPanel {
     orb: Rc<RefCell<Orb>>,
+    mtm: MainThreadMarker,
 }
 
 impl OrbPanel {
@@ -51,17 +52,18 @@ impl OrbPanel {
         };
         Self {
             orb: Rc::new(RefCell::new(orb)),
+            mtm,
         }
     }
 }
 
 impl Overlay for OrbPanel {
     fn show(&mut self, view: OrbView) {
-        run(&self.orb, |orb| orb.show(&view));
+        run(&self.orb, self.mtm, move |orb| orb.show(&view));
     }
 
     fn close(&mut self) {
-        run(&self.orb, Orb::close);
+        run(&self.orb, self.mtm, Orb::close);
     }
 }
 
@@ -178,38 +180,51 @@ impl Orb {
     }
 }
 
+/// A weak reference to the orb, with the marker that a block on the main queue needs to use it.
+type WeakOrb = MainThreadBound<(Weak<RefCell<Orb>>, MainThreadMarker)>;
+
 /// Applies `step` to the orb, then schedules the next step that it returns.
-fn run(shared: &Rc<RefCell<Orb>>, step: impl FnOnce(&mut Orb) -> Next) {
+///
+/// If a step is running, `step` goes to the end of the main queue. Thus a step never runs
+/// inside another step, and the orb loses no step.
+fn run(
+    shared: &Rc<RefCell<Orb>>,
+    mtm: MainThreadMarker,
+    step: impl FnOnce(&mut Orb) -> Next + Send + 'static,
+) {
     let Ok(mut orb) = shared.try_borrow_mut() else {
-        tracing::error!("the orb is busy");
+        tracing::warn!("the orb is busy, the step goes to the end of the main queue");
+        let target = MainThreadBound::new((Rc::downgrade(shared), mtm), mtm);
+        DispatchQueue::main().exec_async(move || {
+            target.get_on_main(|(orb, mtm)| {
+                if let Some(shared) = orb.upgrade() {
+                    run(&shared, *mtm, step);
+                }
+            });
+        });
         return;
     };
     let Next::After(delay, step) = step(&mut orb) else {
         return;
     };
-    let target = MainThreadBound::new(Rc::downgrade(shared), orb.mtm);
+    let target = MainThreadBound::new((Rc::downgrade(shared), mtm), mtm);
     schedule(target, orb.epoch, delay, step);
 }
 
 /// Runs `step` on the main queue after `delay`, if the orb exists and its epoch is still `epoch`.
-fn schedule(
-    target: MainThreadBound<Weak<RefCell<Orb>>>,
-    epoch: u64,
-    delay: Duration,
-    step: fn(&mut Orb) -> Next,
-) {
+fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> Next) {
     let Ok(when) = DispatchTime::try_from(delay) else {
         tracing::error!(?delay, "the delay is too long for a timer");
         return;
     };
     let queued = DispatchQueue::main().after(when, move || {
-        target.get_on_main(|orb| {
+        target.get_on_main(|(orb, mtm)| {
             let Some(shared) = orb.upgrade() else {
                 return;
             };
             let current = shared.try_borrow().is_ok_and(|orb| orb.epoch == epoch);
             if current {
-                run(&shared, step);
+                run(&shared, *mtm, step);
             }
         });
     });
