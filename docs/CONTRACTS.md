@@ -289,7 +289,7 @@ pub struct Pipeline {
 | Generation | `DictationKeyDown` with the capture in `Idle` creates a new generation. The core ignores events for an unknown generation. |
 | One capture | `DictationKeyDown` with the capture outside `Idle` has no effect. Running jobs do not block a new capture. |
 | Job limit | If 3 jobs exist (processing, ready, or pasting) when `HoldElapsed` arrives, the capture does not start and the core shows the error view. A combination during `Pending` stays silent. |
-| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle`. It emits a command only for a kept fallback card. A later `HoldElapsed` for that generation has no effect. |
+| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
 | Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
 | Order | The core emits `Insert` only for the first job in the queue. |
@@ -298,7 +298,7 @@ pub struct Pipeline {
 | Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
 | Nothing heard | `NothingHeard` removes the job. The core emits no orb command. |
 | Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a job that is processing, `CaptureFailed` has the same effect as `WorkFailed`: the driver sends it when `AudioInput::stop` fails. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
-| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card and shows it when the capture ends. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
+| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
