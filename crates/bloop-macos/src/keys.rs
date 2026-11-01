@@ -126,7 +126,10 @@ unsafe extern "C-unwind" fn tap_callback(
     let event_ref = unsafe { event.as_ref() };
     let verdict = state.map_or(Verdict::Pass, |state| {
         panic::catch_unwind(AssertUnwindSafe(|| state.handle(event_type, event_ref)))
-            .unwrap_or(Verdict::Pass)
+            .unwrap_or_else(|_| {
+                tracing::error!("the event tap handler panicked, the event passes");
+                Verdict::Pass
+            })
     });
     match verdict {
         Verdict::Pass => event.as_ptr(),
