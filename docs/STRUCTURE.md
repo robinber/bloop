@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 2 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is in progress.
+Status: Revision 2 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is next.
 The streaming types and flow below are Phase 2 proposals. They are not implemented.
 
 ## Goals

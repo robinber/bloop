@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 3. Phase 1 is in progress. Phases 2 and 3 are planned.
+Status: Design revision 3. Phase 1 is complete. Phases 2 and 3 are planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -51,6 +51,14 @@ Acceptance:
 - After the paste, the clipboard contains the previous text or image.
 - After a landed paste, a clipboard manager, if installed, shows no Bloop entry.
 - Escape stops the session and does not go to the target application.
+
+Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passed.
+
+- Right Command with C copied the text and showed no orb. A short press showed no orb and pasted nothing.
+- The text landed in TextEdit, a Firefox field, a terminal, and WhatsApp, with the focus unchanged.
+- The clipboard contained the copied word or image again after the paste, also after two pastes in a row.
+- The installed clipboard manager showed no Bloop entry.
+- Escape during a capture stopped the session and did not reach the application. Escape at other times operated as usual.
 
 ## Phase 2: Microphone and streaming transcription
 
