@@ -58,7 +58,9 @@ pub(super) enum Palette {
 }
 
 /// The content of the orb.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Card` borrows the final text. The type has no `Debug`, because `NSString` prints its content.
+#[derive(Clone, Copy)]
 pub(super) enum Shape<'a> {
     /// The application icon and the bars.
     Pill,
