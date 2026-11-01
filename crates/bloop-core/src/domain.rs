@@ -36,6 +36,15 @@ impl fmt::Debug for FinalText {
     }
 }
 
+/// The application that receives the text. The text steps can adapt the text to it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TargetInfo {
+    /// The bundle identifier, for example `com.apple.TextEdit`.
+    pub bundle_id: Option<String>,
+    /// The name of the application that macOS shows.
+    pub app_name: Option<String>,
+}
+
 /// The current audio level, from 0 (silence) to 1. The audio thread writes it, and the orb reads it.
 ///
 /// The clones share the same value.

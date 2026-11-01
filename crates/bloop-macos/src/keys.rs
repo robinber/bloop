@@ -2,7 +2,8 @@
 //!
 //! The tap runs on the main run loop. It passes all events to the applications, except Escape
 //! during a capture. It blocks that Escape press completely: the key down, the key repeats, and
-//! the key up. It sends the events of the state machine through [`MainSink`].
+//! the key up. It sends the events of the state machine through [`MainSink`]. It ignores the
+//! paste commands that Bloop posts.
 
 #![expect(
     unsafe_code,
@@ -28,6 +29,7 @@ use objc2_core_graphics::{
 };
 
 use crate::events::MainSink;
+use crate::paste;
 
 /// `kVK_RightCommand`.
 const RIGHT_COMMAND: i64 = 0x36;
@@ -146,6 +148,9 @@ struct TapState {
 
 impl TapState {
     fn handle(&self, event_type: CGEventType, event: &CGEvent) -> Verdict {
+        if paste::is_posted(event) {
+            return Verdict::Pass;
+        }
         let mut keys = self.keys.get();
         let (verdict, signal) = match event_type {
             CGEventType::FlagsChanged => {

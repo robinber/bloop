@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use crate::domain::{FinalText, Generation, TargetInfo};
 use crate::session::{Event, OrbView};
 
 /// Sends events to the driver on the main thread. Any thread can use it.
@@ -23,4 +24,23 @@ pub trait Overlay {
 
     /// Closes the orb with its closing animation.
     fn close(&mut self);
+}
+
+/// Pastes the final text in the application that had the focus at the end of the capture.
+pub trait TextOutput {
+    /// Records the frontmost application and the input counters for the target check.
+    fn record_target(&mut self, generation: Generation) -> TargetInfo;
+
+    /// Pastes the text if the target check passes. Otherwise, puts the text in the clipboard.
+    ///
+    /// It returns immediately. The adapter sends `Event::InsertDone` later.
+    fn insert(&mut self, generation: Generation, text: FinalText);
+
+    /// Puts the text in the clipboard.
+    fn copy(&mut self, text: &FinalText);
+
+    /// Ends the insertion of this generation without a result: forgets its target, and ignores a later read.
+    ///
+    /// A paste command that the adapter already posted can still land.
+    fn cancel(&mut self, generation: Generation);
 }

@@ -168,7 +168,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - The existing task drains the queue, flushes the converter, and finishes the stream once.
 - The complete transcript enters the text pipeline. Partial transcripts never produce `TextReady`.
 - The driver sends result events only after the core creates the job at capture end.
-- The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job.
+- The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
 - The app validates the capture duration and supplies it to the audio adapter. The core does not read TOML settings.
 - The audio adapter stops at the configured limit and sends `CaptureLimitReached` for that generation.

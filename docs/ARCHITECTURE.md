@@ -271,12 +271,14 @@ If the check passes:
 2. Bloop writes one clipboard item. Its string type uses an on-demand data provider.
    The item also has the `org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType` markers.
 3. Bloop posts Command-V with key code 9 and the Command flag only.
-4. The data provider supplies the text when the target reads it. This read is the `Landed` result.
+4. The data provider supplies the text when the target reads it. A successful read makes the result `Landed`.
 5. 300 ms after the read, Bloop restores the saved items if the clipboard did not change after step 2.
+   Then Bloop reports the result. Thus the next paste saves the restored clipboard, not the text of this paste.
 6. If no read occurs within 1 second, Bloop replaces the item with a normal text item and shows the fallback card.
 
 If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.
 Bloop posts no more than one paste command for each session.
+When a job ends without a paste result, Bloop forgets its target and ignores a later read. A posted paste command can still land.
 Jobs paste in session order.
 The target check does not count the key events that Bloop posts. Thus one paste does not block the paste of the next job.
 

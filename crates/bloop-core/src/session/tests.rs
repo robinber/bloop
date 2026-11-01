@@ -298,7 +298,10 @@ fn nothing_heard_removes_the_job_and_releases_the_next_one() {
 
     assert_eq!(
         core.handle(Event::NothingHeard(first)),
-        vec![Command::Insert(second, text("deux"))]
+        vec![
+            Command::CancelWork(first),
+            Command::Insert(second, text("deux"))
+        ]
     );
 }
 
@@ -312,7 +315,7 @@ fn work_failure_shows_the_error_view_when_no_capture_is_active() {
             job,
             AppError::Provider(ProviderError::Timeout)
         )),
-        vec![Command::ShowOrb(OrbView::Error)]
+        vec![Command::CancelWork(job), Command::ShowOrb(OrbView::Error)]
     );
     assert_eq!(core.handle(Event::TextReady(job, text("tard"))), vec![]);
 }
@@ -328,7 +331,7 @@ fn work_failure_does_not_interrupt_an_active_capture() {
             job,
             AppError::Provider(ProviderError::Network)
         )),
-        vec![]
+        vec![Command::CancelWork(job)]
     );
 }
 
@@ -352,7 +355,10 @@ fn capture_failure_after_release_ends_the_job() {
 
     assert_eq!(
         core.handle(Event::CaptureFailed(failed, AppError::Microphone)),
-        vec![Command::ShowOrb(OrbView::Error)]
+        vec![
+            Command::CancelWork(failed),
+            Command::ShowOrb(OrbView::Error)
+        ]
     );
     assert_eq!(
         core.handle(Event::TextReady(next, text("suite"))),
@@ -638,4 +644,17 @@ fn events_for_an_unknown_generation_are_ignored() {
         core.handle(Event::TextReady(job, text("ok"))),
         vec![Command::Insert(job, text("ok"))]
     );
+}
+
+#[test]
+fn repeated_empty_jobs_end_each_job() {
+    let mut core = Core::new();
+
+    for _ in 0..10 {
+        let job = start_job(&mut core);
+        assert_eq!(
+            core.handle(Event::NothingHeard(job)),
+            vec![Command::CancelWork(job)]
+        );
+    }
 }

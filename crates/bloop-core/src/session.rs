@@ -51,7 +51,9 @@ pub enum Command {
     StopCaptureAndProcess(Generation),
     /// Stop the capture and delete its audio.
     CancelCapture,
-    /// Stop the job of this generation.
+    /// End the job of this generation: stop its work and forget its paste target.
+    ///
+    /// The core emits it for each job that ends without `InsertDone`.
     CancelWork(Generation),
     /// Paste the final text if the target check passes.
     Insert(Generation, FinalText),
@@ -259,18 +261,19 @@ impl Core {
     }
 
     fn nothing_heard(&mut self, generation: Generation) -> Vec<Command> {
-        if self.remove_processing_job(generation) {
-            self.insert_next()
-        } else {
-            Vec::new()
+        if !self.remove_processing_job(generation) {
+            return Vec::new();
         }
+        let mut commands = vec![Command::CancelWork(generation)];
+        commands.extend(self.insert_next());
+        commands
     }
 
     fn work_failed(&mut self, generation: Generation) -> Vec<Command> {
         if !self.remove_processing_job(generation) {
             return Vec::new();
         }
-        let mut commands = Vec::new();
+        let mut commands = vec![Command::CancelWork(generation)];
         if self.capture == Capture::Idle {
             commands.push(Command::ShowOrb(OrbView::Error));
         }

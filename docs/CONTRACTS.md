@@ -1,7 +1,7 @@
 # Rust contracts
 
 Status: revision 4. `bloop-core` implements the session state machine, `Generation`, `FinalText`, `LevelMeter`,
-the existing error enums, and the `EventSink`, `Scheduler`, and `Overlay` ports.
+`TargetInfo`, the existing error enums, and the `EventSink`, `Scheduler`, `Overlay`, and `TextOutput` ports.
 The audio and streaming signatures below are Phase 2 proposals without implementation.
 The text step signatures are Phase 3 proposals. `AudioQueueError` is a proposed addition to the error types.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
@@ -117,7 +117,7 @@ pub struct CaptureSummary {
 #[derive(Debug, Clone, Default)]
 pub struct LevelMeter(Arc<AtomicU32>);
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TargetInfo {
     pub bundle_id: Option<String>,
     pub app_name: Option<String>,
@@ -238,6 +238,7 @@ pub trait TextOutput {
     fn record_target(&mut self, generation: Generation) -> TargetInfo;
     fn insert(&mut self, generation: Generation, text: FinalText);
     fn copy(&mut self, text: &FinalText);
+    fn cancel(&mut self, generation: Generation);
 }
 
 pub trait Scheduler {
@@ -255,7 +256,9 @@ pub trait SecretStore {
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
 - The worker receives samples from that queue, converts them incrementally, and calls `send_audio`.
 - A full queue fails the capture. An unexpected closed queue also fails it. Expected closure during cancellation produces no second error.
-- `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later.
+- `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
+  after the end of its clipboard transaction.
+- `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and ignores a later read of its text.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
 - The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
 - At the sample limit, the audio adapter stops adding samples and sends `CaptureLimitReached` with the generation.
@@ -356,10 +359,10 @@ Phase 3 adds correction. Raw fallback preserves a complete transcript when corre
 | Last result | The core keeps the text of the last `Insert` for `CopyLastResult`. |
 | Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
 | Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
-| Nothing heard | `NothingHeard` removes the job. The core emits no orb command. |
-| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a processing job, `CaptureFailed` has the same effect as `WorkFailed`. This covers stop errors and failures that arrive after release. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
+| Nothing heard | `NothingHeard` removes the job and emits `CancelWork`. The core emits no orb command. |
+| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a processing job, `CaptureFailed` has the same effect as `WorkFailed`. This covers stop errors and failures that arrive after release. `WorkFailed` removes the job, emits `CancelWork`, and shows the error view only when no capture is active. |
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
-| Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. |
+| Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
