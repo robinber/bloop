@@ -495,6 +495,63 @@ fn deferred_card_keeps_its_text_when_a_later_job_pastes() {
 }
 
 #[test]
+fn capture_failure_drops_the_deferred_card() {
+    let mut core = Core::new();
+    let job = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(job, text("bonjour"))),
+        vec![Command::Insert(job, text("bonjour"))]
+    );
+    let current = start_listening(&mut core);
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            job,
+            InsertOutcome::Fallback(FallbackReason::TargetChanged)
+        )),
+        vec![]
+    );
+
+    assert_eq!(
+        core.handle(Event::CaptureFailed(current, AppError::Microphone)),
+        vec![Command::CancelCapture, Command::ShowOrb(OrbView::Error)]
+    );
+    assert_eq!(core.handle(Event::DictationKeyUp), vec![]);
+    start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::CopyLastResult),
+        vec![Command::CopyToClipboard(text("bonjour"))]
+    );
+}
+
+#[test]
+fn system_sleep_drops_the_deferred_card() {
+    let mut core = Core::new();
+    let job = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(job, text("bonjour"))),
+        vec![Command::Insert(job, text("bonjour"))]
+    );
+    start_listening(&mut core);
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            job,
+            InsertOutcome::Fallback(FallbackReason::NotRead)
+        )),
+        vec![]
+    );
+
+    assert_eq!(
+        core.handle(Event::SystemSleep),
+        vec![Command::CancelCapture, Command::CloseOrb]
+    );
+    start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::CopyLastResult),
+        vec![Command::CopyToClipboard(text("bonjour"))]
+    );
+}
+
+#[test]
 fn copy_last_result_copies_the_last_inserted_text() {
     let mut core = Core::new();
     assert_eq!(core.handle(Event::CopyLastResult), vec![]);

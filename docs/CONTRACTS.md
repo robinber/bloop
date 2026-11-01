@@ -298,7 +298,7 @@ pub struct Pipeline {
 | Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
 | Nothing heard | `NothingHeard` removes the job. The core emits no orb command. |
 | Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a job that is processing, `CaptureFailed` has the same effect as `WorkFailed`: the driver sends it when `AudioInput::stop` fails. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
-| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card and shows it when the capture ends. A newer card replaces a kept card. |
+| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card and shows it when the capture ends. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |

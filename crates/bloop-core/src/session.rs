@@ -119,6 +119,7 @@ struct Job {
 ///
 /// It owns one capture at a time and a queue of jobs that paste in session order.
 /// A fallback card that arrives during a capture waits until the capture ends.
+/// A capture error or system sleep drops it: the text stays in the clipboard and in the last result.
 #[derive(Debug, Default)]
 pub struct Core {
     capture: Capture,
@@ -218,11 +219,7 @@ impl Core {
     }
 
     fn cancel_capture(&mut self) -> Vec<Command> {
-        let mut commands = match self.capture {
-            Capture::Idle => return Vec::new(),
-            Capture::Pending(_) => Vec::new(),
-            Capture::Listening(_) => vec![Command::CancelCapture, Command::CloseOrb],
-        };
+        let mut commands = self.capture_cancel_commands();
         commands.extend(self.end_capture());
         commands
     }
@@ -231,9 +228,15 @@ impl Core {
         if self.capture != Capture::Listening(generation) {
             return self.work_failed(generation);
         }
-        let mut commands = vec![Command::CancelCapture, Command::ShowOrb(OrbView::Error)];
-        commands.extend(self.end_capture());
-        commands
+        self.abort_capture();
+        vec![Command::CancelCapture, Command::ShowOrb(OrbView::Error)]
+    }
+
+    fn capture_cancel_commands(&self) -> Vec<Command> {
+        match self.capture {
+            Capture::Idle | Capture::Pending(_) => Vec::new(),
+            Capture::Listening(_) => vec![Command::CancelCapture, Command::CloseOrb],
+        }
     }
 
     fn end_capture(&mut self) -> Option<Command> {
@@ -241,6 +244,11 @@ impl Core {
         self.pending_card
             .take()
             .map(|text| Command::ShowOrb(OrbView::Card(text)))
+    }
+
+    fn abort_capture(&mut self) {
+        self.capture = Capture::Idle;
+        self.pending_card = None;
     }
 
     fn text_ready(&mut self, generation: Generation, text: FinalText) -> Vec<Command> {
@@ -305,7 +313,8 @@ impl Core {
     }
 
     fn system_sleep(&mut self) -> Vec<Command> {
-        let mut commands = self.cancel_capture();
+        let mut commands = self.capture_cancel_commands();
+        self.abort_capture();
         commands.extend(
             self.jobs
                 .drain(..)

@@ -81,6 +81,7 @@ Job:     Processing -> Ready -> Inserting -> end
   passes, the capture does not start and the orb shows the error view.
 - While a capture is active, the orb shows no error view for an earlier job.
 - A fallback card for an earlier job waits until the capture ends. Then the orb shows it.
+  A capture error or system sleep deletes the card. The text stays in the clipboard and in "Copy last result".
 - Escape cancels the capture. It does not cancel a job.
 - Microphone loss cancels the capture. System sleep cancels the capture and all jobs.
 - Cancellation deletes the audio, stops the network task, and closes the orb.
