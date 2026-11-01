@@ -283,6 +283,10 @@ When a job ends without a paste result, Bloop forgets its target and ignores a l
 Jobs paste in session order.
 The target check does not count the key events that Bloop posts. Thus one paste does not block the paste of the next job.
 
+Measured on the reference Mac (macOS 27, 2026-11-01), with the Phase 1 test text: six pastes in a terminal, WhatsApp,
+Firefox, and TextEdit gave `Landed`. The target read the item 10–27 ms after the `Insert` command.
+This time includes the target check and the paste command. The Tabi reference is 101 ms from paste command to read.
+
 Known limits:
 
 - A clipboard manager that ignores the markers can read the item first. Then Bloop reports `Landed` without a paste.

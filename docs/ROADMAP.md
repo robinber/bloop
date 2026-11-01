@@ -39,7 +39,7 @@ This phase uses fixed test text. It does not use audio.
 - [x] Add the event tap for Right Command, other input, and Escape.
 - [x] Write the core state machine and its unit tests.
 - [x] Show the orb after 220 ms. Animate it with a test level.
-- [ ] Paste the test text through the on-demand clipboard item.
+- [x] Paste the test text through the on-demand clipboard item.
 - [ ] Restore the previous clipboard content.
 - [ ] Show the fallback card when the target check fails.
 
