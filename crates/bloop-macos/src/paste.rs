@@ -24,7 +24,7 @@ use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
     NSPasteboard, NSPasteboardItem, NSPasteboardItemDataProvider, NSPasteboardType,
-    NSPasteboardTypeString, NSPasteboardWriting, NSWorkspace,
+    NSPasteboardTypeString, NSPasteboardWriting, NSRunningApplication, NSWorkspace,
 };
 use objc2_core_graphics::{
     CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
@@ -106,7 +106,7 @@ impl Paster {
 impl TextOutput for Paster {
     fn record_target(&mut self, generation: Generation) -> TargetInfo {
         let app = NSWorkspace::sharedWorkspace().frontmostApplication();
-        self.targets.record(generation, current_target());
+        self.targets.record(generation, target_of(app.as_deref()));
         TargetInfo {
             bundle_id: app
                 .as_ref()
@@ -153,13 +153,18 @@ struct Target {
 }
 
 fn current_target() -> Target {
-    let process = NSWorkspace::sharedWorkspace()
-        .frontmostApplication()
-        .map(|app| app.processIdentifier());
+    let app = NSWorkspace::sharedWorkspace().frontmostApplication();
+    target_of(app.as_deref())
+}
+
+fn target_of(app: Option<&NSRunningApplication>) -> Target {
     let inputs = INPUT_EVENTS.map(|event_type| {
         CGEventSource::counter_for_event_type(CGEventSourceStateID::HIDSystemState, event_type)
     });
-    Target { process, inputs }
+    Target {
+        process: app.map(NSRunningApplication::processIdentifier),
+        inputs,
+    }
 }
 
 /// The targets that wait for their paste, in session order.
@@ -526,11 +531,12 @@ impl TextProvider {
 mod tests {
     use bloop_core::domain::Generation;
     use bloop_core::session::{Command, Core, Event};
+    use objc2_app_kit::NSRunningApplication;
     use objc2_core_graphics::CGEvent;
 
     use bloop_core::session::InsertOutcome;
 
-    use super::{KEY_V, Target, Targets, Transaction, is_posted, mark_posted};
+    use super::{KEY_V, Target, Targets, Transaction, is_posted, mark_posted, target_of};
 
     fn generations(count: usize) -> Vec<Generation> {
         let mut core = Core::new();
@@ -603,6 +609,15 @@ mod tests {
 
         assert_eq!(targets.take(unknown), None);
         assert_eq!(targets.take(recorded), Some(target(1)));
+    }
+
+    #[test]
+    fn a_target_has_the_process_of_the_given_application() {
+        let app = NSRunningApplication::currentApplication();
+
+        let target = target_of(Some(&app));
+
+        assert_eq!(target.process, Some(app.processIdentifier()));
     }
 
     #[test]
