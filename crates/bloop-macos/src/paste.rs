@@ -4,6 +4,10 @@
 //! the target application reads it. 300 ms after this read, Bloop restores the saved clipboard if
 //! nobody changed it, then reports `Landed`. Without a read within one second, the item becomes
 //! a normal text item and the result is `Fallback(NotRead)`.
+//!
+//! A new paste first ends the previous transaction. If the target did not read the previous item,
+//! Bloop restores the saved clipboard at that moment. Thus the new paste saves the content of the
+//! user, not the item of Bloop.
 
 #![expect(
     unsafe_code,
@@ -76,6 +80,9 @@ impl Paster {
 
     fn paste(&mut self, generation: Generation, text: &FinalText) {
         let pasteboard = NSPasteboard::generalPasteboard();
+        if let Some(previous) = self.provider.take() {
+            previous.abandon(&pasteboard);
+        }
         let saved = save(&pasteboard);
         let written = pasteboard.clearContents();
         let provider = TextProvider::new(self.mtm, generation, text, saved, written);
@@ -375,7 +382,8 @@ impl Transaction {
         self.advance(Phase::Reading, Phase::Restoring)
     }
 
-    /// The read time limit passed. Returns `true` if no read occurred: Bloop gives up.
+    /// The read time limit passed, or a new paste starts. Returns `true` if no read occurred:
+    /// Bloop gives up the read.
     fn read_time_out(&mut self) -> bool {
         self.advance(Phase::Reading, Phase::Done)
     }
@@ -501,6 +509,17 @@ impl TextProvider {
             let pasteboard = NSPasteboard::generalPasteboard();
             restore(&pasteboard, self.ivars().saved.take(), self.ivars().written);
             self.report(InsertOutcome::Landed);
+        }
+    }
+
+    /// A new paste starts. Without a read, restores the saved clipboard now and reports nothing.
+    ///
+    /// After a read, the restore delay continues. Its restore then finds the clipboard of the new
+    /// paste and keeps it.
+    fn abandon(&self, pasteboard: &NSPasteboard) {
+        if self.step(Transaction::read_time_out) {
+            tracing::info!("a new paste starts before the target read the previous text");
+            restore(pasteboard, self.ivars().saved.take(), self.ivars().written);
         }
     }
 
