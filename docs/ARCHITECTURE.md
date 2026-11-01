@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 2 (2026-10-31). Only the core state machine exists.
+Status: Proposed design, revision 2 (2026-10-31). Only the core state machine and the bundle script exist.
 
 ## Principles
 
@@ -260,8 +260,11 @@ Known limits:
 ## Bundle and permissions
 
 - `Info.plist` sets `LSUIElement` to true. Bloop has no Dock icon.
-- `Info.plist` contains `NSMicrophoneUsageDescription` and a stable bundle identifier.
-- A stable signing identity, such as an Apple Development certificate, signs each build.
+- `Info.plist` contains `NSMicrophoneUsageDescription` and the bundle identifier `io.github.robinber.bloop`.
+- `scripts/bundle.sh` builds `target/release/Bloop.app` and signs it with `Bloop Dev`,
+  a self-signed code signing certificate in the login keychain.
+- The designated requirement of the signature is the bundle identifier and the certificate.
+  Thus macOS keeps the permissions after each build.
   With an ad hoc signature, macOS removes the permissions after each build.
 - Bloop needs three permissions: Microphone, Accessibility (active event tap and paste command), and Input Monitoring (key events).
 - The menu shows each missing permission and opens the related System Settings pane.

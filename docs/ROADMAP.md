@@ -25,8 +25,8 @@ This phase uses fixed test text. It does not use audio.
 
 - [x] Create the Cargo workspace and the five crates from [Code structure](STRUCTURE.md),
   with the lint floor, `rustfmt.toml`, and `clippy.toml` from `AGENTS.md`.
-- [ ] Add the script that builds the application bundle.
-- [ ] Sign the bundle with a stable identity.
+- [x] Add the script that builds the application bundle.
+- [x] Sign the bundle with a stable identity.
 - [ ] Add the menu bar item with the status, "Copy last result", and "Quit".
 - [ ] Check the Accessibility and Input Monitoring permissions.
 - [ ] Add the event tap for Right Command, other input, and Escape.

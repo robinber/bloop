@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 2 (2026-10-31). No application code or tests exist.
+Status: Design draft, revision 2 (2026-10-31).
 
 ## Goal
 
@@ -126,4 +126,3 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 - Confirm the French typography rules of Natural Clean.
 - Confirm the capture start: at the hold threshold or at key press. Phase 2 checks for a lost first word.
-- Select the bundle identifier.
