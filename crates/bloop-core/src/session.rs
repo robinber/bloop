@@ -280,16 +280,13 @@ impl Core {
     }
 
     fn insert_done(&mut self, generation: Generation, outcome: InsertOutcome) -> Vec<Command> {
-        let head_is_inserting = self.jobs.front().is_some_and(|job| {
+        let head = self.jobs.pop_front_if(|job| {
             job.generation == generation && matches!(job.status, JobStatus::Inserting(_))
         });
-        if !head_is_inserting {
-            return Vec::new();
-        }
         let Some(Job {
             status: JobStatus::Inserting(text),
             ..
-        }) = self.jobs.pop_front()
+        }) = head
         else {
             return Vec::new();
         };
