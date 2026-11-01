@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Approved by the owner on 2026-10-31, revision 1. No code exists.
+Status: Approved by the owner on 2026-10-31, revision 1. Phase 1 is in progress.
 
 ## Goals
 

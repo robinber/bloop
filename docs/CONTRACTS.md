@@ -1,7 +1,7 @@
 # Rust contracts
 
-Status: revision 3. `bloop-core` implements the session state machine, the domain values, and the errors.
-The other signatures are proposals without implementation.
+Status: revision 3. `bloop-core` implements the session state machine, `Generation`, `FinalText`, and the error enums.
+`ProviderError::is_retryable` and the other signatures are proposals without implementation.
 
 All types and traits in this document are in `bloop-core`.
 The [code structure](STRUCTURE.md) gives the file for each type.
@@ -289,7 +289,7 @@ pub struct Pipeline {
 | Generation | `DictationKeyDown` with the capture in `Idle` creates a new generation. The core ignores events for an unknown generation. |
 | One capture | `DictationKeyDown` with the capture outside `Idle` has no effect. Running jobs do not block a new capture. |
 | Job limit | If 3 jobs exist (processing, ready, or pasting) when `HoldElapsed` arrives, the capture does not start and the core shows the error view. A combination during `Pending` stays silent. |
-| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
+| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle`. It emits a command only for a kept fallback card. A later `HoldElapsed` for that generation has no effect. |
 | Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
 | Order | The core emits `Insert` only for the first job in the queue. |
