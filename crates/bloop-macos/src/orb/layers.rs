@@ -4,7 +4,7 @@
 
 #![expect(
     unsafe_code,
-    reason = "the layer contents, the gradient colors, the mask, and the text layer string and font take Objective-C objects that the compiler cannot check"
+    reason = "the layer contents, the gradient colors, the mask, and the text layer string and font take objects whose class the compiler cannot check, and the truncation mode reads the Core Animation constant kCATruncationEnd, an external static"
 )]
 
 use std::time::Duration;
@@ -14,6 +14,7 @@ use objc2::runtime::AnyObject;
 use objc2_app_kit::{NSFont, NSImage};
 use objc2_core_foundation::{CFType, CGFloat, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGColor;
+use objc2_core_text::CTFont;
 use objc2_foundation::{NSArray, NSString, ns_string};
 use objc2_quartz_core::{
     CAGradientLayer, CALayer, CATextLayer, CATransaction, CATransform3D, kCATruncationEnd,
@@ -336,9 +337,7 @@ fn text_layer(frame: CGRect, size: CGFloat, color: &CGColor) -> Retained<CATextL
     layer.setForegroundColor(Some(color));
     layer.setWrapped(true);
     let font = NSFont::systemFontOfSize(size);
-    // SAFETY: `NSFont` is toll-free bridged with `CTFont`, a Core Foundation type.
-    // The reference does not outlive `font`.
-    let font: &CFType = unsafe { &*Retained::as_ptr(&font).cast::<CFType>() };
+    let font: &CTFont = font.as_ref();
     // SAFETY: `CATextLayer.font` accepts a `CTFont`.
     unsafe { layer.setFont(Some(font)) };
     // SAFETY: Core Animation sets this constant before `main` and never changes it.
