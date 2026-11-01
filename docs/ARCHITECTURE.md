@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 2 (2026-10-31). Phase 1 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 3 (2026-11-01). Phase 1 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
@@ -11,12 +11,18 @@ Status: Proposed design, revision 2 (2026-10-31). Phase 1 is in progress. The [r
 
 ## Process
 
+Phase 1 proves the key, orb, and insertion with fixed text.
+Phase 2 adds streaming transcription. Phase 3 adds correction and validates daily use.
+Streaming is the only STT path.
+
 ```text
 Right Command held for 220 ms
-    -> the orb opens and the capture starts
+    -> the orb opens, capture starts, and the provider connection opens
+    -> audio chunks go to Voxtral while the user speaks
 Right Command released, or the configured capture limit reached
     -> the capture stops and the orb closes
-    -> Voxtral transcription
+    -> queued audio drains, the converter flushes, and the stream ends
+    -> Voxtral returns the complete transcript
     -> Mistral Small correction
     -> target check
     -> paste, or fallback card
@@ -31,7 +37,7 @@ Bloop is one Cargo workspace with five crates. The [code structure](STRUCTURE.md
 | --- | --- |
 | `bloop-core` | Domain types, session state machine, pipeline, text steps, and ports |
 | `bloop-providers` | AI providers; one module for each vendor |
-| `bloop-audio` | Microphone capture and WAV conversion |
+| `bloop-audio` | Microphone capture and incremental PCM conversion |
 | `bloop-macos` | AppKit, event tap, orb, paste, menu, and Keychain |
 | `bloop-app` | Executable: settings, construction, and driver |
 
@@ -45,9 +51,9 @@ Unit tests drive the core with event sequences, without macOS.
 | --- | --- |
 | Main | AppKit run loop, event tap, core, orb, menu, clipboard, and paste command |
 | Audio | `cpal` callback: copies samples to a bounded buffer and updates the level |
-| Worker | Tokio runtime: WAV conversion and Mistral requests |
+| Worker | Incremental audio conversion, transcription stream, and correction request; asynchronous I/O through Tokio |
 
-- The audio callback does not allocate memory, lock, or access files.
+- The audio callback does not allocate memory, lock, access files, or wait for the network.
 - The audio level is an atomic value. The orb reads it on the main thread.
 - The worker sends each result to the main queue with its generation.
 - The core ignores a result for an unknown generation, for example a cancelled job.
@@ -57,6 +63,8 @@ Unit tests drive the core with event sequences, without macOS.
 
 A session has two parts: the capture, then a job.
 The capture uses the microphone and the orb. The job runs without a visible indicator.
+Transcription starts during `Listening`. A job finishes transcription, applies text steps, and attempts insertion.
+The driver creates no insertion result from a partial transcript.
 
 ```text
 Capture: Idle -> Pending -> Listening -> Idle
@@ -85,7 +93,9 @@ Job:     Processing -> Ready -> Inserting -> end
   A capture error or system sleep deletes the card. The text stays in the clipboard and in "Copy last result".
 - Escape cancels the capture. It does not cancel a job.
 - Microphone loss cancels the capture. System sleep cancels the capture and all jobs.
-- Cancellation deletes the audio, stops the network task, and closes the orb.
+- Cancellation discards queued audio and stops the associated network task. Capture cancellation also closes the orb.
+- A stream failure during capture stops that capture. After capture, it ends the associated job.
+- Bloop does not reconnect, replay audio, or use file transcription after a stream failure.
 
 ## Dictation key
 
@@ -93,10 +103,13 @@ Job:     Processing -> Ready -> Inserting -> end
 - Right Command has key code 54. The tap reads it from `flagsChanged` events.
 - A key press or a mouse click during the hold is a combination. The session stops with no signal.
   Thus Right Command shortcuts and Command-click continue to operate.
-- During `Pending` and `Listening`, the tap blocks Escape. At other times, Escape goes to the application as usual.
+- During `Pending` and `Listening`, the tap blocks Escape. It also blocks the key repeats and the key up of that
+  Escape press, because they can arrive after the capture ends. At other times, Escape goes to the application as usual.
 - macOS disables a tap after a slow callback. The callback enables the tap again when it receives that event.
 - Bloop marks the events that it posts. The tap ignores these events.
 - Secure input stops key events to the tap. In this condition, the dictation key has no effect. This is a known limit.
+- Measured on the reference Mac (macOS 27, 2026-11-01): macOS refuses the tap when Accessibility is missing,
+  also with Input Monitoring. The capture starts 228–231 ms after the key press. The target is 220 ms.
 
 ## Orb
 
@@ -161,42 +174,46 @@ Bloop does not use Tabi code or assets.
 
 - The capture uses the system default input device in its native format.
 - `dictation.max_duration_secs` sets the maximum duration of one capture, in seconds.
-- Bloop validates this value before capture. The value must be a positive integer within the supported memory and provider limits.
+- Bloop validates this value before capture. The value must be a positive integer within the tested provider and application limits.
 - Bloop reports an invalid setting. It does not silently reduce the duration or treat zero as unlimited.
 - Each capture keeps the duration selected at its start. A settings change applies to later captures.
-- Before capture, Bloop allocates a bounded sample buffer for the selected duration at the input sample rate.
+- Before capture, Bloop allocates bounded queues. Their capacity does not grow with the selected capture duration.
+- Capture starts while the provider connection opens. A queue keeps the initial samples until the connection is ready.
 - The callback stops adding samples at the limit. The audio adapter sends `CaptureLimitReached` with the capture generation.
-- Before the limit, the orb warns the user. At the limit, Bloop processes the captured audio through the normal pipeline.
+- Before the limit, the orb warns the user. At the limit, Bloop finishes the stream through the normal path.
 - The callback mixes the channels to mono and calculates the level of each buffer.
-- After the capture, the worker converts the samples to 16 kHz mono 16-bit WAV in memory (`rubato`, `hound`).
-  Each minute of encoded audio uses approximately 1.92 MB. Capture and conversion buffers use additional memory.
-- If the capture is shorter than 300 ms, or the level stays below a threshold, Bloop sends no request and pastes nothing.
-  The bars already showed the silence during the capture.
-- Bloop deletes the audio after the transcription or a cancellation. Bloop never writes audio to disk.
+- During capture, the worker converts samples incrementally to 16 kHz mono signed 16-bit little-endian PCM.
+- The worker sends each chunk in order. A full queue fails the session; Bloop never silently drops samples.
+- At capture end, the worker drains accepted samples and flushes the converter before it ends the stream.
+- If the capture is shorter than 300 ms, or its level stays below a threshold, Bloop cancels transcription and pastes nothing.
+  Audio can already have reached the provider. The bars already showed the silence during capture.
+- Bloop releases each audio chunk after sending it. Cancellation discards remaining chunks.
+- Bloop keeps no complete recording and writes no audio to disk.
 
 The default duration, supported range, and warning interval remain open until Phase 2 tests.
 The [settings example](STRUCTURE.md#settings-and-provider-selection) shows a configurable value, not a measured capacity.
 
-## Mistral requests
+## Mistral connections
 
-One HTTP client (`reqwest`) serves both requests.
+A WebSocket connection serves each transcription session. A reused HTTP client (`reqwest`) serves correction requests.
 The API key comes from Keychain (service `bloop`, account `mistral`).
 The user stores the key with the `security add-generic-password` command.
 
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
-| Transcription | `voxtral-small-transcribe-3-0` | Language `fr`; one `context_bias` field for each word list entry | 15 s |
+| Transcription | `voxtral-mini-transcribe-realtime-3` | PCM audio; language `fr`; `context_bias` word list, set before the first chunk | Connection, inactivity, and completion limits: select in Phase 2 |
 | Correction | `mistral-small-2603` | `reasoning_effort="none"`; versioned Natural Clean prompt | 8 s |
 
-These request time limits are initial proposed values.
-Phase 2 and Phase 3 must check them with long dictations and adjust them if needed.
-They do not define the capture duration.
+The correction time limit is an initial proposal. Phase 3 checks it with long dictations.
+The connection limit covers setup. The inactivity limit detects a stalled transport, not speech silence.
+The completion limit starts after capture ends and includes queued audio, converter flush, and the final provider response.
+No short request timeout covers the full capture duration.
 
-The processing has no visible indicator. Thus Bloop must not lose a dictation for a short network problem.
-After a network error, a timeout, or an HTTP 429 or 5xx status, Bloop sends the transcription request again one time.
-If the second request fails, the job ends with the error view.
+On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
+It does not insert a partial transcript or retry the stream automatically. The user can dictate again.
+There is no upload fallback.
 
-Raw fallback rules:
+Raw fallback rules apply only after a complete transcript is available:
 
 - A transcript with fewer than 4 words gets no correction.
 - If the correction fails, times out, or returns empty text, Bloop uses the raw transcript.
@@ -212,14 +229,28 @@ Latency targets, as medians for 10 seconds of speech:
 | Paste command | 150 ms | 115 ms |
 | Key release to paste command | 1500 ms | 1297 ms |
 
-If the median stays above 1.8 seconds, evaluate `voxtral-mini-transcribe-realtime-3-0` over WebSocket.
-The model identifiers and request parameters come from the Mistral documentation on 2026-10-31.
+Measure transcription completion after key release in Phase 2. Measure the complete path with correction in Phase 3.
+These values are targets, not Bloop measurements. Streaming still needs completion, correction, and paste time after release.
+The realtime model and parameters were checked in Mistral documentation on 2026-11-01.
+The correction model and parameters were checked on 2026-10-31.
 No API request has run for Bloop.
 
-References: [Mistral audio](https://docs.mistral.ai/studio/audio/overview),
-[custom vocabulary](https://docs.mistral.ai/studio/audio/speech-to-text/bias-context-and-vocabulary),
+References: [Mistral realtime transcription](https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime),
 [Mistral Small 4](https://docs.mistral.ai/models/mistral-small-4-0-26-03),
 and [reasoning settings](https://docs.mistral.ai/studio/conversations/reasoning).
+
+## Stream ownership
+
+The driver owns one transcription task and its audio queue for each generation.
+The provider implements the streaming contract in [Rust contracts](CONTRACTS.md#ai-ports).
+
+- `StartCapture` starts audio capture and opens the provider session asynchronously.
+- `StopCaptureAndProcess` stops capture and tells the existing task to finish. It does not start another transcription.
+- The driver sends `TextReady` only after the core creates a job and the complete transcript passes through the text steps.
+- `CancelCapture` stops capture and its stream. `CancelWork` stops the task for the specified generation.
+- A failure during capture produces `CaptureFailed`. A failure after capture produces `WorkFailed`.
+- Target capture stays at key release or the capture limit. Insertion still follows session order.
+- Phase 2 tests release, failure, and cancellation races with a fake provider before the real adapter.
 
 ## Paste
 
@@ -261,7 +292,7 @@ Known limits:
 
 | Data | Lifetime |
 | --- | --- |
-| Audio | Until the transcription completes or the session stops |
+| Audio chunk | Until sent, or until cancellation discards the queue |
 | Transcript | Until the correction completes |
 | Last final text | Until a newer final text replaces it or the application exits, for "Copy last result" |
 
@@ -293,8 +324,8 @@ Known limits:
 | Core Animation | `objc2-quartz-core` |
 | Event tap and events | `objc2-core-graphics`, or direct FFI |
 | Main queue | `dispatch2` |
-| Audio | `cpal`, `rubato`, `hound` |
-| Network | `reqwest` with `rustls`, `tokio` |
+| Audio | `cpal`, `rubato`; bounded queue implementation selected in Phase 2 |
+| Network | `reqwest` with `rustls`, `tokio`; WebSocket client selected in Phase 2 |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |
 | Errors | `thiserror`, `anyhow` (application start only) |

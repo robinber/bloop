@@ -1,6 +1,7 @@
 # Code structure
 
-Status: Approved by the owner on 2026-10-31, revision 1. Phase 1 is in progress.
+Status: Revision 2 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is in progress.
+The streaming types and flow below are Phase 2 proposals. They are not implemented.
 
 ## Goals
 
@@ -19,7 +20,7 @@ bloop/
 ├── crates/
 │   ├── bloop-core/            Domain types, state machine, pipeline, text steps, ports
 │   ├── bloop-providers/       AI providers: one module for each vendor
-│   ├── bloop-audio/           Microphone capture and WAV conversion
+│   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
 │   └── bloop-app/             Executable: settings, construction, driver
 ├── prompts/
@@ -43,7 +44,7 @@ bloop/
 2. `bloop-macos`, `bloop-audio`, and `bloop-providers` do not depend on each other.
 3. Only `bloop-app` knows all crates. It is the only place that builds objects from the settings.
 4. Only `bloop-macos` contains `unsafe` code and `objc2`.
-5. Only `bloop-providers` contains HTTP code and vendor names.
+5. Only `bloop-providers` contains HTTP and WebSocket code and vendor names.
 6. `bloop-core` has no I/O, no async runtime, and no platform API. It uses only small pure crates (`thiserror`, `secrecy`).
 
 Cargo enforces rules 1 to 5, because a crate cannot use a crate that is not in its dependencies.
@@ -60,9 +61,10 @@ The other crates add `#![forbid(unsafe_code)]` at their root.
 | Pure state machine: events in, commands out | Tests are deterministic. The core has no threads, no clock, and no callbacks. | Session state in callbacks across many modules. |
 | Capabilities separate from text steps | A provider implements capabilities. A text feature uses capabilities. Thus a new provider does not change the features, and a new feature does not change the providers. | One trait for each combination of feature and vendor. |
 | `BoxFuture` in the AI ports | The traits are dyn-compatible. Thus the settings select the provider at run time. | `impl Future` in traits: not dyn-compatible. The `async-trait` macro: same result, with an additional macro. |
+| One streaming STT contract | Audio reaches the provider during capture. All speech adapters use the same lifecycle. | File transcription before streaming, or a permanent upload fallback. |
 | Tagged enums for provider settings | Each vendor declares its own typed settings. An unknown provider name stops the start. | An untyped map of keys and values. |
 | One provider crate with one Cargo feature for each vendor | Little repeated configuration. A vendor that is not selected does not compile. | One crate for each vendor. Use it later if one vendor module becomes large. |
-| Platform ports without a `Send` bound | AppKit objects stay on the main thread, as AppKit requires. | `Send` bounds that need wrappers around AppKit objects. |
+| Main-thread ports without a `Send` bound | AppKit objects stay on the main thread. `EventSink` and `AudioSink` cross thread boundaries. | `Send` bounds that need wrappers around AppKit objects. |
 | `unsafe` code only in `bloop-macos` | The review of unsafe code covers one crate only. | `unsafe` code in each crate that calls a system API. |
 
 These items are outside the structure: plugins loaded at run time, and support for Windows or Linux beyond the ports.
@@ -74,17 +76,17 @@ These items are outside the structure: plugins loaded at run time, and support f
 ```text
 src/
 ├── lib.rs
-├── domain.rs          Generation, RawAudio, AudioClip, LevelMeter, TargetInfo, Transcript, FinalText
+├── domain.rs          Generation, AudioChunk, CaptureSummary, LevelMeter, TargetInfo, Transcript, FinalText
 ├── session.rs         Core, Capture, Job, Event, Command, OrbView
-├── pipeline.rs        Pipeline: transcription, text steps, retry and fallback rules
+├── pipeline.rs        Pipeline: text steps and raw transcript fallback after complete transcription
 ├── steps/
 │   ├── mod.rs
 │   ├── refine.rs      LlmRefine: correction through a ChatModel and a prompt
 │   └── trim.rs        Trim: removes line breaks at the start and at the end
 ├── ports/
-│   ├── ai.rs          Transcriber, ChatModel, TextStep, BoxFuture
-│   └── platform.rs    EventSink, AudioInput, Overlay, TextOutput, Scheduler, SecretStore
-└── error.rs           AppError, ProviderError, StepError
+│   ├── ai.rs          Transcriber, TranscriptionSession, ChatModel, TextStep, BoxFuture
+│   └── platform.rs    EventSink, AudioSink, AudioInput, Overlay, TextOutput, Scheduler, SecretStore
+└── error.rs           AppError, ProviderError, StepError, AudioQueueError
 ```
 
 ### bloop-providers
@@ -92,10 +94,10 @@ src/
 ```text
 src/
 ├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model
-├── http.rs            Shared HTTP client, time limits, HTTP error conversion to ProviderError
+├── http.rs            Reused correction client, time limits, HTTP error conversion to ProviderError
 └── mistral/
     ├── mod.rs         Mistral settings; API key from SecretStore (account "mistral")
-    ├── transcribe.rs  Voxtral: impl Transcriber
+    ├── transcribe.rs  Voxtral WebSocket: impl Transcriber and TranscriptionSession
     └── chat.rs        Mistral Small: impl ChatModel
 ```
 
@@ -106,8 +108,9 @@ Each vendor module has its own Cargo feature. The `mistral` feature is the defau
 ```text
 src/
 ├── lib.rs
-├── capture.rs         cpal stream, bounded buffer, LevelMeter update: impl AudioInput
-└── convert.rs         to_wav_16k: mono mix, resample, WAV encode
+├── capture.rs         cpal stream, mono mix, LevelMeter update: impl AudioInput
+├── buffer.rs          Preallocated bounded sample queue: impl AudioSink
+└── convert.rs         Incremental resampling to 16 kHz mono PCM; flush at capture end
 ```
 
 ### bloop-macos
@@ -125,7 +128,7 @@ src/
 ├── paste.rs           Target check, pasteboard, Command-V: impl TextOutput
 ├── menu.rs            Status item and menu
 ├── keychain.rs        impl SecretStore
-├── scheduler.rs       Run loop timers: impl Scheduler
+├── scheduler.rs       Main queue timers: impl Scheduler
 └── permissions.rs     Permission checks and System Settings links
 ```
 
@@ -144,20 +147,28 @@ bundle/
 ## Runtime flow
 
 ```text
-event tap ──> EventSink ──> Driver ──> Core::handle ──> commands
-                              ^                            │
-                              │                            v
-                              │        AudioInput, Overlay, TextOutput, Scheduler
-                              │                            │
-          result event ───────┘                            │ StopCaptureAndProcess
-                ^                                          v
-                └──────── Tokio task: to_wav_16k, then Pipeline::run
+event tap -> EventSink -> Driver -> Core::handle -> commands
+                            |
+                  StartCapture(generation)
+                            |
+          microphone -> bounded queue -> converter -> provider stream
+                            |
+               StopCaptureAndProcess(generation)
+                            |
+          stop capture -> drain queue -> flush converter -> finish stream
+                            |
+          complete Transcript -> Pipeline::run -> EventSink -> Driver
 ```
 
 - The driver is on the main thread. It owns `Core` and the platform ports.
-- For `StopCaptureAndProcess`, the driver gets the `RawAudio` and starts a Tokio task.
-- The task converts the audio, runs the pipeline, and sends the result event through the `EventSink`.
-- The driver keeps the task handle of each job. `CancelWork` stops the related task.
+- For `StartCapture`, the driver connects the audio adapter to a bounded queue and starts the transcription task.
+- Microphone capture starts while the connection opens. Initial samples stay in the queue until the stream is ready.
+- The worker converts and sends chunks in order. Network waits never block the audio callback or the main thread.
+- For `StopCaptureAndProcess`, the driver stops the producer and gets a `CaptureSummary`.
+- The existing task drains the queue, flushes the converter, and finishes the stream once.
+- The complete transcript enters the text pipeline. Partial transcripts never produce `TextReady`.
+- The driver sends result events only after the core creates the job at capture end.
+- The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
 - The app validates the capture duration and supplies it to the audio adapter. The core does not read TOML settings.
 - The audio adapter stops at the configured limit and sends `CaptureLimitReached` for that generation.
@@ -174,7 +185,7 @@ vocabulary = ["Rust", "Tokio", "objc2"]
 
 [transcriber]
 provider = "mistral"
-model = "voxtral-small-transcribe-3-0"
+model = "voxtral-mini-transcribe-realtime-3"
 
 [chat]
 provider = "mistral"
@@ -189,7 +200,7 @@ prompt = "natural-clean-v1"
 `max_duration_secs` is the maximum duration of one capture, in seconds.
 The value `600` shows a ten-minute configuration. It is not a validated default or a provider limit.
 Phase 2 selects the default and supported range after the long capture tests in the [roadmap](ROADMAP.md).
-Invalid values stop capture setup with a clear error. A duration limit processes the captured audio instead of cancelling it.
+Invalid values stop capture setup with a clear error. A duration limit finishes the active stream instead of cancelling it.
 
 The `provider` field selects a variant of a tagged enum in `bloop-providers`:
 
@@ -209,12 +220,14 @@ If the provider name is unknown, Bloop stops at start with a clear error.
 ### Add a provider
 
 1. Add a module in `bloop-providers/src/` with its own Cargo feature.
-2. Implement `Transcriber`, `ChatModel`, or both.
+2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel`.
 3. Add a variant to `TranscriberConfig` or `ChatConfig`. Add one match arm in the build function.
 4. Store the API key in Keychain. Use the vendor name as the account.
 5. Set `provider` in `config.toml`.
 
 The other crates do not change.
+Every STT adapter sends audio during capture. It must not collect a complete recording before sending it.
+Future DGX-hosted and Microsoft adapters use the same streaming contract. Their transport stays inside the provider crate.
 
 ### Add a text feature
 
@@ -234,19 +247,25 @@ Examples: start and stop sounds, text adaptation at the cursor.
 2. Implement it in `bloop-macos`.
 3. If the state machine must decide when to use it, add a `Command`.
 
-### Real-time transcription
+### Streaming lifecycle
 
-This is later work. It needs a port for a stream of audio parts and a streaming transcriber.
-The state machine and the text steps do not change.
+Phase 2 implements the [streaming rules](CONTRACTS.md#streaming-rules) with the first audio adapter.
+There is no separate file transcription path or later migration.
+
+1. Test the lifecycle with fake audio and provider ports before the adapters.
+2. Give each generation its own bounded queue and transcription task.
+3. Test failures during capture and after release. Both paths must release resources and unblock later jobs.
+4. Test cancellation while connecting, sending, and finishing. Late results must not produce insertion.
+5. Keep the existing generation and insertion rules. Extend events only when these tests show a need.
 
 ## Tests
 
 | Crate | Tests |
 | --- | --- |
 | `bloop-core` | State machine: event sequences and expected commands. Pipeline and steps with fake providers. |
-| `bloop-providers` | Request construction and response parsing with recorded JSON. Real API tests use `#[ignore]` and run manually. |
-| `bloop-audio` | WAV conversion and level calculation with generated signals |
-| `bloop-app` | Driver with fake ports |
+| `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Real API tests run manually. |
+| `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
+| `bloop-app` | Driver with fake ports: slow connection, full queue, release, failure, cancellation, and stale results |
 | `bloop-macos` | Manual acceptance checks from the [roadmap](ROADMAP.md) |
 
 ## Shared rules
@@ -268,15 +287,15 @@ Thus the application operates at the end of each phase.
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `config.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
-| 2: Microphone and transcription | `bloop-audio`: `capture.rs`, `convert.rs`. `bloop-core`: `Transcriber` in `ports/ai.rs`, and `pipeline.rs` without steps. `bloop-providers`: `http.rs`, `mistral/transcribe.rs`. `bloop-macos`: `keychain.rs`. |
-| 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`. |
+| 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
-In Phase 1, `bloop-app` uses two temporary parts:
+For Phase 1 completion, `bloop-app` needs two temporary behaviors:
 
-- An `AudioInput` that records nothing.
+- `StartCapture` records no audio and opens no network session.
 - A driver rule that answers `StopCaptureAndProcess` with a `TextReady` event that contains fixed test text.
 
-Phase 2 removes these two parts.
+Phase 2 replaces these behaviors with capture and streaming.
 
 ## Work method
 

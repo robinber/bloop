@@ -1,11 +1,16 @@
 # Rust contracts
 
-Status: revision 3. `bloop-core` implements the session state machine, `Generation`, `FinalText`, and the error enums.
-`ProviderError::is_retryable` and the other signatures are proposals without implementation.
+Status: revision 4. `bloop-core` implements the session state machine, `Generation`, `FinalText`, the existing error enums,
+and the `EventSink` and `Scheduler` ports.
+The audio and streaming signatures below are Phase 2 proposals without implementation.
+The text step signatures are Phase 3 proposals. `AudioQueueError` is a proposed addition to the error types.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
 
 All types and traits in this document are in `bloop-core`.
 The [code structure](STRUCTURE.md) gives the file for each type.
+
+Finish Phase 1 with fixed text before implementing audio.
+Streaming is the only STT path. Every speech provider implements the same session lifecycle.
 
 ## Session state machine
 
@@ -102,14 +107,9 @@ use std::{
     time::Duration,
 };
 
-pub struct RawAudio {
-    pub samples: Vec<f32>,
-    pub sample_rate: u32,
-    pub peak: f32,
-}
+pub struct AudioChunk(Vec<u8>);
 
-pub struct AudioClip {
-    pub wav: Arc<[u8]>,
+pub struct CaptureSummary {
     pub duration: Duration,
     pub peak: f32,
 }
@@ -129,9 +129,12 @@ pub struct Transcript(String);
 pub struct FinalText(String);
 ```
 
-`RawAudio` is the capture output in the native sample rate.
-`AudioClip` is the 16 kHz mono WAV data that a `Transcriber` receives.
+`AudioChunk` contains 16 kHz mono signed 16-bit little-endian PCM, without a file header.
+Its constructor checks for nonempty data, whole samples, and the selected maximum chunk size.
+`AudioChunk::as_bytes` exposes the validated bytes. Only the worker creates these chunks.
+`CaptureSummary` contains the duration and peak level. It contains no recording.
 `FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
+Audio and text types use a redacting `Debug` implementation.
 
 ## AI ports
 
@@ -140,15 +143,25 @@ use std::{future::Future, pin::Pin};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-pub struct TranscriptionRequest<'a> {
-    pub audio: &'a AudioClip,
+pub struct TranscriptionOptions<'a> {
     pub language: &'a str,
     pub vocabulary: &'a [String],
 }
 
 pub trait Transcriber: Send + Sync {
-    fn transcribe<'a>(&'a self, request: TranscriptionRequest<'a>)
-        -> BoxFuture<'a, Result<Transcript, ProviderError>>;
+    fn start<'a>(&'a self, options: TranscriptionOptions<'a>)
+        -> BoxFuture<'a, Result<Box<dyn TranscriptionSession>, ProviderError>>;
+}
+
+pub trait TranscriptionSession: Send + 'static {
+    fn send_audio<'a>(&'a mut self, chunk: &'a AudioChunk)
+        -> BoxFuture<'a, Result<(), ProviderError>>;
+
+    fn finish(self: Box<Self>)
+        -> BoxFuture<'static, Result<Transcript, ProviderError>>;
+
+    fn cancel(self: Box<Self>)
+        -> BoxFuture<'static, Result<(), ProviderError>>;
 }
 
 pub struct ChatRequest<'a> {
@@ -175,8 +188,24 @@ pub trait TextStep: Send + Sync {
 ```
 
 The traits return `BoxFuture`. Thus they are dyn-compatible, and the settings can select a provider at run time.
-The cost is one allocation for each request. This cost is very small compared to a network request.
+Each returned future requires an allocation. Audio chunks and these futures are created outside the audio callback.
 Vendor options, for example `reasoning_effort`, stay in the provider settings. They are not in the requests.
+
+### Transcription lifecycle
+
+- `start` opens a connection and applies the options before the first audio chunk.
+- The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
+- One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
+- The adapter reads provider messages while it sends audio. Its receive task and buffers belong to the session.
+- `finish` consumes the session, ends audio input, and waits for one complete transcript.
+- `cancel` consumes the session and closes it without a transcript.
+- Partial provider results stay inside the adapter. They never enter the text pipeline or insertion queue.
+- Dropping the session, or its pending `start`, `finish`, or `cancel` future, releases local resources and stops owned tasks.
+- Dropping `send_audio` stops that send operation. Cancellation also drops the session; Bloop never retries the interrupted chunk.
+- The driver applies connection, inactivity, and completion limits. Cancellation must also work during any pending operation.
+- Bloop does not reconnect or replay audio automatically. No adapter can replace streaming with a complete-file upload.
+
+The driver checks the generation before accepting any result. The provider does not call the core or perform insertion.
 
 ## Platform ports
 
@@ -187,9 +216,15 @@ pub trait EventSink: Send + Sync {
     fn send(&self, event: Event);
 }
 
+pub trait AudioSink: Send {
+    fn try_push(&mut self, samples: &[f32], sample_rate: u32)
+        -> Result<(), AudioQueueError>;
+}
+
 pub trait AudioInput {
-    fn start(&mut self, generation: Generation) -> Result<(), AppError>;
-    fn stop(&mut self, generation: Generation) -> Result<RawAudio, AppError>;
+    fn start(&mut self, generation: Generation, sink: Box<dyn AudioSink>)
+        -> Result<(), AppError>;
+    fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
     fn cancel(&mut self);
 }
 
@@ -213,12 +248,19 @@ pub trait SecretStore {
 }
 ```
 
-- Platform ports operate on the main thread. They have no `Send` bound.
+- Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
+- `AudioInput::start` starts capture without waiting for the provider connection.
+- `AudioSink` receives mono samples at the native sample rate. The sample rate stays fixed during the capture.
+- `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
+- The worker receives samples from that queue, converts them incrementally, and calls `send_audio`.
+- A full queue fails the capture. An unexpected closed queue also fails it. Expected closure during cancellation produces no second error.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
 - The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
 - At the sample limit, the audio adapter stops adding samples and sends `CaptureLimitReached` with the generation.
-- `AudioInput::stop` returns the captured audio after this event. Reaching the duration limit is not a capture failure.
+- `AudioInput::stop` closes the queue producer after the final samples and returns the capture summary.
+- The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
+- `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.
 - `SecretString` does not show its value in `Debug` output.
 
 Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
@@ -251,39 +293,47 @@ pub enum Permission {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioQueueError {
+    Full,
+    Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppError {
     PermissionMissing(Permission),
     Microphone,
+    AudioQueue(AudioQueueError),
     Provider(ProviderError),
 }
 ```
 
-`ProviderError::is_retryable` returns true for `Network`, `Timeout`, `Http(429)`, and `Http(500..=599)`.
+`AudioQueueError` and `AppError::AudioQueue` are Phase 2 additions. The other error variants already exist.
+Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
+`CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
+If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
+Before reporting a failure, the driver stops audio and network work for that generation, even if capture already ended.
+Neither event retries transcription or permits partial insertion.
 
 ## Pipeline
 
 ```rust
-pub struct PipelineSettings {
-    pub language: String,
-    pub vocabulary: Vec<String>,
-    pub min_duration: Duration,
-    pub min_peak: f32,
-}
-
 pub struct Pipeline {
-    transcriber: Arc<dyn Transcriber>,
     steps: Vec<Box<dyn TextStep>>,
-    settings: PipelineSettings,
 }
 ```
 
-`Pipeline::run(&self, generation: Generation, clip: AudioClip, context: StepContext) -> Event` is an `async fn`.
+`Pipeline::run(&self, generation: Generation, transcript: Transcript, context: StepContext) -> Event` is an `async fn`.
 
-1. If the clip is too short or too quiet, `run` returns `NothingHeard`.
-2. `run` calls the transcriber. After a retryable error, it calls the transcriber again one time.
-3. If the transcription fails, `run` returns `WorkFailed`. If the transcript is empty, it returns `NothingHeard`.
-4. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.
-5. `run` returns `TextReady` with the final text.
+The driver starts this pipeline only after `finish` returns the complete transcript.
+For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation.
+The limits for duration and level use `CaptureSummary`. They are not provider options.
+
+1. If the complete transcript is empty, `run` returns `NothingHeard`.
+2. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.
+3. `run` returns `TextReady` with the final text.
+
+Phase 2 uses no text steps and returns the complete raw transcript.
+Phase 3 adds correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
 
 | Step | Behavior |
 | --- | --- |
@@ -306,10 +356,29 @@ pub struct Pipeline {
 | Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
 | Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
 | Nothing heard | `NothingHeard` removes the job. The core emits no orb command. |
-| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a job that is processing, `CaptureFailed` has the same effect as `WorkFailed`: the driver sends it when `AudioInput::stop` fails. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
+| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a processing job, `CaptureFailed` has the same effect as `WorkFailed`. This covers stop errors and failures that arrive after release. `WorkFailed` removes the job, and shows the error view only when no capture is active. |
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.
+
+## Streaming rules
+
+These rules apply from Phase 2. Test them with fake ports before implementing the network adapter.
+
+- Each generation owns its audio queue and transcription task. Starting another capture must not replace an earlier job's task.
+- `StartCapture` starts the microphone and opens the provider session asynchronously. Initial audio stays in a bounded queue during setup.
+- Audio chunks retain capture order. The adapter must also bound its internal buffers.
+- `StopCaptureAndProcess` signals the existing task to finish; it never opens a second transcription session.
+- The task drains accepted audio, flushes conversion, and calls `finish` once. Release and duration limit events cannot finish it twice.
+- `TextReady` requires a complete transcript and an existing job. Partial transcripts never create jobs.
+- Escape, other input, and microphone loss stop the active capture and its stream. System sleep also cancels all jobs.
+- A full queue, failed connection, or timeout ends the affected session with an error. It never triggers replay or incomplete insertion.
+- Cancellation while connecting, sending, or finishing must release resources. Late results from cancelled generations have no effect.
+- A failure before release returns capture to `Idle`. A failure after release removes its job and unblocks later jobs.
+- Capture duration settings do not size queues. Test bounded audio memory at each supported duration.
+
+Phase 2 tests must cover release and failure races, provider messages during capture, slow connections, full queues, and cancellation.
+The existing state machine is the starting point. Update its events only when these tests show a need.

@@ -4,7 +4,8 @@ Bloop is a planned macOS app for French dictation.
 The app uses Rust, native AppKit, Mistral Voxtral, and Mistral Small.
 
 Hold Right Command to speak. A small orb shows that Bloop listens.
-Release the key to stop. Bloop corrects the text and pastes it into the focused field.
+Bloop streams the audio to the speech provider while you speak.
+Release the key to finish transcription. Bloop corrects the text and pastes it into the focused field.
 
 The behavior follows the dictation feature of Tabi. Bloop does only this one task.
 

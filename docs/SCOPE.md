@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 2 (2026-10-31).
+Status: Design draft, revision 3 (2026-11-01). Phase 1 is in progress.
 
 ## Goal
 
@@ -17,6 +17,8 @@ Simple behavior and low latency have priority over additional features.
 - The speech input and text output use French.
 - Mistral Voxtral converts speech to text.
 - Mistral Small corrects the text.
+- Streaming is the only STT path. Audio goes to the provider while capture continues.
+- Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds correction.
 - The user holds Right Command to speak.
 - The user can set the maximum capture duration in the TOML settings.
 - A small orb shows the session state. The orb is part of the MVP.
@@ -43,7 +45,7 @@ Bloop uses Tabi as a behavior reference only. Bloop does not copy Tabi code, pro
 | Cancel | Escape | Escape |
 | Hands-free mode | Shift during the hold locks the recording | Later work |
 | Status indicator | Web view "orb" at the bottom of the screen: dark pill, target application icon, seven orange bars that follow the current voice level; closes at key release; no indicator during processing | Native panel with the same layout and behavior; the icon goes directly into a layer |
-| Transcription | `voxtral-small-transcribe-3-0` upload and a parallel real-time stream | Upload only; real-time stream if the latency is too high |
+| Transcription | WebSocket relay observed; logs suggest processing during capture. The internal model sequence is not confirmed. | One streaming connection to the selected speech provider during capture |
 | Correction | `mistral-medium-2604`; one style for each application | `mistral-small-2603`; one text profile |
 | Insertion | Synthetic Command-V; Tabi detects when the target reads the clipboard | Same method |
 | Clipboard | Items marked as concealed and transient | Same markers; restore the previous content |
@@ -65,8 +67,9 @@ The Tabi log contains timing data for 23 dictations on the reference Mac.
 | Key release to paste command | 1297 ms | 885–2419 ms |
 | Paste command to clipboard read | 101 ms | 101–128 ms |
 
-Tabi gets its transcription speed from a real-time stream through its own relay.
-Bloop starts with one upload request. Phase 2 measures the difference.
+Tabi logs show a WebSocket relay. They do not prove its internal model sequence or the cause of its latency.
+Bloop starts streaming in Phase 2 after the fixed-text checks pass.
+Phase 2 measures transcription completion time after key release. Phase 3 measures the complete path with correction.
 
 ## Minimum version
 
@@ -75,8 +78,8 @@ Bloop starts with one upload request. Phase 2 measures the difference.
 | Dictation key | Hold Right Command for 220 ms. A combination or a short press does nothing. |
 | Cancel | Escape during a session. Bloop blocks this Escape event. |
 | Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
-| Audio | System default microphone; capture in memory; configurable duration limit; warning before the limit |
-| Network | One upload request after the capture ends, then one correction request |
+| Audio | System default microphone; bounded queues in memory; configurable duration limit; warning before the limit |
+| Network | One transcription stream during capture; one correction request after the complete transcript |
 | Text profile | Natural Clean; one prompt; raw transcript if the correction fails |
 | Target check | Same frontmost application and no new click or key press since capture ended |
 | Insertion | Command-V with a clipboard item that the target reads on demand |
@@ -104,7 +107,6 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 ## Later work
 
-- A real-time transcription stream (`voxtral-mini-transcribe-realtime-3-0`) if the latency target fails.
 - Text adaptation at the cursor: first letter, spaces, and final period.
 - Hands-free mode with Shift during the hold.
 - Start and stop sounds.
@@ -115,6 +117,7 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 ## Outside version 1
 
+- File transcription, upload fallback, and simultaneous transcription through multiple providers.
 - Styles for each application, names read from the screen, and learned corrections.
 - Audio ducking, speech output, OCR, translation, and voice commands.
 - An assistant, agents, or automatic message submission.
@@ -126,5 +129,6 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 ## Open decisions
 
 - Select the default capture duration after tests at 5, 10, and 20 minutes. These durations are test cases, not validated limits.
+- Select audio queue capacities and connection, inactivity, and completion time limits from Phase 2 tests.
 - Confirm the French typography rules of Natural Clean.
 - Confirm the capture start: at the hold threshold or at key press. Phase 2 checks for a lost first word.

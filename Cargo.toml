@@ -9,13 +9,19 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
+anyhow = "1.0.104"
 bloop-audio = { path = "crates/bloop-audio" }
 bloop-core = { path = "crates/bloop-core" }
 bloop-macos = { path = "crates/bloop-macos" }
 bloop-providers = { path = "crates/bloop-providers" }
+dispatch2 = "0.3.1"
 objc2 = "0.6.5"
 objc2-app-kit = "0.3.2"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFMachPort", "CFRunLoop"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventTypes"] }
 objc2-foundation = "0.3.2"
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

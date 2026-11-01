@@ -47,13 +47,15 @@ These are explicit owner decisions, not hypothetical reuse:
 - The ports in `bloop-core` (`Transcriber`, `ChatModel`, `TextStep`, and the platform ports).
   They let the owner add providers and text features.
 - `BoxFuture` in the AI ports, so that the settings select the provider at run time.
+- Streaming is the only STT path. Finish Phase 1 with fixed text, then implement streaming in Phase 2.
+- Providers implement one streaming contract. Do not add file transcription or an upload fallback.
 
 ### Crate boundaries
 
 - All dependencies point to `bloop-core`. `bloop-core` has no I/O, no async runtime, and no platform API.
 - `bloop-macos`, `bloop-audio`, and `bloop-providers` do not depend on each other.
 - Only `bloop-app` builds objects from the settings.
-- HTTP code and vendor names stay in `bloop-providers`.
+- HTTP and WebSocket code and vendor names stay in `bloop-providers`.
 
 ### Standing deviation: unsafe in bloop-macos
 
@@ -92,7 +94,8 @@ Add or update tests when you change these surfaces:
 | Surface | Required evidence |
 | --- | --- |
 | `bloop-core/src/session.rs` | Unit tests: event sequences and expected commands, as `docs/CONTRACTS.md` requires |
-| `bloop-core/src/pipeline.rs` and `bloop-core/src/steps/` | Unit tests with fake providers: retry, nothing heard, raw fallback |
+| `bloop-core/src/pipeline.rs` and `bloop-core/src/steps/` | Unit tests with fake providers: empty transcript, text steps, raw fallback |
+| Streaming ports and driver | Fake provider tests: ordered audio, finish, cancellation, full queue, failure, stale results |
 | `bloop-macos/src/paste.rs` | Manual checks: target check, one paste for each generation, clipboard restore |
 | `bloop-macos/src/keys.rs` | Manual checks: hold threshold, combinations, Escape blocking |
 

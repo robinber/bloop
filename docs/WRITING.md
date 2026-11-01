@@ -27,11 +27,15 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 | Session | One dictation, from key press to paste, fallback card, or cancellation |
 | Capture | The first part of a session: microphone recording until key release, the duration limit, or cancellation |
 | Capture limit | The configured maximum duration of one capture |
-| Job | The second part of a session: transcription, correction, and paste, without a visible indicator |
+| Job | The part after capture: transcription completion, correction, and paste, without a visible indicator |
+| Streaming | Transfer of audio parts to a provider while capture continues |
+| Audio chunk | One ordered part of audio sent to the speech provider |
+| Transcription session | The provider connection that receives audio chunks and returns one complete transcript |
 | Generation | The number that identifies a session; the core ignores results with an old generation |
 | Orb | The small pill panel that shows the target application icon and the voice level |
 | Fallback card | The orb view that shows the final text when a paste is not possible |
-| Transcript | The text that the speech model returns |
+| Transcript | The complete text that the speech model returns after the audio ends |
+| Partial transcript | Text received before transcription completes; Bloop never inserts it |
 | Final text | The text that Bloop pastes: the corrected text or the raw transcript |
 | Focused field | The text field that has keyboard focus when the capture ends through key release or the duration limit |
 | Target check | The checks before the paste: same application, no new input, no secure input |
