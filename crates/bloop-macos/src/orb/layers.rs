@@ -51,7 +51,7 @@ const CEILING_DB: CGFloat = -10.0;
 /// The colors of the bars.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Palette {
-    /// Orange at the bottom, yellow at the top.
+    /// Deep purple at the bottom, burgundy at the top.
     Voice,
     /// Red.
     Error,
@@ -152,7 +152,7 @@ impl Layers {
             bars,
             text,
             hint,
-            voice: colors([1.0, 0.45, 0.1], [1.0, 0.85, 0.2]),
+            voice: colors([0.29, 0.0, 0.66], [0.5, 0.0, 0.125]),
             error: colors([0.9, 0.15, 0.15], [1.0, 0.35, 0.3]),
         };
         layers.set_palette(Palette::Voice);

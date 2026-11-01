@@ -131,7 +131,7 @@ On the right, seven vertical bars move with the voice level.
 | --- | --- |
 | Pill | `CALayer` with a dark, almost opaque fill and a corner radius of half its height |
 | Application icon | `CALayer` that shows the `NSImage` from `NSRunningApplication.icon` |
-| Bars | Seven `CALayer` bars with round ends, used as the mask of one `CAGradientLayer` (orange at the bottom, yellow at the top) |
+| Bars | Seven `CALayer` bars with round ends, used as the mask of one `CAGradientLayer` (deep purple at the bottom, burgundy at the top) |
 
 The initial dimensions come from a Tabi screen capture on the reference Mac. Adjust them by eye in Phase 1.
 
