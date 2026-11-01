@@ -1,9 +1,9 @@
 # Rust contracts
 
-Status: revision 5 (2026-11-01). `bloop-core` implements the session state machine, `Generation`, `FinalText`, `LevelMeter`,
-`TargetInfo`, the existing error enums, and the `EventSink`, `Scheduler`, `Overlay`, and `TextOutput` ports.
-The audio and streaming signatures below are Phase 2 proposals without implementation. The owner approved them on 2026-11-01.
-The text step signatures are Phase 3 proposals. `AudioQueueError` is a proposed addition to the error types.
+Status: revision 6 (2026-11-01). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+the transcription ports, the platform ports except `SecretStore`, and the Phase 2 pipeline.
+The owner approved the audio and streaming signatures on 2026-11-01. `SecretStore` comes with the Keychain adapter.
+The text step signatures are Phase 3 proposals.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
 
 All types and traits in this document are in `bloop-core`.
@@ -129,12 +129,14 @@ pub struct Transcript(String);
 pub struct FinalText(String);
 ```
 
-`AudioChunk` contains 16 kHz mono signed 16-bit little-endian PCM, without a file header.
-Its constructor checks for nonempty data, whole samples, and the selected maximum chunk size.
-`AudioChunk::as_bytes` exposes the validated bytes. Only the worker creates these chunks.
+`AudioChunk` contains mono signed 16-bit little-endian PCM at `AudioChunk::SAMPLE_RATE` (16 kHz), without a file header.
+`AudioChunk::new` returns `None` for empty data, a partial sample, or more than `AudioChunk::MAX_BYTES`.
+`MAX_BYTES` is 3,200 bytes (100 ms of audio). This is an initial value, not a measured limit.
+`AudioChunk::as_bytes` exposes the validated bytes. Only the worker creates these chunks. It splits longer audio.
 `CaptureSummary` contains the duration and peak level. It contains no recording.
 `LevelMeter::set` stores a level from 0 to 1. It clamps other values, and NaN stores 0. `LevelMeter::get` reads the level.
 `FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
+`FinalText::from(transcript)` keeps the raw transcript as the final text, without a copy.
 Audio and text types use a redacting `Debug` implementation.
 
 ## AI ports
@@ -208,6 +210,8 @@ The driver checks the generation before accepting any result. The provider does 
 ## Platform ports
 
 ```rust
+use std::num::NonZeroU32;
+
 use secrecy::SecretString;
 
 pub trait EventSink: Send + Sync {
@@ -220,7 +224,7 @@ pub trait AudioSink: Send {
 
 pub trait AudioInput {
     fn start(&mut self, generation: Generation, sink: Box<dyn AudioSink>)
-        -> Result<u32, AppError>;
+        -> Result<NonZeroU32, AppError>;
     fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
     fn cancel(&mut self);
 }
@@ -248,7 +252,7 @@ pub trait SecretStore {
 
 - Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
 - `AudioInput::start` starts capture without waiting for the provider connection.
-- `AudioInput::start` returns the native sample rate of the device, in Hz. The rate stays fixed during the capture.
+- `AudioInput::start` returns the native sample rate of the device, in Hz. The rate is not zero and stays fixed during the capture.
   The worker creates its converter with this rate before the first chunk.
 - `AudioSink` receives mono samples at the native sample rate.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
@@ -319,7 +323,7 @@ pub enum AppError {
 }
 ```
 
-`AudioQueueError` and `AppError::AudioQueue` are Phase 2 additions. The other error variants already exist.
+`StepError` is a Phase 3 addition. The other error types exist.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
@@ -337,17 +341,17 @@ pub struct Pipeline {
 ```
 
 `Pipeline::run(&self, generation: Generation, transcript: Transcript, context: StepContext) -> Event` is an `async fn`.
+Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
 
 The driver starts this pipeline only after `finish` returns the complete transcript.
 For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation.
 The limits for duration and level use `CaptureSummary`. They are not provider options.
 
-1. If the complete transcript is empty, `run` returns `NothingHeard`.
+1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard`.
 2. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.
 3. `run` returns `TextReady` with the final text.
 
-Phase 2 uses no text steps and returns the complete raw transcript.
-Phase 3 adds correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
+Phase 2 returns the complete raw transcript. Phase 3 adds correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
 
 | Step | Behavior |
 | --- | --- |

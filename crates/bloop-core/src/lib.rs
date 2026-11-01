@@ -6,5 +6,6 @@
 
 pub mod domain;
 pub mod error;
+pub mod pipeline;
 pub mod ports;
 pub mod session;

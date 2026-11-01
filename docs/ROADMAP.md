@@ -63,7 +63,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 ## Phase 2: Microphone and streaming transcription
 
 - [x] Review `Transcriber`, `TranscriptionSession`, `AudioSink`, and `AudioInput` before their adapters.
-- [ ] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
+- [x] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
 - [ ] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
 - [ ] Read the API key from Keychain. Without the key, show it in the menu status.
 - [ ] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.

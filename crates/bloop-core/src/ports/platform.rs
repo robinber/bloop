@@ -1,14 +1,55 @@
-//! Platform ports. The driver uses them on the main thread, except `EventSink`.
+//! Platform ports. The driver uses them on the main thread, except `EventSink` and `AudioSink`.
 
+use std::num::NonZeroU32;
 use std::time::Duration;
 
-use crate::domain::{FinalText, Generation, TargetInfo};
+use crate::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
+use crate::error::{AppError, AudioQueueError};
 use crate::session::{Event, OrbView};
 
 /// Sends events to the driver on the main thread. Any thread can use it.
 pub trait EventSink: Send + Sync {
     /// Queues the event for the driver.
     fn send(&self, event: Event);
+}
+
+/// Receives the microphone samples on the audio thread.
+pub trait AudioSink: Send {
+    /// Copies mono samples at the native sample rate into the bounded queue of the capture.
+    ///
+    /// It does not allocate, block, or perform I/O.
+    ///
+    /// # Errors
+    ///
+    /// `AudioQueueError::Full` when the queue has no space for the samples.
+    /// The queue then keeps an overflow mark, and the capture fails.
+    fn try_push(&mut self, samples: &[f32]) -> Result<(), AudioQueueError>;
+}
+
+/// Captures the microphone.
+pub trait AudioInput {
+    /// Starts the capture and sends its samples to `sink`. It does not wait for the provider connection.
+    ///
+    /// Returns the native sample rate of the device, in Hz. The rate does not change during the capture.
+    ///
+    /// # Errors
+    ///
+    /// A missing permission or an unavailable microphone.
+    fn start(
+        &mut self,
+        generation: Generation,
+        sink: Box<dyn AudioSink>,
+    ) -> Result<NonZeroU32, AppError>;
+
+    /// Stops the capture after its last samples, drops the sink, and returns the measures of the capture.
+    ///
+    /// # Errors
+    ///
+    /// The microphone failed during the capture.
+    fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
+
+    /// Stops the capture and drops the sink.
+    fn cancel(&mut self);
 }
 
 /// Sends events to the driver after a delay.

@@ -26,6 +26,15 @@ pub enum ProviderError {
     InvalidResponse,
 }
 
+/// A failure of the bounded audio queue between the microphone and the worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioQueueError {
+    /// The queue had no space for the samples. Bloop never drops samples silently.
+    Full,
+    /// The microphone stopped before the end of the capture.
+    Closed,
+}
+
 /// A failure that stops a capture or a job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppError {
@@ -33,6 +42,8 @@ pub enum AppError {
     PermissionMissing(Permission),
     /// The microphone is not available or stopped during the capture.
     Microphone,
+    /// The audio queue failed.
+    AudioQueue(AudioQueueError),
     /// An AI provider request failed.
     Provider(ProviderError),
 }

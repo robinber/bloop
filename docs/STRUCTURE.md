@@ -1,7 +1,7 @@
 # Code structure
 
-Status: Revision 3 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is next.
-The streaming types and flow below are Phase 2 proposals. They are not implemented.
+Status: Revision 4 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+`bloop-core` contains the streaming types and ports. The streaming flow below is not implemented yet.
 
 ## Goals
 
@@ -80,7 +80,7 @@ src/
 ├── lib.rs
 ├── domain.rs          Generation, AudioChunk, CaptureSummary, LevelMeter, TargetInfo, Transcript, FinalText
 ├── session.rs         Core, Capture, Job, Event, Command, OrbView, InsertOutcome, FallbackReason
-├── pipeline.rs        Pipeline: text steps and raw transcript fallback after complete transcription
+├── pipeline.rs        Complete transcript to result event; Phase 3 adds the text steps and raw fallback
 ├── steps/
 │   ├── mod.rs
 │   ├── refine.rs      LlmRefine: correction through a ChatModel and a prompt
