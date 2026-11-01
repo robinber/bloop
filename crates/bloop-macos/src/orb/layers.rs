@@ -1,26 +1,38 @@
-//! Core Animation layers of the orb: the pill, the application icon, and the bars.
+//! Core Animation layers of the orb: the pill, the application icon, the bars, and the fallback card.
+//!
+//! The root layer has the size of the card. The pill sits at its bottom center, and becomes the card.
 
 #![expect(
     unsafe_code,
-    reason = "the layer contents, the gradient colors, and the mask take Objective-C objects that the compiler cannot check"
+    reason = "the layer contents, the gradient colors, the mask, and the text layer string and font take Objective-C objects that the compiler cannot check"
 )]
 
 use std::time::Duration;
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_app_kit::NSImage;
+use objc2_app_kit::{NSFont, NSImage};
 use objc2_core_foundation::{CFType, CGFloat, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGColor;
-use objc2_foundation::NSArray;
-use objc2_quartz_core::{CAGradientLayer, CALayer, CATransaction, CATransform3D};
+use objc2_foundation::{NSArray, NSString, ns_string};
+use objc2_quartz_core::{
+    CAGradientLayer, CALayer, CATextLayer, CATransaction, CATransform3D, kCATruncationEnd,
+};
 
-pub(super) const PILL: CGSize = CGSize::new(150.0, 56.0);
+/// The size of the panel: the size of the card.
+pub(super) const CANVAS: CGSize = CARD;
 pub(super) const BAR_COUNT: usize = 7;
 pub(super) const BAR_MIN: CGFloat = 6.0;
 pub(super) const BAR_MOVE: Duration = Duration::from_millis(80);
 pub(super) const SHRINK: Duration = Duration::from_millis(120);
 
+const PILL: CGSize = CGSize::new(150.0, 56.0);
+const CARD: CGSize = CGSize::new(340.0, 104.0);
+const CARD_RADIUS: CGFloat = 16.0;
+const CARD_PADDING: CGFloat = 16.0;
+const CARD_CHARS: usize = 240;
+const TEXT_SIZE: CGFloat = 14.0;
+const HINT_SIZE: CGFloat = 12.0;
 const OPEN: Duration = Duration::from_millis(150);
 const PADDING: CGFloat = 18.0;
 const ICON_SIZE: CGFloat = 20.0;
@@ -45,6 +57,15 @@ pub(super) enum Palette {
     Error,
 }
 
+/// The content of the orb.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Shape<'a> {
+    /// The application icon and the bars.
+    Pill,
+    /// The final text and the instruction to paste it.
+    Card(&'a NSString),
+}
+
 /// The layer tree of the orb. The pill starts closed.
 #[derive(Debug)]
 pub(super) struct Layers {
@@ -53,19 +74,18 @@ pub(super) struct Layers {
     icon: Retained<CALayer>,
     gradient: Retained<CAGradientLayer>,
     bars: [Retained<CALayer>; BAR_COUNT],
+    text: Retained<CATextLayer>,
+    hint: Retained<CATextLayer>,
     voice: Retained<NSArray>,
     error: Retained<NSArray>,
 }
 
 impl Layers {
     pub(super) fn new() -> Self {
-        let bounds = CGRect::new(CGPoint::new(0.0, 0.0), PILL);
         let root = CALayer::layer();
-        root.setFrame(bounds);
+        root.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CANVAS));
 
         let pill = CALayer::layer();
-        pill.setFrame(bounds);
-        pill.setCornerRadius(PILL.height / 2.0);
         pill.setBackgroundColor(Some(&CGColor::new_srgb(0.07, 0.07, 0.08, 0.94)));
         root.addSublayer(&pill);
 
@@ -103,16 +123,40 @@ impl Layers {
         unsafe { gradient.setMask(Some(&mask)) };
         pill.addSublayer(&gradient);
 
+        let text_width = CARD.width - 2.0 * CARD_PADDING;
+        let text = text_layer(
+            CGRect::new(
+                CGPoint::new(CARD_PADDING, 34.0),
+                CGSize::new(text_width, 56.0),
+            ),
+            TEXT_SIZE,
+            &CGColor::new_srgb(0.95, 0.95, 0.97, 1.0),
+        );
+        pill.addSublayer(&text);
+        let hint = text_layer(
+            CGRect::new(
+                CGPoint::new(CARD_PADDING, 12.0),
+                CGSize::new(text_width, 16.0),
+            ),
+            HINT_SIZE,
+            &CGColor::new_srgb(0.62, 0.62, 0.66, 1.0),
+        );
+        set_string(&hint, Some(ns_string!("Copied, press ⌘V")));
+        pill.addSublayer(&hint);
+
         let layers = Self {
             root,
             pill,
             icon,
             gradient,
             bars,
+            text,
+            hint,
             voice: colors([1.0, 0.45, 0.1], [1.0, 0.85, 0.2]),
             error: colors([0.9, 0.15, 0.15], [1.0, 0.35, 0.3]),
         };
         layers.set_palette(Palette::Voice);
+        layers.set_shape(Shape::Pill, None);
         transaction(None, || layers.set_pill(0.0, CLOSED_SCALE));
         layers
     }
@@ -122,9 +166,44 @@ impl Layers {
         &self.root
     }
 
-    /// Sets the scale of the screen that shows the icon. Set the icon again after this call.
+    /// Sets the scale of the screen that shows the icon and the text. Set the icon again after this call.
     pub(super) fn set_scale(&self, scale: CGFloat) {
         self.icon.setContentsScale(scale);
+        self.text.setContentsScale(scale);
+        self.hint.setContentsScale(scale);
+    }
+
+    /// Gives the pill its size and content: animated for `animation`, or immediate.
+    ///
+    /// The pill grows from its bottom center to the card. The pill shape clears the card text.
+    pub(super) fn set_shape(&self, shape: Shape<'_>, animation: Option<Duration>) {
+        let card = match shape {
+            Shape::Pill => {
+                transaction(None, || set_string(&self.text, None));
+                false
+            }
+            Shape::Card(text) => {
+                transaction(None, || set_string(&self.text, Some(text)));
+                true
+            }
+        };
+        let (size, radius) = if card {
+            (CARD, CARD_RADIUS)
+        } else {
+            (PILL, PILL.height / 2.0)
+        };
+        let (pill_opacity, card_opacity) = if card { (0.0, 1.0) } else { (1.0, 0.0) };
+        transaction(animation, || {
+            self.pill
+                .setBounds(CGRect::new(CGPoint::new(0.0, 0.0), size));
+            self.pill
+                .setPosition(CGPoint::new(CANVAS.width / 2.0, size.height / 2.0));
+            self.pill.setCornerRadius(radius);
+            self.icon.setOpacity(pill_opacity);
+            self.gradient.setOpacity(pill_opacity);
+            self.text.setOpacity(card_opacity);
+            self.hint.setOpacity(card_opacity);
+        });
     }
 
     /// Shows the application icon, or no icon.
@@ -237,6 +316,41 @@ fn bar_height(amount: CGFloat) -> CGFloat {
     BAR_MIN + (BAR_MAX - BAR_MIN) * amount.clamp(0.0, 1.0)
 }
 
+/// The start of the final text that the card shows, with an ellipsis if the text is longer.
+pub(super) fn excerpt(text: &str) -> String {
+    let mut chars = text.chars();
+    let mut excerpt: String = chars.by_ref().take(CARD_CHARS).collect();
+    if chars.next().is_some() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+/// A hidden text layer with the system font that wraps its text and truncates it at the end.
+fn text_layer(frame: CGRect, size: CGFloat, color: &CGColor) -> Retained<CATextLayer> {
+    let layer = CATextLayer::layer();
+    layer.setFrame(frame);
+    layer.setFontSize(size);
+    layer.setForegroundColor(Some(color));
+    layer.setWrapped(true);
+    let font = NSFont::systemFontOfSize(size);
+    // SAFETY: `NSFont` is toll-free bridged with `CTFont`, a Core Foundation type.
+    // The reference does not outlive `font`.
+    let font: &CFType = unsafe { &*Retained::as_ptr(&font).cast::<CFType>() };
+    // SAFETY: `CATextLayer.font` accepts a `CTFont`.
+    unsafe { layer.setFont(Some(font)) };
+    // SAFETY: Core Animation sets this constant before `main` and never changes it.
+    layer.setTruncationMode(unsafe { kCATruncationEnd });
+    layer.setOpacity(0.0);
+    layer
+}
+
+fn set_string(layer: &CATextLayer, text: Option<&NSString>) {
+    let string: Option<&AnyObject> = text.map(|text| -> &AnyObject { text });
+    // SAFETY: `CATextLayer.string` accepts an `NSString`. No string clears the layer.
+    unsafe { layer.setString(string) };
+}
+
 fn bar_bounds(height: CGFloat) -> CGRect {
     CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(BAR_WIDTH, height))
 }
@@ -264,7 +378,9 @@ fn transaction(duration: Option<Duration>, changes: impl FnOnce()) {
 
 #[cfg(test)]
 mod tests {
-    use super::{BAR_COUNT, BAR_MAX, BAR_MIN, BarHeights, loudness, resting_heights};
+    use super::{
+        BAR_COUNT, BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, excerpt, loudness, resting_heights,
+    };
 
     const CENTER: usize = 3;
 
@@ -320,5 +436,21 @@ mod tests {
 
         assert!((heights[CENTER] - BAR_MAX).abs() < 1e-9);
         assert!(heights.iter().all(|&height| height <= heights[CENTER]));
+    }
+
+    #[test]
+    fn a_short_text_shows_completely() {
+        assert_eq!(excerpt("Bonjour, ça va ?"), "Bonjour, ça va ?");
+    }
+
+    #[test]
+    fn a_long_text_shows_its_start_and_an_ellipsis() {
+        let text = "é".repeat(CARD_CHARS + 1);
+
+        let shown = excerpt(&text);
+
+        assert_eq!(shown.chars().count(), CARD_CHARS + 1);
+        assert!(shown.ends_with("é…"));
+        assert_eq!(excerpt(&"é".repeat(CARD_CHARS)), "é".repeat(CARD_CHARS));
     }
 }

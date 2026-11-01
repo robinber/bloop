@@ -1,4 +1,5 @@
-//! `OrbPanel`: the pill at the bottom of the screen that shows the voice level during a capture.
+//! `OrbPanel`: the pill at the bottom of the screen that shows the voice level during a capture,
+//! and the fallback card with the final text.
 
 mod layers;
 mod panel;
@@ -14,11 +15,14 @@ use dispatch2::{DispatchQueue, DispatchTime, MainThreadBound};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPanel, NSWorkspace};
+use objc2_foundation::NSString;
 
-use self::layers::{BAR_COUNT, BAR_MIN, BAR_MOVE, BarHeights, Layers, Palette, SHRINK};
+use self::layers::{BAR_COUNT, BAR_MIN, BAR_MOVE, BarHeights, Layers, Palette, SHRINK, Shape};
 
 const TICK: Duration = Duration::from_millis(33);
 const ERROR_TIME: Duration = Duration::from_secs(1);
+const CARD_TIME: Duration = Duration::from_secs(8);
+const MORPH: Duration = Duration::from_millis(200);
 const ERROR_LOUDNESS: f64 = 0.6;
 
 /// The orb. It operates on the main thread.
@@ -66,6 +70,7 @@ enum View {
     Hidden,
     Listening,
     Error,
+    Card,
     Closing,
 }
 
@@ -92,24 +97,26 @@ impl Orb {
     fn show(&mut self, view: &OrbView) -> Next {
         match view {
             OrbView::Listening => {
-                self.open(View::Listening, Palette::Voice);
+                self.open(View::Listening, Shape::Pill, Palette::Voice);
                 self.bars.reset();
                 Next::After(TICK, Self::tick)
             }
             OrbView::Error => {
-                self.open(View::Error, Palette::Error);
+                self.open(View::Error, Shape::Pill, Palette::Error);
                 self.layers
                     .move_bars(&layers::resting_heights(ERROR_LOUDNESS));
                 Next::After(ERROR_TIME, Self::close)
             }
-            OrbView::Card(_) => {
-                tracing::warn!("the orb cannot show the fallback card yet");
-                Next::Done
+            OrbView::Card(text) => {
+                let text = NSString::from_str(&layers::excerpt(text.as_str()));
+                self.open(View::Card, Shape::Card(&text), Palette::Voice);
+                Next::After(CARD_TIME, Self::close)
             }
         }
     }
 
-    fn open(&mut self, view: View, palette: Palette) {
+    /// Shows the panel if it is hidden, then gives the pill the shape of `view`.
+    fn open(&mut self, view: View, shape: Shape<'_>, palette: Palette) {
         self.epoch = self.epoch.wrapping_add(1);
         if self.view == View::Hidden {
             if let Some(scale) = panel::place(&self.panel, self.mtm) {
@@ -117,7 +124,10 @@ impl Orb {
                 self.icon_owner = None;
             }
             self.layers.reset_bars();
+            self.layers.set_shape(shape, None);
             self.panel.orderFrontRegardless();
+        } else {
+            self.layers.set_shape(shape, Some(MORPH));
         }
         self.view = view;
         self.layers.set_palette(palette);
@@ -128,7 +138,7 @@ impl Orb {
     fn close(&mut self) -> Next {
         match self.view {
             View::Hidden | View::Closing => Next::Done,
-            View::Listening | View::Error => {
+            View::Listening | View::Error | View::Card => {
                 self.epoch = self.epoch.wrapping_add(1);
                 self.view = View::Closing;
                 self.layers.move_bars(&[BAR_MIN; BAR_COUNT]);

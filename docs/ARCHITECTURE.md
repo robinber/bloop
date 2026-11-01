@@ -140,6 +140,10 @@ The initial dimensions come from a Tabi screen capture on the reference Mac. Adj
 | Pill | 150 × 56 |
 | Application icon | 20 × 20 |
 | Bar | Width 4; 11.5 between bar centers; height from 6 to 24 |
+| Card | 340 × 104, corner radius 16; text 14 pt on up to 3 lines; instruction 12 pt |
+
+The panel has the size of the card. The pill sits at its bottom center.
+The panel ignores mouse events. Thus its transparent area does not block clicks.
 
 - The icon shows the frontmost application when the orb opens.
 - If the user activates another application during the session, the icon changes.
@@ -167,7 +171,7 @@ During processing, the orb is not visible. Tabi has the same behavior.
 | Capture warning | Before the duration limit, the orb shows the remaining time. Recording continues. The orb keeps keyboard focus unchanged. |
 | Closing | When the capture ends, the bars go down, then the pill shrinks and fades out, in about 200 ms |
 | Error | The pill opens with red bars for about 1 second, then closes |
-| Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V". It closes after 8 seconds or at the next capture. |
+| Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V", in about 200 ms. The card shows the first 240 characters. It closes after 8 seconds or at the next capture. |
 
 Bloop does not use Tabi code or assets.
 

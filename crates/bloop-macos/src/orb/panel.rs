@@ -9,7 +9,7 @@ use objc2_app_kit::{
 use objc2_core_foundation::{CGFloat, CGPoint, CGRect};
 use objc2_quartz_core::CALayer;
 
-use super::layers::PILL;
+use super::layers::CANVAS;
 
 const BOTTOM_MARGIN: CGFloat = 16.0;
 
@@ -17,7 +17,7 @@ const BOTTOM_MARGIN: CGFloat = 16.0;
 ///
 /// The panel is borderless and nonactivating. Thus it never becomes the key window or the main window.
 pub(super) fn new(mtm: MainThreadMarker, root: &CALayer) -> Retained<NSPanel> {
-    let frame = CGRect::new(CGPoint::new(0.0, 0.0), PILL);
+    let frame = CGRect::new(CGPoint::new(0.0, 0.0), CANVAS);
     let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
         NSPanel::alloc(mtm),
         frame,
@@ -56,7 +56,7 @@ pub(super) fn place(panel: &NSPanel, mtm: MainThreadMarker) -> Option<CGFloat> {
         .or_else(|| NSScreen::mainScreen(mtm))?;
     let visible = screen.visibleFrame();
     panel.setFrameOrigin(CGPoint::new(
-        visible.mid().x - PILL.width / 2.0,
+        visible.mid().x - CANVAS.width / 2.0,
         visible.min().y + BOTTOM_MARGIN,
     ));
     Some(screen.backingScaleFactor())
