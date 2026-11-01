@@ -6,6 +6,7 @@ pub mod app;
 pub mod events;
 pub mod keys;
 pub mod menu;
+pub mod orb;
 pub mod permissions;
 pub mod scheduler;
 

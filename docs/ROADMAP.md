@@ -38,7 +38,7 @@ This phase uses fixed test text. It does not use audio.
 - [x] Check the Accessibility and Input Monitoring permissions.
 - [x] Add the event tap for Right Command, other input, and Escape.
 - [x] Write the core state machine and its unit tests.
-- [ ] Show the orb after 220 ms. Animate it with a test level.
+- [x] Show the orb after 220 ms. Animate it with a test level.
 - [ ] Paste the test text through the on-demand clipboard item.
 - [ ] Restore the previous clipboard content.
 - [ ] Show the fallback card when the target check fails.

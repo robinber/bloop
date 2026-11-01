@@ -1,7 +1,7 @@
 # Rust contracts
 
-Status: revision 4. `bloop-core` implements the session state machine, `Generation`, `FinalText`, the existing error enums,
-and the `EventSink` and `Scheduler` ports.
+Status: revision 4. `bloop-core` implements the session state machine, `Generation`, `FinalText`, `LevelMeter`,
+the existing error enums, and the `EventSink`, `Scheduler`, and `Overlay` ports.
 The audio and streaming signatures below are Phase 2 proposals without implementation.
 The text step signatures are Phase 3 proposals. `AudioQueueError` is a proposed addition to the error types.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
@@ -114,7 +114,7 @@ pub struct CaptureSummary {
     pub peak: f32,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LevelMeter(Arc<AtomicU32>);
 
 #[derive(Clone, Default)]
@@ -133,6 +133,7 @@ pub struct FinalText(String);
 Its constructor checks for nonempty data, whole samples, and the selected maximum chunk size.
 `AudioChunk::as_bytes` exposes the validated bytes. Only the worker creates these chunks.
 `CaptureSummary` contains the duration and peak level. It contains no recording.
+`LevelMeter::set` stores a level from 0 to 1. It clamps other values, and NaN stores 0. `LevelMeter::get` reads the level.
 `FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
 Audio and text types use a redacting `Debug` implementation.
 

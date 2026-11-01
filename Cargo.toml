@@ -18,8 +18,9 @@ dispatch2 = "0.3.1"
 objc2 = "0.6.5"
 objc2-app-kit = "0.3.2"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFMachPort", "CFRunLoop"] }
-objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventTypes"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGColor", "CGEvent", "CGEventTypes"] }
 objc2-foundation = "0.3.2"
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CAGradientLayer", "CALayer", "CATransaction", "CATransform3D", "objc2-core-foundation", "objc2-core-graphics"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }
 
