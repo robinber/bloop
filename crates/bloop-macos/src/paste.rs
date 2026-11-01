@@ -134,7 +134,8 @@ impl TextOutput for Paster {
     }
 
     fn copy(&mut self, text: &FinalText) {
-        write_text(&NSString::from_str(text.as_str()));
+        let pasteboard = NSPasteboard::generalPasteboard();
+        write_text(&pasteboard, &NSString::from_str(text.as_str()));
     }
 
     fn cancel(&mut self, generation: Generation) {
@@ -277,8 +278,8 @@ fn save(pasteboard: &NSPasteboard) -> Option<Vec<SavedItem>> {
 }
 
 /// Returns `true` if nobody changed the clipboard since Bloop wrote it, at the change count `written`.
-fn owns_clipboard(written: NSInteger) -> bool {
-    let owned = NSPasteboard::generalPasteboard().changeCount() == written;
+fn owns_clipboard(pasteboard: &NSPasteboard, written: NSInteger) -> bool {
+    let owned = pasteboard.changeCount() == written;
     if !owned {
         tracing::info!("the clipboard changed after the paste, Bloop keeps the new content");
     }
@@ -289,14 +290,13 @@ fn owns_clipboard(written: NSInteger) -> bool {
 ///
 /// Without a saved clipboard, the text stays in the clipboard.
 /// The restored items have the transient marker. Thus a clipboard manager does not record them again.
-fn restore(saved: Option<Vec<SavedItem>>, written: NSInteger) {
+fn restore(pasteboard: &NSPasteboard, saved: Option<Vec<SavedItem>>, written: NSInteger) {
     let Some(saved) = saved else {
         return;
     };
-    if !owns_clipboard(written) {
+    if !owns_clipboard(pasteboard, written) {
         return;
     }
-    let pasteboard = NSPasteboard::generalPasteboard();
     pasteboard.clearContents();
     if saved.is_empty() {
         return;
@@ -405,8 +405,7 @@ impl Transaction {
 }
 
 /// Replaces the clipboard content with a normal text item.
-fn write_text(text: &NSString) {
-    let pasteboard = NSPasteboard::generalPasteboard();
+fn write_text(pasteboard: &NSPasteboard, text: &NSString) {
     pasteboard.clearContents();
     if !pasteboard.setString_forType(text, string_type()) {
         tracing::error!("the clipboard refused the text");
@@ -487,8 +486,9 @@ impl TextProvider {
     fn give_up(&self) {
         if self.step(Transaction::read_time_out) {
             drop(self.ivars().saved.take());
-            if owns_clipboard(self.ivars().written.get()) {
-                write_text(&self.ivars().text);
+            let pasteboard = NSPasteboard::generalPasteboard();
+            if owns_clipboard(&pasteboard, self.ivars().written.get()) {
+                write_text(&pasteboard, &self.ivars().text);
             }
             self.report(InsertOutcome::Fallback(FallbackReason::NotRead));
         }
@@ -497,7 +497,12 @@ impl TextProvider {
     /// Restores the saved clipboard after the read, then reports `Landed`.
     fn restore_now(&self) {
         if self.step(Transaction::restore_due) {
-            restore(self.ivars().saved.take(), self.ivars().written.get());
+            let pasteboard = NSPasteboard::generalPasteboard();
+            restore(
+                &pasteboard,
+                self.ivars().saved.take(),
+                self.ivars().written.get(),
+            );
             self.report(InsertOutcome::Landed);
         }
     }
@@ -531,12 +536,23 @@ impl TextProvider {
 mod tests {
     use bloop_core::domain::Generation;
     use bloop_core::session::{Command, Core, Event};
-    use objc2_app_kit::NSRunningApplication;
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{
+        NSPasteboard, NSPasteboardItem, NSPasteboardType, NSPasteboardWriting, NSRunningApplication,
+    };
     use objc2_core_graphics::CGEvent;
+    use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
 
     use bloop_core::session::InsertOutcome;
 
-    use super::{KEY_V, Target, Targets, Transaction, is_posted, mark_posted, target_of};
+    use super::{
+        KEY_V, Target, Targets, Transaction, is_posted, mark_posted, restore, save, string_type,
+        target_of, transient_type, write_text,
+    };
+
+    /// The data of each item of the pasteboard, by type, in item order.
+    type Contents = Vec<Vec<(String, Vec<u8>)>>;
 
     fn generations(count: usize) -> Vec<Generation> {
         let mut core = Core::new();
@@ -558,6 +574,59 @@ mod tests {
             process: Some(process),
             inputs: [0; 4],
         }
+    }
+
+    fn item(types: &[(&NSPasteboardType, &[u8])]) -> Retained<NSPasteboardItem> {
+        let item = NSPasteboardItem::new();
+        for (data_type, data) in types {
+            assert!(item.setData_forType(&NSData::with_bytes(data), data_type));
+        }
+        item
+    }
+
+    fn bloop_text() -> Retained<NSPasteboardItem> {
+        item(&[(string_type(), &b"Bloop"[..])])
+    }
+
+    /// Replaces the pasteboard content with these items, as another application does.
+    fn write(pasteboard: &NSPasteboard, items: &[Retained<NSPasteboardItem>]) -> NSInteger {
+        pasteboard.clearContents();
+        let objects: Vec<&ProtocolObject<dyn NSPasteboardWriting>> = items
+            .iter()
+            .map(|item| ProtocolObject::from_ref(&**item))
+            .collect();
+        assert!(pasteboard.writeObjects(&NSArray::from_slice(&objects)));
+        pasteboard.changeCount()
+    }
+
+    fn contents(pasteboard: &NSPasteboard) -> Contents {
+        let items = pasteboard.pasteboardItems().expect("pasteboard items");
+        items
+            .iter()
+            .map(|item| {
+                let mut types: Vec<(String, Vec<u8>)> = item
+                    .types()
+                    .iter()
+                    .map(|data_type| {
+                        let data = item.dataForType(&data_type).expect("data for type");
+                        (data_type.to_string(), data.to_vec())
+                    })
+                    .collect();
+                types.sort();
+                types
+            })
+            .collect()
+    }
+
+    fn with_transient_marker(contents: Contents) -> Contents {
+        contents
+            .into_iter()
+            .map(|mut types| {
+                types.push((transient_type().to_string(), Vec::new()));
+                types.sort();
+                types
+            })
+            .collect()
     }
 
     #[test]
@@ -665,5 +734,86 @@ mod tests {
 
         assert!(transaction.restore_due());
         assert_eq!(transaction.result(InsertOutcome::Landed), None);
+    }
+
+    #[test]
+    fn restore_writes_the_saved_items_back_with_the_transient_marker() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        let first = item(&[
+            (ns_string!("com.example.bloop.alpha"), &b"alpha"[..]),
+            (ns_string!("com.example.bloop.beta"), &b"beta"[..]),
+        ]);
+        let second = item(&[
+            (ns_string!("com.example.bloop.gamma"), &[0, 1, 2, 255][..]),
+            (ns_string!("com.example.bloop.delta"), &[][..]),
+        ]);
+        write(&pasteboard, &[first, second]);
+        let before = contents(&pasteboard);
+        let saved = save(&pasteboard);
+        let written = write(&pasteboard, &[bloop_text()]);
+
+        restore(&pasteboard, saved, written);
+
+        assert_eq!(contents(&pasteboard), with_transient_marker(before));
+        pasteboard.clearContents();
+    }
+
+    #[test]
+    fn restore_leaves_an_empty_clipboard_empty() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        pasteboard.clearContents();
+        let saved = save(&pasteboard);
+        assert_eq!(saved.as_ref().map(Vec::len), Some(0));
+        let written = write(&pasteboard, &[bloop_text()]);
+
+        restore(&pasteboard, saved, written);
+
+        assert_eq!(contents(&pasteboard), Contents::new());
+        pasteboard.clearContents();
+    }
+
+    #[test]
+    fn restore_keeps_a_clipboard_that_changed_after_the_paste() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        write(
+            &pasteboard,
+            &[item(&[(
+                ns_string!("com.example.bloop.alpha"),
+                &b"alpha"[..],
+            )])],
+        );
+        let saved = save(&pasteboard);
+        let written = write(&pasteboard, &[bloop_text()]);
+        write(&pasteboard, &[item(&[(string_type(), &b"other"[..])])]);
+        let changed = contents(&pasteboard);
+
+        restore(&pasteboard, saved, written);
+
+        assert_eq!(contents(&pasteboard), changed);
+        pasteboard.clearContents();
+    }
+
+    #[test]
+    fn write_text_leaves_one_string_item() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        write(
+            &pasteboard,
+            &[
+                item(&[(ns_string!("com.example.bloop.alpha"), &b"alpha"[..])]),
+                item(&[(ns_string!("com.example.bloop.beta"), &b"beta"[..])]),
+            ],
+        );
+
+        write_text(&pasteboard, ns_string!("Bloop"));
+
+        let items = pasteboard.pasteboardItems().expect("pasteboard items");
+        assert_eq!(items.len(), 1);
+        let text = items
+            .iter()
+            .next()
+            .and_then(|item| item.stringForType(string_type()))
+            .map(|text| text.to_string());
+        assert_eq!(text, Some("Bloop".to_owned()));
+        pasteboard.clearContents();
     }
 }
