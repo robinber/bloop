@@ -76,7 +76,9 @@ impl Paster {
 
     fn paste(&mut self, generation: Generation, text: &FinalText) {
         let pasteboard = NSPasteboard::generalPasteboard();
-        let provider = TextProvider::new(self.mtm, generation, text, save(&pasteboard));
+        let saved = save(&pasteboard);
+        let written = pasteboard.clearContents();
+        let provider = TextProvider::new(self.mtm, generation, text, saved, written);
         let item = NSPasteboardItem::new();
         let marked = item.setDataProvider_forTypes(
             ProtocolObject::from_ref(&*provider),
@@ -84,12 +86,10 @@ impl Paster {
         ) && item.setData_forType(&NSData::new(), transient_type())
             && item.setData_forType(&NSData::new(), ns_string!("org.nspasteboard.ConcealedType"));
 
-        pasteboard.clearContents();
         self.provider = Some(provider.clone());
-        let written = marked
+        let accepted = marked
             && pasteboard.writeObjects(&NSArray::from_slice(&[ProtocolObject::from_ref(&*item)]));
-        provider.ivars().written.set(pasteboard.changeCount());
-        if !written {
+        if !accepted {
             tracing::error!("the clipboard refused the paste item");
             provider.give_up();
             return;
@@ -416,7 +416,7 @@ struct ProviderIvars {
     generation: Generation,
     text: Retained<NSString>,
     saved: Cell<Option<Vec<SavedItem>>>,
-    written: Cell<NSInteger>,
+    written: NSInteger,
     transaction: Cell<Transaction>,
 }
 
@@ -468,12 +468,13 @@ impl TextProvider {
         generation: Generation,
         text: &FinalText,
         saved: Option<Vec<SavedItem>>,
+        written: NSInteger,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ProviderIvars {
             generation,
             text: NSString::from_str(text.as_str()),
             saved: Cell::new(saved),
-            written: Cell::new(0),
+            written,
             transaction: Cell::new(Transaction::default()),
         });
         // SAFETY: the `init` method of `NSObject` has no requirements, and the ivars are set.
@@ -487,7 +488,7 @@ impl TextProvider {
         if self.step(Transaction::read_time_out) {
             drop(self.ivars().saved.take());
             let pasteboard = NSPasteboard::generalPasteboard();
-            if owns_clipboard(&pasteboard, self.ivars().written.get()) {
+            if owns_clipboard(&pasteboard, self.ivars().written) {
                 write_text(&pasteboard, &self.ivars().text);
             }
             self.report(InsertOutcome::Fallback(FallbackReason::NotRead));
@@ -498,11 +499,7 @@ impl TextProvider {
     fn restore_now(&self) {
         if self.step(Transaction::restore_due) {
             let pasteboard = NSPasteboard::generalPasteboard();
-            restore(
-                &pasteboard,
-                self.ivars().saved.take(),
-                self.ivars().written.get(),
-            );
+            restore(&pasteboard, self.ivars().saved.take(), self.ivars().written);
             self.report(InsertOutcome::Landed);
         }
     }
@@ -790,6 +787,17 @@ mod tests {
         restore(&pasteboard, saved, written);
 
         assert_eq!(contents(&pasteboard), changed);
+        pasteboard.clearContents();
+    }
+
+    #[test]
+    fn the_change_count_after_the_write_is_the_one_that_clear_contents_returned() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        let cleared = pasteboard.clearContents();
+        let item = bloop_text();
+        assert!(pasteboard.writeObjects(&NSArray::from_slice(&[ProtocolObject::from_ref(&*item)])));
+
+        assert_eq!(pasteboard.changeCount(), cleared);
         pasteboard.clearContents();
     }
 
