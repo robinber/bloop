@@ -269,7 +269,7 @@ There is no separate file transcription path or later migration.
 | `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Real API tests run manually. |
 | `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
 | `bloop-app` | Driver with fake ports: slow connection, full queue, release, failure, cancellation, and stale results |
-| `bloop-macos` | Unit tests of the logic without macOS types: key state, target list, clipboard transaction, and bar heights. Manual acceptance checks from the [roadmap](ROADMAP.md) for the macOS calls. |
+| `bloop-macos` | Unit tests of the logic without macOS types: key state, target list, clipboard transaction, bar heights, and orb view changes. Manual acceptance checks from the [roadmap](ROADMAP.md) for the macOS calls. |
 
 ## Shared rules
 

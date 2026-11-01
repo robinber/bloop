@@ -45,8 +45,7 @@ impl OrbPanel {
             layers,
             meter,
             bars: BarHeights::default(),
-            view: View::Hidden,
-            epoch: 0,
+            state: State::default(),
             icon_owner: None,
             mtm,
         };
@@ -67,13 +66,72 @@ impl Overlay for OrbPanel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum View {
+    #[default]
     Hidden,
     Listening,
     Error,
     Card,
     Closing,
+}
+
+/// How the orb shows a new view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Entry {
+    /// The panel is hidden. It shows the view at once.
+    Open,
+    /// The panel is visible. The pill changes into the view.
+    Morph,
+}
+
+/// The view of the orb and the epoch of its timers.
+///
+/// Each view change starts a new epoch. A timer step runs only if its epoch is still current.
+#[derive(Debug, Default)]
+struct State {
+    view: View,
+    epoch: u64,
+}
+
+impl State {
+    /// Changes to `view`. The timers of the previous view become stale.
+    fn show(&mut self, view: View) -> Entry {
+        self.epoch = self.epoch.wrapping_add(1);
+        let entry = if self.view == View::Hidden {
+            Entry::Open
+        } else {
+            Entry::Morph
+        };
+        self.view = view;
+        entry
+    }
+
+    /// Starts to close. Returns `false`, and changes nothing, if the orb is hidden or closes already.
+    fn close(&mut self) -> bool {
+        match self.view {
+            View::Hidden | View::Closing => false,
+            View::Listening | View::Error | View::Card => {
+                self.epoch = self.epoch.wrapping_add(1);
+                self.view = View::Closing;
+                true
+            }
+        }
+    }
+
+    /// Ends the close: the orb is hidden.
+    fn hide(&mut self) {
+        self.view = View::Hidden;
+    }
+
+    fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Tells if a timer that started in `epoch` is still for the current view.
+    fn is_current(&self, epoch: u64) -> bool {
+        self.epoch == epoch
+    }
 }
 
 /// What the orb does after a step.
@@ -89,8 +147,7 @@ struct Orb {
     layers: Layers,
     meter: LevelMeter,
     bars: BarHeights,
-    view: View,
-    epoch: u64,
+    state: State,
     icon_owner: Option<i32>,
     mtm: MainThreadMarker,
 }
@@ -119,34 +176,29 @@ impl Orb {
 
     /// Shows the panel if it is hidden, then gives the pill the shape of `view`.
     fn open(&mut self, view: View, shape: Shape<'_>, palette: Palette) {
-        self.epoch = self.epoch.wrapping_add(1);
-        if self.view == View::Hidden {
-            if let Some(scale) = panel::place(&self.panel, self.mtm) {
-                self.layers.set_scale(scale);
-                self.icon_owner = None;
+        match self.state.show(view) {
+            Entry::Open => {
+                if let Some(scale) = panel::place(&self.panel, self.mtm) {
+                    self.layers.set_scale(scale);
+                    self.icon_owner = None;
+                }
+                self.layers.reset_bars();
+                self.layers.set_shape(shape, None);
+                self.panel.orderFrontRegardless();
             }
-            self.layers.reset_bars();
-            self.layers.set_shape(shape, None);
-            self.panel.orderFrontRegardless();
-        } else {
-            self.layers.set_shape(shape, Some(MORPH));
+            Entry::Morph => self.layers.set_shape(shape, Some(MORPH)),
         }
-        self.view = view;
         self.layers.set_palette(palette);
         self.update_icon();
         self.layers.open();
     }
 
     fn close(&mut self) -> Next {
-        match self.view {
-            View::Hidden | View::Closing => Next::Done,
-            View::Listening | View::Error | View::Card => {
-                self.epoch = self.epoch.wrapping_add(1);
-                self.view = View::Closing;
-                self.layers.move_bars(&[BAR_MIN; BAR_COUNT]);
-                Next::After(BAR_MOVE, Self::shrink)
-            }
+        if !self.state.close() {
+            return Next::Done;
         }
+        self.layers.move_bars(&[BAR_MIN; BAR_COUNT]);
+        Next::After(BAR_MOVE, Self::shrink)
     }
 
     fn shrink(&mut self) -> Next {
@@ -156,7 +208,7 @@ impl Orb {
 
     fn hide(&mut self) -> Next {
         self.panel.orderOut(None);
-        self.view = View::Hidden;
+        self.state.hide();
         Next::Done
     }
 
@@ -208,7 +260,7 @@ fn run(
         return;
     };
     let target = MainThreadBound::new((Rc::downgrade(shared), mtm), mtm);
-    schedule(target, orb.epoch, delay, step);
+    schedule(target, orb.state.epoch(), delay, step);
 }
 
 /// Runs `step` on the main queue after `delay`, if the orb exists and its epoch is still `epoch`.
@@ -222,7 +274,9 @@ fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> 
             let Some(shared) = orb.upgrade() else {
                 return;
             };
-            let current = shared.try_borrow().is_ok_and(|orb| orb.epoch == epoch);
+            let current = shared
+                .try_borrow()
+                .is_ok_and(|orb| orb.state.is_current(epoch));
             if current {
                 run(&shared, *mtm, step);
             }
@@ -230,5 +284,70 @@ fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> 
     });
     if let Err(error) = queued {
         tracing::error!(?error, "the orb timer did not start");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Entry, State, View};
+
+    #[test]
+    fn the_first_show_opens_the_panel_and_the_next_one_morphs_the_pill() {
+        let mut state = State::default();
+
+        assert_eq!(state.show(View::Listening), Entry::Open);
+        assert_eq!(state.show(View::Card), Entry::Morph);
+    }
+
+    #[test]
+    fn a_card_during_the_close_morphs_the_pill_and_stops_the_close() {
+        let mut state = State::default();
+        state.show(View::Listening);
+        assert!(state.close());
+        let closing = state.epoch();
+
+        assert_eq!(state.show(View::Card), Entry::Morph);
+        assert!(!state.is_current(closing));
+    }
+
+    #[test]
+    fn a_second_close_changes_nothing() {
+        let mut state = State::default();
+        state.show(View::Error);
+        assert!(state.close());
+        let closing = state.epoch();
+
+        assert!(!state.close());
+        assert!(state.is_current(closing));
+    }
+
+    #[test]
+    fn a_capture_during_the_card_stops_the_card_timer() {
+        let mut state = State::default();
+        state.show(View::Card);
+        let card = state.epoch();
+
+        assert_eq!(state.show(View::Listening), Entry::Morph);
+        assert!(!state.is_current(card));
+    }
+
+    #[test]
+    fn a_close_while_hidden_changes_nothing() {
+        let mut state = State::default();
+        let hidden = state.epoch();
+
+        assert!(!state.close());
+        assert!(state.is_current(hidden));
+        assert_eq!(state.show(View::Listening), Entry::Open);
+    }
+
+    #[test]
+    fn hide_ends_the_close_and_the_next_show_opens_the_panel() {
+        let mut state = State::default();
+        state.show(View::Listening);
+        assert!(state.close());
+        state.hide();
+
+        assert_eq!(state.show(View::Error), Entry::Open);
     }
 }
