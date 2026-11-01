@@ -190,8 +190,7 @@ impl Core {
 
     fn key_up(&mut self) -> Vec<Command> {
         match self.capture {
-            Capture::Idle => Vec::new(),
-            Capture::Pending(_) => self.end_capture().into_iter().collect(),
+            Capture::Idle | Capture::Pending(_) => self.cancel_capture(),
             Capture::Listening(generation) => self.finish_capture(generation),
         }
     }
