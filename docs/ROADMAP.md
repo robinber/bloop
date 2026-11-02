@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 4. Phase 1 is complete. Phases 2 and 3 are planned.
+Status: Design revision 5. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -66,6 +66,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
 - [x] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
 - [x] Read the API key from Keychain. Without the key, show it in the menu status.
+- [ ] Pass the key that Bloop reads at start to the Mistral adapter. Do not read Keychain a second time.
 - [x] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
   It does not. The owner approved the `unsafe` calls.
 - [ ] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
