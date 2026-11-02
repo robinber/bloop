@@ -21,6 +21,32 @@ pub(crate) struct Speech {
     pub(crate) transcriber: Box<dyn Transcriber>,
     pub(crate) language: String,
     pub(crate) vocabulary: Vec<String>,
+    pub(crate) limits: Limits,
+}
+
+/// The time limits of the provider operations. The worker applies each limit to one operation.
+/// An operation that does not end within its limit fails with `ProviderError::Timeout`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Limits {
+    /// The maximum duration of `start`: the connection and the setup of the session.
+    pub(crate) connection: Duration,
+    /// The maximum duration of each `send_audio`. It detects a stalled transport, not speech silence.
+    pub(crate) inactivity: Duration,
+    /// The maximum duration of `finish`. It counts from the `finish` call, after the backlog drained,
+    /// because the provider messages stay inside the adapter.
+    pub(crate) completion: Duration,
+}
+
+impl Default for Limits {
+    /// Initial values, not measured: connection 5 s, inactivity 5 s, and completion 15 s.
+    /// Phase 2 measurements replace them.
+    fn default() -> Self {
+        Self {
+            connection: Duration::from_secs(5),
+            inactivity: Duration::from_secs(5),
+            completion: Duration::from_secs(15),
+        }
+    }
 }
 
 /// The transcription task of one generation. It sends one result event, unless it is dropped first.
@@ -86,7 +112,7 @@ async fn transcribe(generation: Generation, mut reader: Reader, speech: Arc<Spee
         Ok(session) => session,
         Err(error) => return Event::CaptureFailed(generation, error),
     };
-    match session.finish().await {
+    match within(speech.limits.completion, session.finish()).await {
         Ok(transcript) => pipeline::run(generation, transcript),
         Err(error) => Event::WorkFailed(generation, AppError::Provider(error)),
     }
@@ -101,13 +127,14 @@ async fn stream(
         language: &speech.language,
         vocabulary: &speech.vocabulary,
     };
-    let mut session = watch(reader, speech.transcriber.start(options)).await?;
+    let start = speech.transcriber.start(options);
+    let mut session = watch(reader, speech.limits.connection, start).await?;
     let mut samples = Vec::new();
     loop {
         samples.clear();
         let status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
         for chunk in AudioChunk::split(&samples) {
-            watch(reader, session.send_audio(&chunk)).await?;
+            watch(reader, speech.limits.inactivity, session.send_audio(&chunk)).await?;
         }
         if status == Status::Ended {
             return Ok(session);
@@ -116,17 +143,29 @@ async fn stream(
     }
 }
 
-/// Runs a provider operation and fails as soon as the queue fails,
+/// Runs a provider operation within `limit` and fails as soon as the queue fails,
 /// so that a slow provider does not hide a full queue or a lost microphone.
 async fn watch<T>(
     reader: &mut Reader,
+    limit: Duration,
     operation: impl Future<Output = Result<T, ProviderError>>,
 ) -> Result<T, AppError> {
     tokio::select! {
         biased;
-        result = operation => result.map_err(AppError::Provider),
+        result = within(limit, operation) => result.map_err(AppError::Provider),
         error = queue_failure(reader) => Err(AppError::AudioQueue(error)),
     }
+}
+
+/// Runs a provider operation and fails with `Timeout` when it does not end within `limit`.
+/// The expired operation is dropped, which releases what it holds.
+async fn within<T>(
+    limit: Duration,
+    operation: impl Future<Output = Result<T, ProviderError>>,
+) -> Result<T, ProviderError> {
+    tokio::time::timeout(limit, operation)
+        .await
+        .unwrap_or(Err(ProviderError::Timeout))
 }
 
 async fn queue_failure(reader: &mut Reader) -> AudioQueueError {
@@ -156,10 +195,17 @@ mod tests {
     use tokio::runtime::Handle;
     use tokio::time::sleep;
 
-    use super::{Speech, Task};
+    use super::{Limits, Speech, Task};
 
     const TEXT: &str = "Bonjour à tous.";
     const CAPACITY: usize = 16_000;
+    const HOUR: Duration = Duration::from_secs(3_600);
+    /// Limits that no test reaches, so that `Reply::Never` means no event within `settle`.
+    const LONG: Limits = Limits {
+        connection: HOUR,
+        inactivity: HOUR,
+        completion: HOUR,
+    };
 
     #[derive(Debug, Clone, Copy, Default)]
     enum Reply {
@@ -286,7 +332,7 @@ mod tests {
     }
 
     impl Run {
-        fn start(script: Script, capacity: usize) -> Self {
+        fn start(script: Script, capacity: usize, limits: Limits) -> Self {
             let (writer, reader) = buffer::new(capacity);
             let log = Arc::new(Recorder::default());
             let events = Arc::new(Recorder::default());
@@ -297,6 +343,7 @@ mod tests {
                 }),
                 language: "fr".to_owned(),
                 vocabulary: Vec::new(),
+                limits,
             };
             let generation = generation();
             let task = Task::spawn(
@@ -368,7 +415,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn audio_reaches_the_provider_in_order_and_the_session_finishes_after_it() {
-        let mut run = Run::start(Script::default(), CAPACITY);
+        let mut run = Run::start(Script::default(), CAPACITY, LONG);
         let audio = samples(4_000);
 
         run.push(&audio[..1_000]).unwrap();
@@ -399,7 +446,7 @@ mod tests {
             start: Reply::After(Duration::from_secs(2)),
             ..Script::default()
         };
-        let mut run = Run::start(script, CAPACITY);
+        let mut run = Run::start(script, CAPACITY, LONG);
         let audio = samples(3_000);
 
         run.push(&audio).unwrap();
@@ -414,7 +461,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_full_queue_fails_the_capture_without_finishing() {
-        let mut run = Run::start(Script::default(), 8);
+        let mut run = Run::start(Script::default(), 8, LONG);
 
         run.push(&samples(4)).unwrap();
         assert_eq!(run.push(&samples(8)), Err(AudioQueueError::Full));
@@ -433,7 +480,7 @@ mod tests {
             start: Reply::Never,
             ..Script::default()
         };
-        let mut run = Run::start(script, 8);
+        let mut run = Run::start(script, 8, LONG);
 
         run.push(&samples(4)).unwrap();
         assert_eq!(run.push(&samples(8)), Err(AudioQueueError::Full));
@@ -448,7 +495,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn an_overflow_after_the_end_mark_fails_the_capture() {
-        let mut run = Run::start(Script::default(), 8);
+        let mut run = Run::start(Script::default(), 8, LONG);
 
         run.push(&samples(4)).unwrap();
         run.task.as_ref().expect("a task").end_capture();
@@ -465,7 +512,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_lost_microphone_fails_the_capture_without_finishing() {
-        let mut run = Run::start(Script::default(), CAPACITY);
+        let mut run = Run::start(Script::default(), CAPACITY, LONG);
 
         run.push(&samples(100)).unwrap();
         settle().await;
@@ -485,7 +532,7 @@ mod tests {
             send: Reply::Never,
             ..Script::default()
         };
-        let mut run = Run::start(script, CAPACITY);
+        let mut run = Run::start(script, CAPACITY, LONG);
 
         run.push(&samples(100)).unwrap();
         settle().await;
@@ -512,7 +559,7 @@ mod tests {
             },
         ];
         for script in failures {
-            let mut run = Run::start(script, CAPACITY);
+            let mut run = Run::start(script, CAPACITY, LONG);
 
             run.push(&samples(100)).unwrap();
             settle().await;
@@ -534,7 +581,7 @@ mod tests {
             send: Reply::Fail(ProviderError::Network),
             ..Script::default()
         };
-        let mut run = Run::start(script, CAPACITY);
+        let mut run = Run::start(script, CAPACITY, LONG);
 
         run.push(&samples(100)).unwrap();
         run.end_capture();
@@ -549,7 +596,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_capture_without_samples_finishes_once() {
-        let mut run = Run::start(Script::default(), CAPACITY);
+        let mut run = Run::start(Script::default(), CAPACITY, LONG);
 
         run.end_capture();
         settle().await;
@@ -564,7 +611,7 @@ mod tests {
             finish: Reply::Fail(ProviderError::Timeout),
             ..Script::default()
         };
-        let mut run = Run::start(script, CAPACITY);
+        let mut run = Run::start(script, CAPACITY, LONG);
 
         run.push(&samples(100)).unwrap();
         run.end_capture();
@@ -586,7 +633,7 @@ mod tests {
             send: Reply::Panic,
             ..Script::default()
         };
-        let mut run = Run::start(script, CAPACITY);
+        let mut run = Run::start(script, CAPACITY, LONG);
 
         run.push(&samples(100)).unwrap();
         settle().await;
@@ -615,7 +662,7 @@ mod tests {
             },
         ];
         for script in waits {
-            let mut run = Run::start(script, CAPACITY);
+            let mut run = Run::start(script, CAPACITY, LONG);
 
             run.push(&samples(100)).unwrap();
             run.end_capture();
@@ -627,5 +674,157 @@ mod tests {
             assert_eq!(run.log.take(), [Call::Drop], "{script:?}");
             assert!(run.events.take().is_empty(), "{script:?}");
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_start_that_never_answers_fails_the_capture_after_the_connection_limit() {
+        let script = Script {
+            start: Reply::Never,
+            ..Script::default()
+        };
+        let limits = Limits {
+            connection: Duration::from_secs(2),
+            ..LONG
+        };
+        let mut run = Run::start(script, CAPACITY, limits);
+
+        run.push(&samples(100)).unwrap();
+        sleep(Duration::from_millis(1_900)).await;
+        assert_matches!(run.log.take().as_slice(), []);
+        assert!(run.events.take().is_empty());
+        sleep(Duration::from_millis(200)).await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(generation, AppError::Provider(ProviderError::Timeout))
+                if generation == run.generation
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_send_that_never_answers_fails_the_capture_after_the_inactivity_limit() {
+        let script = Script {
+            send: Reply::Never,
+            ..Script::default()
+        };
+        let limits = Limits {
+            inactivity: Duration::from_secs(2),
+            ..LONG
+        };
+        let mut run = Run::start(script, CAPACITY, limits);
+
+        run.push(&samples(100)).unwrap();
+        sleep(Duration::from_millis(1_900)).await;
+        assert_matches!(run.log.take().as_slice(), []);
+        assert!(run.events.take().is_empty());
+        sleep(Duration::from_millis(200)).await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(generation, AppError::Provider(ProviderError::Timeout))
+                if generation == run.generation
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_finish_that_never_answers_fails_the_job_after_the_completion_limit() {
+        let script = Script {
+            finish: Reply::Never,
+            ..Script::default()
+        };
+        let limits = Limits {
+            completion: Duration::from_secs(2),
+            ..LONG
+        };
+        let mut run = Run::start(script, CAPACITY, limits);
+
+        run.push(&samples(100)).unwrap();
+        run.end_capture();
+        sleep(Duration::from_millis(1_900)).await;
+        assert_matches!(run.log.take().as_slice(), [Call::Audio(_), Call::Finish]);
+        assert!(run.events.take().is_empty());
+        sleep(Duration::from_millis(200)).await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::WorkFailed(generation, AppError::Provider(ProviderError::Timeout))
+                if generation == run.generation
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_provider_within_each_limit_still_produces_the_transcript() {
+        let slow = Reply::After(Duration::from_millis(1_900));
+        let script = Script {
+            start: slow,
+            send: slow,
+            finish: slow,
+        };
+        let limit = Duration::from_secs(2);
+        let limits = Limits {
+            connection: limit,
+            inactivity: limit,
+            completion: limit,
+        };
+        let mut run = Run::start(script, CAPACITY, limits);
+        let audio = samples(4_800);
+
+        run.push(&audio).unwrap();
+        run.end_capture();
+        sleep(Duration::from_secs(10)).await;
+
+        let calls = run.log.take();
+        assert_eq!(sent_audio(&calls), pcm(&audio));
+        assert_matches!(
+            calls.as_slice(),
+            [
+                Call::Audio(_),
+                Call::Audio(_),
+                Call::Audio(_),
+                Call::Finish,
+                Call::Drop
+            ]
+        );
+        assert_matches!(
+            run.only_event(),
+            Event::TextReady(generation, text) if generation == run.generation && text.as_str() == TEXT
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_inactivity_limit_applies_to_each_send_and_not_to_the_capture() {
+        let script = Script {
+            send: Reply::After(Duration::from_millis(600)),
+            ..Script::default()
+        };
+        let limits = Limits {
+            inactivity: Duration::from_secs(1),
+            ..LONG
+        };
+        let mut run = Run::start(script, CAPACITY, limits);
+        let audio = samples(6_400);
+
+        run.push(&audio).unwrap();
+        settle().await;
+        let calls = run.log.take();
+        assert_eq!(sent_audio(&calls), pcm(&audio));
+        assert_matches!(
+            calls.as_slice(),
+            [
+                Call::Audio(_),
+                Call::Audio(_),
+                Call::Audio(_),
+                Call::Audio(_)
+            ]
+        );
+        assert!(run.events.take().is_empty());
+        run.end_capture();
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Finish, Call::Drop]);
+        assert_matches!(run.only_event(), Event::TextReady(..));
     }
 }

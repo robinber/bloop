@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 11 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 12 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -204,7 +204,9 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 - Partial provider results stay inside the adapter. They never enter the text pipeline or insertion queue.
 - Dropping the session, or its pending `start` or `finish` future, releases local resources and stops owned tasks.
 - Dropping `send_audio` stops that send operation. Cancellation also drops the session; Bloop never retries the interrupted chunk.
-- The driver applies connection, inactivity, and completion limits. Cancellation must also work during any pending operation.
+- The worker applies the time limits: the connection limit to `start`, the inactivity limit to each `send_audio`,
+  and the completion limit to `finish`. An expired limit fails the operation with `ProviderError::Timeout`.
+  Cancellation must also work during any pending operation.
 - Bloop does not reconnect or replay audio automatically. No adapter can replace streaming with a complete-file upload.
 
 The driver checks the generation before accepting any result. The provider does not call the core or perform insertion.

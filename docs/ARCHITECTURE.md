@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 3 (2026-11-01). Phase 1 is complete. Phase 2 is next. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 4 (2026-11-02). Phase 1 is complete. Phase 2 is next. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
@@ -208,12 +208,13 @@ The user stores the key with the `security add-generic-password` command.
 
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
-| Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection, inactivity, and completion limits: select in Phase 2 |
+| Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection 5 s, inactivity 5 s, completion 15 s: initial values, not measured |
 | Correction | `mistral-small-2603` | `reasoning_effort="none"`; versioned Natural Clean prompt | 8 s |
 
 The correction time limit is an initial proposal. Phase 3 checks it with long dictations.
 The connection limit covers setup. The inactivity limit detects a stalled transport, not speech silence.
-The completion limit applies after capture ends. It counts the time since the last progress: a sent chunk or a provider message.
+The completion limit applies after capture ends.
+The worker counts it from the `finish` call, after the backlog drained, because provider messages stay inside the adapter.
 Thus a backlog after a slow connection can still drain. No short request timeout covers the full capture duration.
 The queue capacity is a number of seconds of audio at the native rate. The connection limit is shorter than this capacity.
 Thus a slow connection fails with a timeout before the queue is full.
