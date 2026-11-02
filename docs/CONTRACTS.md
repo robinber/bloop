@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 6 (2026-11-01). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 7 (2026-11-01). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports except `SecretStore`, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01. `SecretStore` comes with the Keychain adapter.
 The text step signatures are Phase 3 proposals.
@@ -130,9 +130,11 @@ pub struct FinalText(String);
 ```
 
 `AudioChunk` contains mono signed 16-bit little-endian PCM at `AudioChunk::SAMPLE_RATE` (16 kHz), without a file header.
-`AudioChunk::new` returns `None` for empty data, a partial sample, or more than `AudioChunk::MAX_BYTES`.
-`MAX_BYTES` is 3,200 bytes (100 ms of audio). This is an initial value, not a measured limit.
-`AudioChunk::as_bytes` exposes the validated bytes. Only the worker creates these chunks. It splits longer audio.
+`AudioChunk::split(&[f32])` encodes samples at that rate as consecutive chunks, in order. It is the only constructor.
+Thus a chunk is never empty, contains only whole samples, and holds at most 100 ms (3,200 bytes).
+The 100 ms limit is an initial value, not a measured limit.
+A sample from -1 to 1 uses the full 16-bit range. Values outside that range saturate, and NaN encodes as 0.
+`AudioChunk::as_bytes` exposes the bytes. Only the worker creates these chunks.
 `CaptureSummary` contains the duration and peak level. It contains no recording.
 `LevelMeter::set` stores a level from 0 to 1. It clamps other values, and NaN stores 0. `LevelMeter::get` reads the level.
 `FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
