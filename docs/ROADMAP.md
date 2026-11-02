@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 3. Phase 1 is complete. Phases 2 and 3 are planned.
+Status: Design revision 4. Phase 1 is complete. Phases 2 and 3 are planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -76,7 +76,9 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [ ] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
 - [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
 - [ ] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
-- [ ] Cancel capture and its stream on Escape, other input, or microphone loss. Cancel all work on system sleep.
+- [ ] Cancel capture and its stream on Escape, other input, or microphone loss.
+- [ ] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
+  When it arrives, send `SystemSleep` to the core.
 - [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
 - [ ] Let a new capture start while a job runs. Paste the texts in session order.
 - [ ] Read and validate `dictation.max_duration_secs`. Reject zero and unsupported values with a clear error.
