@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 10 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 11 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
 The driver does not start the worker yet. At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
@@ -131,6 +131,7 @@ src/
 │   ├── panel.rs       NSPanel configuration and position
 │   └── layers.rs      Pill, application icon, bars, animations
 ├── paste.rs           Target check, pasteboard, Command-V: impl TextOutput
+│   └── clipboard.rs   Clipboard save, restore, and text write
 ├── menu.rs            Status item and menu
 ├── keychain.rs        impl SecretStore
 ├── scheduler.rs       Main queue timers: impl Scheduler
