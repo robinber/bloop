@@ -66,7 +66,8 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
 - [x] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
 - [x] Read the API key from Keychain. Without the key, show it in the menu status.
-- [ ] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
+- [x] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
+  It does not. The owner approved the `unsafe` calls.
 - [ ] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
 - [ ] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
 - [ ] Convert audio incrementally to 16 kHz mono PCM in the worker. Keep network work outside the audio callback.
@@ -101,6 +102,8 @@ Acceptance:
 - Without the API key, the menu asks to add it. If the user denies access, the menu asks to allow it.
 - After the documented `security` command, Bloop reads the key without an access dialog, also after a new build.
 - The log never contains the API key.
+- Before the first answer, macOS shows the microphone request at start, and the menu shows Ready.
+  After a denial, the menu shows the microphone permission at the next start. After a new build, macOS keeps the permission.
 - Record memory use and completion time at 5, 10, and 20 minutes. Check provider and queue limits.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
 

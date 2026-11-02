@@ -362,7 +362,10 @@ Known limits:
   Without a missing permission, it shows "Ready: hold Right Command to dictate".
   macOS can keep the old permission result until Bloop starts again. Thus Bloop checks the status at start.
 - The menu item "Copy last result" puts the last final text in the clipboard. Before the first result, it has no effect.
-- Bloop requests the microphone permission at start. Without it, a capture fails with the error view, and the menu shows the permission.
+- Bloop reads the microphone permission at start. If the user did not answer yet, Bloop shows the request of macOS and does not wait.
+  If the user denied access, or a restriction blocks it, the menu shows the permission.
+  The menu does not show the answer to the first request. A denial shows in the menu at the next start.
+  Without the permission, a capture fails with the error view.
 - Without the Mistral API key in Keychain, the menu status shows the missing key at start. A capture then fails with the error view.
 
 ## Candidate crates
@@ -374,7 +377,7 @@ Known limits:
 | Event tap and events | `objc2-core-graphics`, or direct FFI |
 | Main queue | `dispatch2` |
 | Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
-| Microphone permission | `objc2-av-foundation`; check if it gives the check without `unsafe` |
+| Microphone permission | `objc2-av-foundation`, `block2`. The authorization methods are `unsafe`; the owner approved them on 2026-11-02 |
 | Network | `tokio`, `tokio-tungstenite` with `rustls` (one root store feature), `serde_json`, `base64`; `reqwest` with `rustls` for correction |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |

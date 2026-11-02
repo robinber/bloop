@@ -68,6 +68,7 @@ These are explicit owner decisions, not hypothetical reuse:
     `CGEventSourceCounterForEventType`.
   - `IsSecureEventInputEnabled`, Accessibility and Input Monitoring permission checks, Keychain access,
     and the main dispatch queue.
+  - The AVFoundation microphone authorization status and request (approved on 2026-11-02).
 - Each module that contains `unsafe` carries `#![expect(unsafe_code, reason = "...")]`.
 - All other crates add `#![forbid(unsafe_code)]` at their root.
 - `unsafe` outside these surfaces needs new approval.

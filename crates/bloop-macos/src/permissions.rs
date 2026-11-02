@@ -1,10 +1,18 @@
-//! Accessibility and Input Monitoring permission checks, and the System Settings links.
+//! Input Monitoring, Accessibility, and Microphone permission checks, and the System Settings links.
 //!
-//! The active event tap needs both permissions. Accessibility also lets Bloop post the paste
-//! command. macOS can keep the old result until Bloop starts again.
+//! The active event tap needs Input Monitoring and Accessibility. Accessibility also lets Bloop
+//! post the paste command. macOS can keep the old result until Bloop starts again.
 
+#![expect(
+    unsafe_code,
+    reason = "objc2-av-foundation marks the microphone authorization methods and the audio media type as unsafe"
+)]
+
+use block2::RcBlock;
 use bloop_core::error::Permission;
+use objc2::runtime::Bool;
 use objc2_app_kit::NSWorkspace;
+use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
 use objc2_core_graphics::{
     CGPreflightListenEventAccess, CGPreflightPostEventAccess, CGRequestListenEventAccess,
     CGRequestPostEventAccess,
@@ -14,7 +22,8 @@ use objc2_foundation::{NSString, NSURL};
 /// Asks macOS for each missing permission and returns the permissions that are still missing.
 ///
 /// macOS shows its request one time for each permission. After that, the user must enable
-/// Bloop in System Settings.
+/// Bloop in System Settings. The microphone request does not wait for the answer, thus the
+/// microphone is not missing until the user denies access.
 #[must_use]
 pub fn request_missing() -> Vec<Permission> {
     let mut missing = Vec::new();
@@ -24,7 +33,42 @@ pub fn request_missing() -> Vec<Permission> {
     if !CGPreflightPostEventAccess() && !CGRequestPostEventAccess() {
         missing.push(Permission::Accessibility);
     }
+    if !request_microphone() {
+        missing.push(Permission::Microphone);
+    }
     missing
+}
+
+/// Returns `false` if the user denied microphone access or a restriction blocks it.
+fn request_microphone() -> bool {
+    // SAFETY: `AVMediaTypeAudio` is a constant of AVFoundation that nothing writes.
+    let Some(audio) = (unsafe { AVMediaTypeAudio }) else {
+        tracing::error!("AVFoundation has no audio media type");
+        return false;
+    };
+    // SAFETY: the method accepts `AVMediaTypeAudio`, thus it raises no exception.
+    match unsafe { AVCaptureDevice::authorizationStatusForMediaType(audio) } {
+        AVAuthorizationStatus::Authorized => true,
+        AVAuthorizationStatus::NotDetermined => {
+            let handler = RcBlock::new(|granted: Bool| {
+                tracing::info!(
+                    granted = granted.as_bool(),
+                    "the user answered the microphone request"
+                );
+            });
+            // SAFETY: the method accepts `AVMediaTypeAudio`. It copies the block before it returns,
+            // thus the block outlives `handler`. AVFoundation calls the handler on any dispatch
+            // queue: it captures nothing and only writes a log line, which cannot panic.
+            unsafe {
+                AVCaptureDevice::requestAccessForMediaType_completionHandler(audio, &handler);
+            }
+            true
+        }
+        status => {
+            tracing::warn!(?status, "microphone access is not allowed");
+            false
+        }
+    }
 }
 
 /// Opens the System Settings pane where the user enables `permission` for Bloop.
