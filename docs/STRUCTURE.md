@@ -1,7 +1,8 @@
 # Code structure
 
-Status: Revision 4 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
-`bloop-core` contains the streaming types and ports. The streaming flow below is not implemented yet.
+Status: Revision 5 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+`bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
+The driver does not start the worker yet.
 
 ## Goals
 
@@ -111,8 +112,8 @@ Each vendor module has its own Cargo feature. The `mistral` feature is the defau
 src/
 ├── lib.rs
 ├── capture.rs         cpal stream, mono mix, LevelMeter update: impl AudioInput
-├── buffer.rs          Preallocated bounded sample queue: impl AudioSink
-└── convert.rs         Incremental resampling to 16 kHz mono PCM; flush at capture end
+├── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
+└── convert.rs         Incremental resampling to 16 kHz mono; flush at capture end
 ```
 
 ### bloop-macos

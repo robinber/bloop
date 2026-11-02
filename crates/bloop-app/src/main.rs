@@ -5,6 +5,14 @@
 mod driver;
 mod logging;
 mod test_level;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver starts the worker with the microphone capture"
+    )
+)]
+mod worker;
 
 use std::process::ExitCode;
 use std::time::Duration;

@@ -11,8 +11,12 @@ bloop-audio.workspace = true
 bloop-core.workspace = true
 bloop-macos.workspace = true
 bloop-providers.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "test-util"] }
 
 [lints]
 workspace = true
