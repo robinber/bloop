@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 5 (2026-11-01). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 6 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
 The driver does not start the worker yet.
 
@@ -169,6 +169,8 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - For `StopCaptureAndProcess`, the driver sets the end mark of the queue. Then it stops the producer and gets a `CaptureSummary`.
 - The existing task drains the queue, flushes the converter, and finishes the stream once.
 - The complete transcript enters the text pipeline. Partial transcripts never produce `TextReady`.
+- The worker runs as a work task and a report task. The report task sends the result event.
+  The report task also converts a panic of the work task into `CaptureFailed` with `AppError::Internal`.
 - The driver sends result events only after the core creates the job at capture end.
 - The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - `CancelCapture` carries no generation. Thus the driver keeps the generation of the active capture from `StartCapture`.

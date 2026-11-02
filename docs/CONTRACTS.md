@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 7 (2026-11-01). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 8 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports except `SecretStore`, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01. `SecretStore` comes with the Keychain adapter.
 The text step signatures are Phase 3 proposals.
@@ -322,6 +322,7 @@ pub enum AppError {
     Microphone,
     AudioQueue(AudioQueueError),
     Provider(ProviderError),
+    Internal,
 }
 ```
 
@@ -331,6 +332,8 @@ A WebSocket handshake error contains the response headers and body. The adapter 
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
+If the transcription task panics, the worker sends `CaptureFailed` with `AppError::Internal`.
+The core applies this event to the capture or to the processing job of that generation.
 Before reporting a failure, the driver stops audio and network work for that generation, even if capture already ended.
 Neither event retries transcription or permits partial insertion.
 

@@ -46,4 +46,6 @@ pub enum AppError {
     AudioQueue(AudioQueueError),
     /// An AI provider request failed.
     Provider(ProviderError),
+    /// A bug stopped the transcription task.
+    Internal,
 }

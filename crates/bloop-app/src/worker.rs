@@ -12,7 +12,7 @@ use bloop_core::ports::ai::{Transcriber, TranscriptionOptions, TranscriptionSess
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
 use tokio::runtime::Handle;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 const POLL: Duration = Duration::from_millis(20);
 
@@ -24,9 +24,16 @@ pub(crate) struct Speech {
 }
 
 /// The transcription task of one generation. It sends one result event, unless it is dropped first.
+///
+/// A work task runs the transcription, and a report task sends its result event.
+/// The report task converts a panic of the work task into `CaptureFailed` with
+/// `AppError::Internal`, because the core applies `CaptureFailed` to a listening capture
+/// and to a processing job.
+#[derive(Debug)]
 #[must_use = "dropping a Task cancels its transcription"]
 pub(crate) struct Task {
-    handle: JoinHandle<()>,
+    work: AbortHandle,
+    report: JoinHandle<()>,
     end: EndMark,
 }
 
@@ -35,33 +42,47 @@ impl Task {
     pub(crate) fn spawn(
         runtime: &Handle,
         generation: Generation,
-        mut reader: Reader,
+        reader: Reader,
         speech: Arc<Speech>,
         events: Arc<dyn EventSink>,
     ) -> Self {
         let end = reader.end_mark();
-        let handle = runtime.spawn(async move {
-            let event = transcribe(generation, &mut reader, &speech).await;
+        let work = runtime.spawn(transcribe(generation, reader, speech));
+        let abort = work.abort_handle();
+        let report = runtime.spawn(async move {
+            let event = match work.await {
+                Ok(event) => event,
+                Err(error) if error.is_cancelled() => return,
+                Err(_) => {
+                    tracing::error!(?generation, "the transcription task panicked");
+                    Event::CaptureFailed(generation, AppError::Internal)
+                }
+            };
             events.send(event);
         });
-        Self { handle, end }
+        Self {
+            work: abort,
+            report,
+            end,
+        }
     }
 
     /// Ends the capture normally. Then the driver stops the audio input,
-    /// and the task finishes the session after the last samples.
-    pub(crate) fn finish(&self) {
+    /// and the work task finishes the session after the last samples.
+    pub(crate) fn end_capture(&self) {
         self.end.set();
     }
 }
 
 impl Drop for Task {
     fn drop(&mut self) {
-        self.handle.abort();
+        self.work.abort();
+        self.report.abort();
     }
 }
 
-async fn transcribe(generation: Generation, reader: &mut Reader, speech: &Speech) -> Event {
-    let session = match stream(reader, speech).await {
+async fn transcribe(generation: Generation, mut reader: Reader, speech: Arc<Speech>) -> Event {
+    let session = match stream(&mut reader, &speech).await {
         Ok(session) => session,
         Err(error) => return Event::CaptureFailed(generation, error),
     };
@@ -131,6 +152,7 @@ mod tests {
         After(Duration),
         Fail(ProviderError),
         Never,
+        Panic,
     }
 
     impl Reply {
@@ -143,6 +165,7 @@ mod tests {
                 }
                 Self::Fail(error) => Err(error),
                 Self::Never => future::pending().await,
+                Self::Panic => panic!("the fake provider panicked"),
             }
         }
     }
@@ -281,7 +304,7 @@ mod tests {
         }
 
         fn end_capture(&mut self) {
-            self.task.as_ref().expect("a task").finish();
+            self.task.as_ref().expect("a task").end_capture();
             self.writer = None;
         }
 
@@ -448,6 +471,24 @@ mod tests {
         assert_matches!(
             run.only_event(),
             Event::WorkFailed(_, AppError::Provider(ProviderError::Timeout))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_panic_in_the_provider_fails_the_capture() {
+        let script = Script {
+            send: Reply::Panic,
+            ..Script::default()
+        };
+        let mut run = Run::start(script, CAPACITY);
+
+        run.push(&samples(100)).unwrap();
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(generation, AppError::Internal) if generation == run.generation
         );
     }
 
