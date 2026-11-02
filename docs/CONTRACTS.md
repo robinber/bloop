@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 10 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 11 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -269,6 +269,11 @@ pub trait SecretStore {
   The worker reads the samples until the producer goes away, then flushes the converter and calls `finish`.
 - If the producer goes away without the end mark, the worker reports `AudioQueueError::Closed`.
   Cancellation stops the worker first. Thus it produces no second error.
+- The driver sets the end mark on the main thread.
+  The worker detects the drop of the sink with an `Acquire` load that synchronizes with the drop.
+  Thus the audio adapter must drop the sink on the main thread after `AudioInput::stop` returns.
+  If another thread drops the sink, that thread must first synchronize with the main thread after the end mark.
+  Without this order, the worker can report `Closed` for a normal end.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
   after the end of its clipboard transaction.
 - `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
