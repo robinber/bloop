@@ -35,6 +35,15 @@ pub enum AudioQueueError {
     Closed,
 }
 
+/// A failure to read an API key from the secret store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretError {
+    /// The store has no key for the provider.
+    NotFound,
+    /// The store has the key, but the read failed. For example, the user denied access to the key.
+    Unavailable,
+}
+
 /// A failure that stops a capture or a job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppError {

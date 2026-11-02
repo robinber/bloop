@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod events;
+pub mod keychain;
 pub mod keys;
 pub mod menu;
 pub mod orb;

@@ -3,8 +3,10 @@
 use std::num::NonZeroU32;
 use std::time::Duration;
 
+use secrecy::SecretString;
+
 use crate::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
-use crate::error::{AppError, AudioQueueError};
+use crate::error::{AppError, AudioQueueError, SecretError};
 use crate::session::{Event, OrbView};
 
 /// Sends events to the driver on the main thread. Any thread can use it.
@@ -84,4 +86,15 @@ pub trait TextOutput {
     ///
     /// A paste command that the adapter already posted can still land. The clipboard restore still follows the read.
     fn cancel(&mut self, generation: Generation);
+}
+
+/// Reads the API keys of the providers.
+pub trait SecretStore {
+    /// Returns the API key that the store keeps for `account`, the vendor name of the provider.
+    ///
+    /// # Errors
+    ///
+    /// `SecretError::NotFound` when the store has no key for `account`.
+    /// `SecretError::Unavailable` when the store has the key but the read failed.
+    fn get(&self, account: &str) -> Result<SecretString, SecretError>;
 }

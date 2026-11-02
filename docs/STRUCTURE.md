@@ -1,8 +1,9 @@
 # Code structure
 
-Status: Revision 6 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 7 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
-The driver does not start the worker yet.
+The driver does not start the worker yet. `bloop-macos` reads the API key from Keychain at start.
+`bloop-providers` contains only the Keychain account of Mistral. The `mistral` feature comes with the adapter.
 
 ## Goals
 
@@ -89,7 +90,7 @@ src/
 ├── ports/
 │   ├── ai.rs          Transcriber, TranscriptionSession, ChatModel, TextStep, BoxFuture
 │   └── platform.rs    EventSink, AudioSink, AudioInput, Overlay, TextOutput, Scheduler, SecretStore
-└── error.rs           AppError, ProviderError, StepError, AudioQueueError, Permission
+└── error.rs           AppError, ProviderError, StepError, AudioQueueError, SecretError, Permission
 ```
 
 ### bloop-providers

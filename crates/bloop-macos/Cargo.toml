@@ -15,6 +15,9 @@ objc2-core-graphics.workspace = true
 objc2-core-text.workspace = true
 objc2-foundation.workspace = true
 objc2-quartz-core.workspace = true
+secrecy.workspace = true
+security-framework.workspace = true
+security-framework-sys.workspace = true
 tracing.workspace = true
 
 [lints]

@@ -18,15 +18,18 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use bloop_core::domain::LevelMeter;
+use bloop_core::ports::platform::SecretStore;
 use bloop_macos::MainThreadMarker;
 use bloop_macos::app::App;
 use bloop_macos::events;
+use bloop_macos::keychain::Keychain;
 use bloop_macos::keys::KeyTap;
 use bloop_macos::menu::StatusMenu;
 use bloop_macos::orb::OrbPanel;
 use bloop_macos::paste::Paster;
 use bloop_macos::permissions;
 use bloop_macos::scheduler::MainScheduler;
+use bloop_providers::mistral;
 
 use crate::driver::Driver;
 use crate::test_level::TestLevel;
@@ -55,7 +58,11 @@ fn main() -> ExitCode {
             "macOS refused the event tap, enable Input Monitoring and Accessibility, then open Bloop again"
         );
     }
-    let _menu = StatusMenu::new(mtm, &missing, tap.is_some());
+    let key = Keychain.get(mistral::ACCOUNT).err();
+    if let Some(error) = key {
+        tracing::warn!(?error, "the API key is not available");
+    }
+    let _menu = StatusMenu::new(mtm, &missing, tap.is_some(), key);
 
     let level = LevelMeter::default();
     let orb = OrbPanel::new(mtm, level.clone());

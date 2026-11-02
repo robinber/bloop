@@ -65,7 +65,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Review `Transcriber`, `TranscriptionSession`, `AudioSink`, and `AudioInput` before their adapters.
 - [x] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
 - [x] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
-- [ ] Read the API key from Keychain. Without the key, show it in the menu status.
+- [x] Read the API key from Keychain. Without the key, show it in the menu status.
 - [ ] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
 - [ ] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
 - [ ] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
@@ -98,6 +98,9 @@ Acceptance:
 - A failure after capture removes its job and releases the next job for insertion.
 - A warning keeps keyboard focus unchanged. A warning from a finished capture has no effect.
 - A settings change does not change an active capture. Invalid values prevent capture with a clear error.
+- Without the API key, the menu asks to add it. If the user denies access, the menu asks to allow it.
+- After the documented `security` command, Bloop reads the key without an access dialog, also after a new build.
+- The log never contains the API key.
 - Record memory use and completion time at 5, 10, and 20 minutes. Check provider and queue limits.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
 

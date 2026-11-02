@@ -23,6 +23,9 @@ objc2-core-text = { version = "0.3.2", default-features = false, features = ["st
 objc2-foundation = "0.3.2"
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CAGradientLayer", "CALayer", "CATextLayer", "CATransaction", "CATransform3D", "objc2-core-foundation", "objc2-core-graphics"] }
 rtrb = "0.4.1"
+secrecy = "0.10.3"
+security-framework = { version = "3.7.0", default-features = false }
+security-framework-sys = { version = "2.17.0", default-features = false }
 tokio = { version = "1.54.1", default-features = false, features = ["rt", "time", "macros"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }

@@ -28,6 +28,17 @@ Bloop needs a stable code signing identity. With an ad hoc signature, macOS remo
 
 To use a different identity, set `BLOOP_SIGN_IDENTITY`.
 
+## API key
+
+Store the Mistral API key in Keychain. After the first build, run this command from the repository root:
+
+```sh
+security add-generic-password -s bloop -a mistral -T "$PWD/target/release/Bloop.app" -U -w
+```
+
+The command asks for the key. Thus the key is not in the shell history.
+With `-T`, Bloop reads the key without an access dialog. Then open Bloop again.
+
 ## Documents
 
 - [Scope and decisions](docs/SCOPE.md)

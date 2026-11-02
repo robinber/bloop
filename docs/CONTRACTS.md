@@ -1,8 +1,8 @@
 # Rust contracts
 
-Status: revision 9 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
-the transcription ports, the platform ports except `SecretStore`, and the Phase 2 pipeline.
-The owner approved the audio and streaming signatures on 2026-11-01. `SecretStore` comes with the Keychain adapter.
+Status: revision 10 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+the transcription ports, the platform ports, and the Phase 2 pipeline.
+The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
 Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
 
@@ -248,7 +248,7 @@ pub trait Scheduler {
 }
 
 pub trait SecretStore {
-    fn get(&self, account: &str) -> Option<SecretString>;
+    fn get(&self, account: &str) -> Result<SecretString, SecretError>;
 }
 ```
 
@@ -280,6 +280,11 @@ pub trait SecretStore {
 - The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
 - `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.
 - `SecretString` does not show its value in `Debug` output.
+- `SecretStore::get` returns `NotFound` when the store has no key for the account.
+  It returns `Unavailable` when the store has the key but the read failed, for example because the user denied access.
+  The user fixes each case differently. Thus the menu shows a different line for each.
+- Bloop reads each API key one time at start, on the main thread, before the run loop.
+  macOS can show an access dialog and block that thread until the user answers. A new key needs a restart of Bloop.
 
 Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
 The warning must carry the capture generation. A warning for a finished capture has no effect.
@@ -316,6 +321,12 @@ pub enum Permission {
 pub enum AudioQueueError {
     Full,
     Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretError {
+    NotFound,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

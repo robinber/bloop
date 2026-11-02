@@ -5,7 +5,7 @@
     reason = "a menu item action is an Objective-C selector that the compiler cannot check, and its target is an Objective-C class"
 )]
 
-use bloop_core::error::Permission;
+use bloop_core::error::{Permission, SecretError};
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
 use objc2::rc::Retained;
@@ -29,13 +29,18 @@ pub struct StatusMenu {
 impl StatusMenu {
     /// Adds the Bloop item to the menu bar.
     ///
-    /// The menu shows the status at start: the missing permissions, or if the event tap operates.
+    /// The menu shows the status at start: the missing permissions and API key, or if the event tap operates.
     /// macOS can keep the old permission result until Bloop starts again.
     #[must_use]
-    pub fn new(mtm: MainThreadMarker, missing: &[Permission], keys_ready: bool) -> Self {
+    pub fn new(
+        mtm: MainThreadMarker,
+        missing: &[Permission],
+        keys_ready: bool,
+        key: Option<SecretError>,
+    ) -> Self {
         let target = MenuTarget::new(mtm);
         let menu = NSMenu::new(mtm);
-        for line in status(missing, keys_ready) {
+        for line in status(missing, keys_ready, key) {
             let item = match line {
                 Line::Text(title) => menu_item(mtm, title, None, ""),
                 Line::Settings(permission) => {
@@ -86,9 +91,10 @@ enum Line {
     Settings(Permission),
 }
 
-fn status(missing: &[Permission], keys_ready: bool) -> Vec<Line> {
-    if !missing.is_empty() {
-        let mut lines: Vec<Line> = missing.iter().copied().map(Line::Settings).collect();
+fn status(missing: &[Permission], keys_ready: bool, key: Option<SecretError>) -> Vec<Line> {
+    let mut lines: Vec<Line> = missing.iter().copied().map(Line::Settings).collect();
+    lines.extend(key.map(|error| Line::Text(key_title(error))));
+    if !lines.is_empty() {
         lines.push(Line::Text("Then open Bloop again"));
         lines
     } else if keys_ready {
@@ -103,6 +109,13 @@ fn settings_title(permission: Permission) -> &'static str {
         Permission::Microphone => "Allow Microphone access…",
         Permission::Accessibility => "Allow Accessibility access…",
         Permission::InputMonitoring => "Allow Input Monitoring…",
+    }
+}
+
+fn key_title(error: SecretError) -> &'static str {
+    match error {
+        SecretError::NotFound => "Add the API key to Keychain",
+        SecretError::Unavailable => "Allow Bloop to read the API key in Keychain",
     }
 }
 
@@ -185,14 +198,14 @@ impl MenuTarget {
 
 #[cfg(test)]
 mod tests {
-    use bloop_core::error::Permission;
+    use bloop_core::error::{Permission, SecretError};
 
     use super::{Line, status};
 
     #[test]
     fn with_all_permissions_the_status_says_how_to_dictate() {
         assert_eq!(
-            status(&[], true),
+            status(&[], true, None),
             [Line::Text("Ready: hold Right Command to dictate")]
         );
     }
@@ -202,7 +215,8 @@ mod tests {
         assert_eq!(
             status(
                 &[Permission::InputMonitoring, Permission::Accessibility],
-                false
+                false,
+                None
             ),
             [
                 Line::Settings(Permission::InputMonitoring),
@@ -215,8 +229,35 @@ mod tests {
     #[test]
     fn a_refused_tap_without_missing_permissions_asks_for_a_restart() {
         assert_eq!(
-            status(&[], false),
+            status(&[], false, None),
             [Line::Text("Open Bloop again to use the dictation key")]
+        );
+    }
+
+    #[test]
+    fn a_missing_key_asks_to_add_it() {
+        assert_eq!(
+            status(&[], true, Some(SecretError::NotFound)),
+            [
+                Line::Text("Add the API key to Keychain"),
+                Line::Text("Then open Bloop again"),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_key_line_follows_the_missing_permissions() {
+        assert_eq!(
+            status(
+                &[Permission::Accessibility],
+                false,
+                Some(SecretError::Unavailable)
+            ),
+            [
+                Line::Settings(Permission::Accessibility),
+                Line::Text("Allow Bloop to read the API key in Keychain"),
+                Line::Text("Then open Bloop again"),
+            ]
         );
     }
 }
