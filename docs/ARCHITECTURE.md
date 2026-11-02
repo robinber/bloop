@@ -381,7 +381,7 @@ Known limits:
 | Network | `tokio`, `tokio-tungstenite` with `rustls` (one root store feature), `serde_json`, `base64`; `reqwest` with `rustls` for correction |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |
-| Errors | `thiserror`, `anyhow` (application start only) |
+| Errors | `anyhow` (application start only) |
 | Logs | `tracing`, `tracing-subscriber`, `tracing-appender` |
 | Secrets in memory | `secrecy` |
 

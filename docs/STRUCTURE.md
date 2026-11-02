@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 8 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 9 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
 The driver does not start the worker yet. At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
 `bloop-providers` contains only the Keychain account of Mistral. The `mistral` feature comes with the adapter.
@@ -49,7 +49,7 @@ bloop/
 3. Only `bloop-app` knows all crates. It is the only place that builds objects from the settings.
 4. Only `bloop-macos` contains `unsafe` code and `objc2`.
 5. Only `bloop-providers` contains HTTP and WebSocket code and vendor names.
-6. `bloop-core` has no I/O, no async runtime, and no platform API. It uses only small pure crates (`thiserror`, `secrecy`).
+6. `bloop-core` has no I/O, no async runtime, and no platform API. It uses only one small pure crate: `secrecy`.
 
 Cargo enforces rules 1 to 5, because a crate cannot use a crate that is not in its dependencies.
 All crates inherit the workspace lints. The workspace sets `unsafe_code = "deny"`.
@@ -281,7 +281,9 @@ There is no separate file transcription path or later migration.
 - The workspace lints are the rust-strict starter policy, with `undocumented_unsafe_blocks` and
   `multiple_unsafe_ops_per_block` denied. `AGENTS.md` records the lint floor.
 - `rustfmt.toml` sets `style_edition = "2024"`. `Cargo.lock` is under version control.
-- Library crates use `thiserror`. Only `bloop-app` uses `anyhow`, for start errors.
+- The error enums in `bloop-core` are plain data. Events and port results carry them. `bloop-app` writes them to the log with `Debug`.
+  If a boundary needs `Display`, the crate that owns the error type adds it.
+  Only `bloop-app` uses `anyhow`, for start errors.
 - All crates use `tracing` for logs.
 - Types that contain text or audio implement a redacting `Debug` that never shows the content.
 - `LevelMeter` uses `Relaxed` ordering. The level is one independent value: no other data is published through it.
