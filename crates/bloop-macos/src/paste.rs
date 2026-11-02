@@ -445,6 +445,13 @@ define_class!(
     // SAFETY: the method is the only required method of the protocol. Its selector, argument
     // types (with a nullable pasteboard), and empty result match the `objc2-app-kit` declaration.
     unsafe impl NSPasteboardItemDataProvider for TextProvider {
+        /// Gives the text to the target when it reads the item.
+        ///
+        /// Apple documents no thread for this callback. Bloop observed it on the main thread, and
+        /// the `Cell` ivars and the timers on the main queue depend on that. A call on another
+        /// thread logs an error that records the violation, then continues without a change.
+        /// This check does not break the `MainThreadMarker` rule in `AGENTS.md`: it does not call
+        /// `expect`, and AppKit gives no marker to its callback.
         #[unsafe(method(pasteboard:item:provideDataForType:))]
         fn provide_data_for_type(
             &self,
@@ -452,6 +459,9 @@ define_class!(
             item: &NSPasteboardItem,
             data_type: &NSPasteboardType,
         ) {
+            if MainThreadMarker::new().is_none() {
+                tracing::error!("AppKit called the text provider off the main thread");
+            }
             if item.setString_forType(&self.ivars().text, data_type) {
                 if self.step(Transaction::read) {
                     after(RESTORE_DELAY, &self.retain(), Self::restore_now);
