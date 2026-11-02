@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 4 (2026-11-02). Phase 1 is complete. Phase 2 is next. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 4 (2026-11-02). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 

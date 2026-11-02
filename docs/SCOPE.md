@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 3 (2026-11-01). Phase 1 is complete. Phase 2 is next.
+Status: Design draft, revision 3 (2026-11-01). Phase 1 is complete. Phase 2 is in progress.
 
 ## Goal
 

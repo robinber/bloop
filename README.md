@@ -11,7 +11,7 @@ The behavior follows the dictation feature of Tabi. Bloop does only this one tas
 
 ## Status
 
-Phase 1 is complete. Phase 2 is next. The [roadmap](docs/ROADMAP.md) shows the completed tasks.
+Phase 1 is complete. Phase 2 is in progress. The [roadmap](docs/ROADMAP.md) shows the completed tasks.
 The first version is for personal use on one Mac.
 
 ## Build
