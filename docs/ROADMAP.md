@@ -77,7 +77,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
 - [ ] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
 - [ ] Cancel capture and its stream on Escape, other input, or microphone loss.
-- [ ] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
+- [x] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
   When it arrives, send `SystemSleep` to the core.
 - [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
 - [ ] Let a new capture start while a job runs. Paste the texts in session order.

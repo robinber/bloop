@@ -29,6 +29,7 @@ use bloop_macos::orb::OrbPanel;
 use bloop_macos::paste::Paster;
 use bloop_macos::permissions;
 use bloop_macos::scheduler::MainScheduler;
+use bloop_macos::sleep::SleepObserver;
 use bloop_providers::mistral;
 
 use crate::driver::Driver;
@@ -63,6 +64,7 @@ fn main() -> ExitCode {
         tracing::warn!(?error, "the API key is not available");
     }
     let _menu = StatusMenu::new(mtm, &missing, tap.is_some(), key);
+    let _sleep = SleepObserver::new(mtm);
 
     let level = LevelMeter::default();
     let orb = OrbPanel::new(mtm, level.clone());

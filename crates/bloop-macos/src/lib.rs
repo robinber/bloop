@@ -11,5 +11,6 @@ pub mod orb;
 pub mod paste;
 pub mod permissions;
 pub mod scheduler;
+pub mod sleep;
 
 pub use objc2::MainThreadMarker;

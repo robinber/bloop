@@ -1,8 +1,9 @@
 # Code structure
 
-Status: Revision 9 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 10 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
 The driver does not start the worker yet. At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
+When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
 `bloop-providers` contains only the Keychain account of Mistral. The `mistral` feature comes with the adapter.
 
 ## Goals
@@ -133,6 +134,7 @@ src/
 ├── menu.rs            Status item and menu
 ├── keychain.rs        impl SecretStore
 ├── scheduler.rs       Main queue timers: impl Scheduler
+├── sleep.rs           Sleep observer: sends SystemSleep to the core
 └── permissions.rs     Permission checks and System Settings links
 ```
 
@@ -296,7 +298,7 @@ Thus the application operates at the end of each phase.
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`, `test_level.rs` (temporary). `scripts/bundle.sh`. |
-| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
 For Phase 1 completion, `bloop-app` needs four temporary behaviors:
