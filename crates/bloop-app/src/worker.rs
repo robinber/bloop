@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use bloop_audio::buffer::{EndMark, Reader, Status};
 use bloop_core::domain::{AudioChunk, Generation};
-use bloop_core::error::AppError;
+use bloop_core::error::{AppError, AudioQueueError, ProviderError};
 use bloop_core::pipeline;
 use bloop_core::ports::ai::{Transcriber, TranscriptionOptions, TranscriptionSession};
 use bloop_core::ports::platform::EventSink;
@@ -92,6 +92,7 @@ async fn transcribe(generation: Generation, mut reader: Reader, speech: Arc<Spee
     }
 }
 
+/// The samples of `reader` are at `AudioChunk::SAMPLE_RATE`.
 async fn stream(
     reader: &mut Reader,
     speech: &Speech,
@@ -100,23 +101,38 @@ async fn stream(
         language: &speech.language,
         vocabulary: &speech.vocabulary,
     };
-    let mut session = speech
-        .transcriber
-        .start(options)
-        .await
-        .map_err(AppError::Provider)?;
+    let mut session = watch(reader, speech.transcriber.start(options)).await?;
     let mut samples = Vec::new();
     loop {
         samples.clear();
         let status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
         for chunk in AudioChunk::split(&samples) {
-            session
-                .send_audio(&chunk)
-                .await
-                .map_err(AppError::Provider)?;
+            watch(reader, session.send_audio(&chunk)).await?;
         }
         if status == Status::Ended {
             return Ok(session);
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// Runs a provider operation and fails as soon as the queue fails,
+/// so that a slow provider does not hide a full queue or a lost microphone.
+async fn watch<T>(
+    reader: &mut Reader,
+    operation: impl Future<Output = Result<T, ProviderError>>,
+) -> Result<T, AppError> {
+    tokio::select! {
+        biased;
+        result = operation => result.map_err(AppError::Provider),
+        error = queue_failure(reader) => Err(AppError::AudioQueue(error)),
+    }
+}
+
+async fn queue_failure(reader: &mut Reader) -> AudioQueueError {
+    loop {
+        if let Some(error) = reader.failure() {
+            return error;
         }
         tokio::time::sleep(POLL).await;
     }
@@ -357,12 +373,16 @@ mod tests {
 
         run.push(&audio[..1_000]).unwrap();
         settle().await;
+        let calls = run.log.take();
+        assert_eq!(sent_audio(&calls), pcm(&audio[..1_000]));
+        assert!(!calls.contains(&Call::Finish));
+        assert!(run.events.take().is_empty());
         run.push(&audio[1_000..]).unwrap();
         run.end_capture();
         settle().await;
 
         let calls = run.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio));
+        assert_eq!(sent_audio(&calls), pcm(&audio[1_000..]));
         assert_matches!(
             calls.as_slice(),
             [.., Call::Audio(_), Call::Finish, Call::Drop]
@@ -408,6 +428,42 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_full_queue_fails_the_capture_during_a_slow_connection() {
+        let script = Script {
+            start: Reply::Never,
+            ..Script::default()
+        };
+        let mut run = Run::start(script, 8);
+
+        run.push(&samples(4)).unwrap();
+        assert_eq!(run.push(&samples(8)), Err(AudioQueueError::Full));
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(_, AppError::AudioQueue(AudioQueueError::Full))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_overflow_after_the_end_mark_fails_the_capture() {
+        let mut run = Run::start(Script::default(), 8);
+
+        run.push(&samples(4)).unwrap();
+        run.task.as_ref().expect("a task").end_capture();
+        assert_eq!(run.push(&samples(8)), Err(AudioQueueError::Full));
+        run.writer = None;
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(_, AppError::AudioQueue(AudioQueueError::Full))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_lost_microphone_fails_the_capture_without_finishing() {
         let mut run = Run::start(Script::default(), CAPACITY);
 
@@ -417,6 +473,26 @@ mod tests {
         settle().await;
 
         assert_matches!(run.log.take().as_slice(), [Call::Audio(_), Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(_, AppError::AudioQueue(AudioQueueError::Closed))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_microphone_fails_the_capture_during_a_blocked_send() {
+        let script = Script {
+            send: Reply::Never,
+            ..Script::default()
+        };
+        let mut run = Run::start(script, CAPACITY);
+
+        run.push(&samples(100)).unwrap();
+        settle().await;
+        run.writer = None;
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
         assert_matches!(
             run.only_event(),
             Event::CaptureFailed(_, AppError::AudioQueue(AudioQueueError::Closed))
@@ -450,6 +526,36 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_failure_after_the_key_release_fails_the_capture() {
+        let script = Script {
+            send: Reply::Fail(ProviderError::Network),
+            ..Script::default()
+        };
+        let mut run = Run::start(script, CAPACITY);
+
+        run.push(&samples(100)).unwrap();
+        run.end_capture();
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_matches!(
+            run.only_event(),
+            Event::CaptureFailed(_, AppError::Provider(ProviderError::Network))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_capture_without_samples_finishes_once() {
+        let mut run = Run::start(Script::default(), CAPACITY);
+
+        run.end_capture();
+        settle().await;
+
+        assert_eq!(run.log.take(), [Call::Finish, Call::Drop]);
+        assert_matches!(run.only_event(), Event::TextReady(..));
     }
 
     #[tokio::test(start_paused = true)]

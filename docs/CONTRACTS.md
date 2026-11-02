@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 8 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 9 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports except `SecretStore`, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01. `SecretStore` comes with the Keychain adapter.
 The text step signatures are Phase 3 proposals.
@@ -262,6 +262,8 @@ pub trait SecretStore {
 - When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
 - The worker reads the queue every 10 to 20 ms. The callback does not wake it.
   The worker converts the samples incrementally and calls `send_audio`.
+- During a provider operation, the worker checks the queue state at the same interval.
+  A full queue or a lost microphone fails the capture without waiting for the provider.
 - The worker reports the overflow mark as `AudioQueueError::Full`. Thus a full queue fails the capture.
 - Each queue has an end mark. For `StopCaptureAndProcess`, the driver sets this mark, then calls `AudioInput::stop`.
   The worker reads the samples until the producer goes away, then flushes the converter and calls `finish`.
