@@ -342,7 +342,7 @@ Known limits:
 
 - Bloop keeps no history on disk.
 - The log file is `~/Library/Logs/Bloop/bloop.log`.
-- The log records state changes, step durations, fallback reasons, and error categories.
+- The log records state changes, step durations, fallback reasons, error categories, and panics.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
 - The settings file contains nonsecret settings only: key, hold threshold, capture duration, language, word list, models, and prompt version.

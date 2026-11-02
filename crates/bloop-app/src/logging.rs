@@ -2,11 +2,15 @@
 //!
 //! At start, a log file larger than [`LOG_LIMIT`] moves to `bloop.log.1` and replaces the older one.
 //! Thus Bloop keeps the current file and one previous file.
+//! The log also records each panic with its thread name, location, and message.
 
+use std::any::Any;
 use std::fs::{self, OpenOptions};
 use std::io;
+use std::panic::{self, PanicHookInfo};
 use std::path::Path;
 use std::sync::Mutex;
+use std::thread;
 
 use anyhow::{Context, Result, anyhow};
 
@@ -34,10 +38,38 @@ pub(crate) fn init() -> Result<()> {
         .try_init()
         .map_err(|error| anyhow!(error))
         .context("start the logger")?;
+    install_panic_hook();
     if let Err(error) = rotation {
         tracing::warn!(error = %format!("{error:#}"), "the log file did not rotate");
     }
     Ok(())
+}
+
+/// Adds a panic hook that logs the panic and then calls the previous hook.
+/// The previous hook keeps the message on stderr when a terminal exists.
+fn install_panic_hook() {
+    let previous = panic::take_hook();
+    panic::set_hook(Box::new(move |info: &PanicHookInfo<'_>| {
+        let current = thread::current();
+        tracing::error!(
+            thread = current.name().unwrap_or("unnamed"),
+            location = info.location().map(tracing::field::display),
+            payload = payload_text(info.payload()),
+            "a thread panicked"
+        );
+        previous(info);
+    }));
+}
+
+/// Returns the text of a `&str` or `String` panic payload, or a fixed phrase for other types.
+fn payload_text(payload: &(dyn Any + Send)) -> &str {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        text
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text
+    } else {
+        "payload is not text"
+    }
 }
 
 /// Moves `path` to `path` plus `.1` when the file is larger than `limit` bytes.
@@ -154,5 +186,16 @@ mod tests {
         assert!(format!("{error:#}").starts_with("rename "));
         assert_eq!(fs::read(&log).unwrap(), b"123456789");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_the_text_of_a_panic_payload() {
+        let literal: Box<dyn Any + Send> = Box::new("literal text");
+        let owned: Box<dyn Any + Send> = Box::new(String::from("owned text"));
+        let other: Box<dyn Any + Send> = Box::new(42_u32);
+
+        assert_eq!(payload_text(&*literal), "literal text");
+        assert_eq!(payload_text(&*owned), "owned text");
+        assert_eq!(payload_text(&*other), "payload is not text");
     }
 }
