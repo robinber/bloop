@@ -4,7 +4,6 @@
 
 mod driver;
 mod logging;
-mod test_level;
 #[cfg_attr(
     not(test),
     expect(
@@ -15,13 +14,15 @@ mod test_level;
 mod worker;
 
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
+use bloop_audio::capture::Microphone;
 use bloop_core::domain::LevelMeter;
 use bloop_core::ports::platform::SecretStore;
 use bloop_macos::MainThreadMarker;
 use bloop_macos::app::App;
-use bloop_macos::events;
+use bloop_macos::events::{self, MainSink};
 use bloop_macos::keychain::Keychain;
 use bloop_macos::keys::KeyTap;
 use bloop_macos::menu::StatusMenu;
@@ -33,7 +34,6 @@ use bloop_macos::sleep::SleepObserver;
 use bloop_providers::mistral;
 
 use crate::driver::Driver;
-use crate::test_level::TestLevel;
 
 const HOLD: Duration = Duration::from_millis(220);
 
@@ -68,13 +68,8 @@ fn main() -> ExitCode {
 
     let level = LevelMeter::default();
     let orb = OrbPanel::new(mtm, level.clone());
-    let mut driver = Driver::new(
-        MainScheduler,
-        orb,
-        Paster::new(mtm),
-        TestLevel::new(level),
-        HOLD,
-    );
+    let microphone = Microphone::new(level, Arc::new(MainSink), permissions::microphone_allowed);
+    let mut driver = Driver::new(MainScheduler, orb, Paster::new(mtm), microphone, HOLD);
     events::set_handler(mtm, move |event| {
         driver.handle(event);
         if let Some(tap) = &tap {

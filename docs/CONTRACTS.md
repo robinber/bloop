@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 12 (2026-11-02). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 13 (2026-11-03). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -256,11 +256,18 @@ pub trait SecretStore {
 
 - Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
 - `AudioInput::start` starts capture without waiting for the provider connection.
+- Without the microphone permission, macOS can supply silent samples instead of an error.
+  Thus, before each capture, the audio adapter checks the permission.
+  If the permission is missing, `AudioInput::start` returns `AppError::PermissionMissing(Permission::Microphone)`.
 - `AudioInput::start` returns the native sample rate of the device, in Hz. The rate is not zero and stays fixed during the capture.
   The worker creates its converter with this rate before the first chunk.
 - `AudioSink` receives mono samples at the native sample rate.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
+- The audio library calls an error callback outside the audio callback. The previous rule applies only to the audio callback.
+  For a device loss, the error callback sends `CaptureFailed` with `AppError::Microphone`. It writes no log.
+- The audio library can report a device overrun on the real-time audio thread.
+  Thus, for an overrun, the error callback only adds one to an atomic counter. `AudioInput::stop` writes the count to the log.
 - When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
 - The worker reads the queue every 10 to 20 ms. The callback does not wake it.
   The worker converts the samples incrementally and calls `send_audio`.
@@ -273,7 +280,7 @@ pub trait SecretStore {
   Cancellation stops the worker first. Thus it produces no second error.
 - The driver sets the end mark on the main thread.
   The worker detects the drop of the sink with an `Acquire` load that synchronizes with the drop.
-  Thus the audio adapter must drop the sink on the main thread after `AudioInput::stop` returns.
+  Thus the audio adapter must drop the sink on the main thread before `AudioInput::stop` returns.
   If another thread drops the sink, that thread must first synchronize with the main thread after the end mark.
   Without this order, the worker can report `Closed` for a normal end.
 - `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
@@ -281,8 +288,8 @@ pub trait SecretStore {
 - `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
   The clipboard restore still follows a later read.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
-- The app supplies the validated maximum duration when it builds the audio adapter. The duration does not change during a capture.
 - At `StartCapture`, the driver schedules `CaptureLimitReached` with the `Scheduler`. The core ignores it for a finished capture.
+- The maximum duration does not change during a capture. The audio adapter does not use it.
 - `AudioInput::stop` stops the producer after the final samples and returns the capture summary.
 - The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
 - `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.

@@ -3,40 +3,44 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use bloop_core::domain::FinalText;
-use bloop_core::ports::platform::{Overlay, Scheduler, TextOutput};
+use bloop_audio::buffer::{self, Reader};
+use bloop_core::domain::{FinalText, Generation};
+use bloop_core::ports::platform::{AudioInput, Overlay, Scheduler, TextOutput};
 use bloop_core::session::{Command, Core, Event};
-
-use crate::test_level::TestLevel;
 
 /// The text of each job until Phase 2 adds transcription.
 const TEST_TEXT: &str = "Voilà le texte de test de Bloop : é, è, à, ç.";
 
+/// The capacity of the audio queue of each capture, in samples: 20 s at 48 kHz.
+const CAPACITY: usize = 960_000;
+
 /// Owns the core and the ports. It operates on the main thread.
-pub(crate) struct Driver<S, O, T> {
+pub(crate) struct Driver<S, O, T, A> {
     core: Core,
     scheduler: S,
     overlay: O,
     output: T,
-    test_level: TestLevel,
+    input: A,
+    active: Option<Active>,
     hold: Duration,
 }
 
-impl<S: Scheduler, O: Overlay, T: TextOutput> Driver<S, O, T> {
+/// The capture that the microphone fills.
+struct Active {
+    generation: Generation,
+    reader: Reader,
+}
+
+impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> {
     /// `hold` is the time that the user holds the dictation key before the capture starts.
-    pub(crate) fn new(
-        scheduler: S,
-        overlay: O,
-        output: T,
-        test_level: TestLevel,
-        hold: Duration,
-    ) -> Self {
+    pub(crate) fn new(scheduler: S, overlay: O, output: T, input: A, hold: Duration) -> Self {
         Self {
             core: Core::new(),
             scheduler,
             overlay,
             output,
-            test_level,
+            input,
+            active: None,
             hold,
         }
     }
@@ -63,16 +67,17 @@ impl<S: Scheduler, O: Overlay, T: TextOutput> Driver<S, O, T> {
                 self.scheduler
                     .after(self.hold, Event::HoldElapsed(generation));
             }
-            Command::StartCapture(_) => self.test_level.start(),
+            Command::StartCapture(generation) => return self.start_capture(generation),
             Command::RecordTarget(generation) => {
                 self.output.record_target(generation);
             }
             Command::StopCaptureAndProcess(generation) => {
-                self.test_level.stop();
-                let text = FinalText::new(TEST_TEXT.to_owned());
-                return Some(Event::TextReady(generation, text));
+                return Some(self.stop_capture(generation));
             }
-            Command::CancelCapture => self.test_level.stop(),
+            Command::CancelCapture => {
+                self.active = None;
+                self.input.cancel();
+            }
             Command::Insert(generation, text) => self.output.insert(generation, text),
             Command::CopyToClipboard(text) => self.output.copy(&text),
             Command::ShowOrb(view) => self.overlay.show(view),
@@ -81,20 +86,52 @@ impl<S: Scheduler, O: Overlay, T: TextOutput> Driver<S, O, T> {
         }
         None
     }
+
+    fn start_capture(&mut self, generation: Generation) -> Option<Event> {
+        let (writer, reader) = buffer::new(CAPACITY);
+        match self.input.start(generation, Box::new(writer)) {
+            Ok(_) => {
+                self.active = Some(Active { generation, reader });
+                None
+            }
+            Err(error) => Some(Event::CaptureFailed(generation, error)),
+        }
+    }
+
+    fn stop_capture(&mut self, generation: Generation) -> Event {
+        let active = self
+            .active
+            .take()
+            .filter(|active| active.generation == generation);
+        if let Some(active) = &active {
+            active.reader.end_mark().set();
+        }
+        let summary = match self.input.stop(generation) {
+            Ok(summary) => summary,
+            Err(error) => return Event::CaptureFailed(generation, error),
+        };
+        tracing::info!(duration = ?summary.duration, peak = summary.peak, "the capture ended");
+        if let Some(error) = active.and_then(|active| active.reader.failure()) {
+            tracing::warn!(?error, "the audio queue failed");
+        }
+        let text = FinalText::new(TEST_TEXT.to_owned());
+        Event::TextReady(generation, text)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
     use std::cell::RefCell;
+    use std::num::NonZeroU32;
     use std::time::Duration;
 
-    use bloop_core::domain::{FinalText, Generation, LevelMeter, TargetInfo};
-    use bloop_core::ports::platform::{Overlay, Scheduler, TextOutput};
+    use bloop_core::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
+    use bloop_core::error::AppError;
+    use bloop_core::ports::platform::{AudioInput, AudioSink, Overlay, Scheduler, TextOutput};
     use bloop_core::session::{Event, InsertOutcome, OrbView};
 
     use super::{Driver, TEST_TEXT};
-    use crate::test_level::TestLevel;
 
     const HOLD: Duration = Duration::from_millis(220);
 
@@ -157,14 +194,52 @@ mod tests {
         }
     }
 
-    type TestDriver = Driver<FakeScheduler, FakeOverlay, FakeOutput>;
+    #[derive(Debug, PartialEq, Eq)]
+    enum InputCall {
+        Start(Generation),
+        Stop(Generation),
+        Cancel,
+    }
+
+    #[derive(Default)]
+    struct FakeInput {
+        calls: Vec<InputCall>,
+        start_error: Option<AppError>,
+        stop_error: Option<AppError>,
+    }
+
+    impl AudioInput for FakeInput {
+        fn start(
+            &mut self,
+            generation: Generation,
+            _sink: Box<dyn AudioSink>,
+        ) -> Result<NonZeroU32, AppError> {
+            self.calls.push(InputCall::Start(generation));
+            self.start_error.map_or(Ok(NonZeroU32::MIN), Err)
+        }
+
+        fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError> {
+            self.calls.push(InputCall::Stop(generation));
+            let summary = CaptureSummary {
+                duration: Duration::ZERO,
+                peak: 0.0,
+            };
+            self.stop_error.map_or(Ok(summary), Err)
+        }
+
+        fn cancel(&mut self) {
+            self.calls.push(InputCall::Cancel);
+        }
+    }
+
+    type TestDriver = Driver<FakeScheduler, FakeOverlay, FakeOutput, FakeInput>;
 
     fn driver() -> TestDriver {
         Driver::new(
             FakeScheduler::default(),
             FakeOverlay::default(),
             FakeOutput::default(),
-            TestLevel::new(LevelMeter::default()),
+            FakeInput::default(),
             HOLD,
         )
     }
@@ -215,6 +290,11 @@ mod tests {
             driver.overlay.calls,
             [OrbCall::Show(OrbView::Listening), OrbCall::Close]
         );
+        let generation = driver.output.targets[0];
+        assert_eq!(
+            driver.input.calls,
+            [InputCall::Start(generation), InputCall::Stop(generation)]
+        );
     }
 
     #[test]
@@ -244,6 +324,52 @@ mod tests {
             [OrbCall::Show(OrbView::Listening), OrbCall::Close]
         );
         assert_eq!(driver.output.inserted, []);
+        assert_matches!(
+            driver.input.calls[..],
+            [InputCall::Start(_), InputCall::Cancel]
+        );
+    }
+
+    #[test]
+    fn a_failed_start_fails_the_capture() {
+        let mut driver = driver();
+        driver.input.start_error = Some(AppError::Microphone);
+        driver.handle(Event::DictationKeyDown);
+
+        fire_only_timer(&mut driver);
+        driver.handle(Event::DictationKeyUp);
+
+        assert!(!driver.capture_active());
+        assert_eq!(
+            driver.overlay.calls,
+            [
+                OrbCall::Show(OrbView::Listening),
+                OrbCall::Show(OrbView::Error)
+            ]
+        );
+        assert_eq!(driver.output.inserted, []);
+        assert_matches!(
+            driver.input.calls[..],
+            [InputCall::Start(_), InputCall::Cancel]
+        );
+    }
+
+    #[test]
+    fn a_failed_stop_removes_the_job_without_a_paste() {
+        let mut driver = driver();
+        driver.input.stop_error = Some(AppError::Microphone);
+
+        let failed = dictate(&mut driver);
+
+        assert_eq!(driver.output.inserted, []);
+        assert_eq!(driver.output.cancelled, [failed]);
+        assert_eq!(
+            driver.overlay.calls.last(),
+            Some(&OrbCall::Show(OrbView::Error))
+        );
+        driver.input.stop_error = None;
+        let next = dictate(&mut driver);
+        assert_eq!(driver.output.inserted, [(next, test_text())]);
     }
 
     #[test]

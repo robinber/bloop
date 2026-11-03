@@ -69,7 +69,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [ ] Pass the key that Bloop reads at start to the Mistral adapter. Do not read Keychain a second time.
 - [x] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
   It does not. The owner approved the `unsafe` calls.
-- [ ] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
+- [x] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
 - [ ] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
 - [ ] Convert audio incrementally to 16 kHz mono PCM in the worker. Keep network work outside the audio callback.
 - [ ] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.

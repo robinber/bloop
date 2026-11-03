@@ -1,8 +1,9 @@
 # Code structure
 
-Status: Revision 11 (2026-11-02). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
-`bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, and `bloop-app` the worker.
-The driver does not start the worker yet. At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
+Status: Revision 12 (2026-11-03). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+`bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue and the microphone capture, and `bloop-app` the worker.
+The driver starts the microphone capture, but not the worker yet. Until then, the driver keeps the reader of the queue.
+At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
 `bloop-providers` contains only the Keychain account of Mistral. The `mistral` feature comes with the adapter.
 
@@ -179,7 +180,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - `CancelCapture` carries no generation. Thus the driver keeps the generation of the active capture from `StartCapture`.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
-- The app validates the capture duration and supplies it to the audio adapter. The core does not read TOML settings.
+- The app validates the capture duration and supplies it to the driver. The core does not read TOML settings.
 - At `StartCapture`, the driver schedules `CaptureLimitReached` and the limit warning with the `Scheduler`. The audio callback sends no event.
 
 ## Settings and provider selection
@@ -298,18 +299,17 @@ Thus the application operates at the end of each phase.
 
 | Phase | Crates and files |
 | --- | --- |
-| 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`, `test_level.rs` (temporary). `scripts/bundle.sh`. |
+| 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
-For Phase 1 completion, `bloop-app` needs four temporary behaviors:
+`bloop-app` keeps three temporary behaviors from Phase 1:
 
-- `StartCapture` records no audio and opens no network session.
-- `test_level.rs` writes a synthetic level into the `LevelMeter` from `StartCapture` to `StopCaptureAndProcess` or `CancelCapture`.
+- `StartCapture` opens no network session.
 - A driver rule that answers `StopCaptureAndProcess` with a `TextReady` event that contains fixed test text.
 - The hold threshold is the `HOLD` constant in `main.rs` until `config.rs` exists.
 
-Phase 2 replaces these behaviors with capture, streaming, and `config.rs`.
+Phase 2 replaces these behaviors with streaming and `config.rs`.
 
 ## Work method
 
