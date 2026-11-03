@@ -33,14 +33,18 @@ pub fn request_missing() -> Vec<Permission> {
     if !CGPreflightPostEventAccess() && !CGRequestPostEventAccess() {
         missing.push(Permission::Accessibility);
     }
-    if !request_microphone() {
+    if !microphone_allowed() {
         missing.push(Permission::Microphone);
     }
     missing
 }
 
-/// Returns `false` if the user denied microphone access or a restriction blocks it.
-fn request_microphone() -> bool {
+/// Reads the microphone authorization of Bloop.
+///
+/// If the user did not answer yet, it shows the request of macOS and returns `true` without a wait.
+/// It returns `false` if the user denied access or a restriction blocks it.
+#[must_use]
+pub fn microphone_allowed() -> bool {
     // SAFETY: `AVMediaTypeAudio` is a constant of AVFoundation that nothing writes.
     let Some(audio) = (unsafe { AVMediaTypeAudio }) else {
         tracing::error!("AVFoundation has no audio media type");

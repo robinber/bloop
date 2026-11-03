@@ -15,6 +15,7 @@ bloop-audio = { path = "crates/bloop-audio" }
 bloop-core = { path = "crates/bloop-core" }
 bloop-macos = { path = "crates/bloop-macos" }
 bloop-providers = { path = "crates/bloop-providers" }
+cpal = { version = "0.18.2", default-features = false }
 dispatch2 = "0.3.1"
 objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSButton", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSMenu", "NSMenuItem", "NSPanel", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSRunningApplication", "NSScreen", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWindow", "NSWorkspace", "libc", "objc2-core-foundation", "objc2-core-text", "objc2-quartz-core"] }
