@@ -110,6 +110,17 @@ Acceptance:
 - Record memory use and completion time at 5, 10, and 20 minutes. Check provider and queue limits.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
 
+Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the hold threshold and the fixed test text:
+
+| Microphone | Format | Start of the microphone | Capture peak |
+| --- | --- | --- | --- |
+| AirPods | 24 kHz, mono | 109 ms for the first capture, then 34 ms | 0.62 |
+| Built-in microphone | 48 kHz, mono | 62 ms | 0.08 |
+
+- The capture started 228 to 230 ms after the key press. The target is the 220 ms hold threshold.
+- Escape released the microphone. The log showed no overrun and no queue failure.
+- With the automatic gain of the orb, the bars follow both microphones. They react too slowly: a later task tunes them.
+
 ## Phase 3: Correction and daily use
 
 - [ ] Add the Natural Clean prompt to version control.
