@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 13 (2026-11-03). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 14 (2026-11-03). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -198,7 +198,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 - `start` opens a connection and applies the options before the first audio chunk.
 - The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
 - One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
-- The adapter reads provider messages while it sends audio. Its receive task and buffers belong to the session.
+- The adapter reads the pending provider messages before each send and during `finish`. Its buffers belong to the session.
 - `finish` consumes the session, ends audio input, and waits for one complete transcript.
 - Cancellation drops the session. The Mistral protocol has no abort message: closing the connection cancels the session.
 - Partial provider results stay inside the adapter. They never enter the text pipeline or insertion queue.
@@ -356,6 +356,9 @@ pub enum AppError {
 `StepError` is a Phase 3 addition. The other error types exist.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
+The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
+`tungstenite` writes the handshake request with the API key to the `log` crate at trace level. Bloop installs no `log` bridge.
+A future bridge must turn off the `tungstenite` target.
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.

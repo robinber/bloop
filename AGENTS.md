@@ -25,7 +25,7 @@ The workspace manifests are the source of truth. When they change, update this s
 - MSRV (`rust-version`): 1.99, the stable release on the reference Mac (rustc 1.99.1).
 - Toolchain: stable. No `rust-toolchain.toml` and no nightly unless a documented need appears.
 - Platform: macOS on arm64 only. No other target is supported or tested.
-- Features: none yet. `bloop-providers` gets one feature for each vendor, and `mistral` becomes the default.
+- Features: `bloop-providers` has one feature for each vendor. `mistral` is the default.
   Verify with the default features unless the task changes a feature.
 - Lint floor: the rust-strict starter policy (`references/project-setup.md`, section 3) in `[workspace.lints]`,
   plus `raw_borrows_via_references`. Every member inherits it with `[lints] workspace = true`. Do not weaken it.

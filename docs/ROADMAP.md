@@ -74,7 +74,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [ ] Convert audio incrementally to 16 kHz mono PCM in the worker. Keep network work outside the audio callback.
 - [ ] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.
 - [ ] Send audio chunks to Voxtral during capture, with French and the word list configured at session start.
-- [ ] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
+- [x] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
 - [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
 - [ ] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
 - [ ] Cancel capture and its stream on Escape, other input, or microphone loss.

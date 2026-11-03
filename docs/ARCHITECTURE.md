@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 4 (2026-11-02). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 5 (2026-11-03). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
@@ -230,7 +230,7 @@ The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed id
 The provider never corrects the text that it sent. Thus this value also changes the final text.
 Phase 2 selects the value from accuracy and completion time measurements.
 
-The transcription session follows the provider protocol, checked in Mistral documentation on 2026-11-01:
+The transcription session follows the provider protocol, checked in Mistral documentation on 2026-11-03:
 
 1. The adapter opens the WebSocket with the model in the query string and the API key in the `Authorization` header.
 2. The provider sends `session.created`. The adapter sends one `session.update` with the audio format, language, word list, and delay.
@@ -239,8 +239,10 @@ The transcription session follows the provider protocol, checked in Mistral docu
 5. At capture end, the adapter sends `input_audio.end`. The `text` of `transcription.done` is the complete transcript.
 6. The provider has no abort message. To cancel, the adapter closes the connection.
 
-The adapter ignores the `transcription.text.delta` messages. The documentation does not give the accepted sample rates other than 16 kHz,
-the maximum session length, the inactivity limit of the provider, or the result of a silent session. Phase 2 records them.
+The adapter ignores the `transcription.text.delta` messages.
+The default sample rate of the API is 16 kHz. The official example uses 24 kHz. The documentation does not say if the API accepts 48 kHz.
+It also does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
+Phase 2 records them.
 
 On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
 It does not insert a partial transcript or retry the stream automatically. The user can dictate again.
@@ -264,7 +266,7 @@ Latency targets, as medians for 10 seconds of speech:
 
 Measure transcription completion after key release in Phase 2. Measure the complete path with correction in Phase 3.
 These values are targets, not Bloop measurements. Streaming still needs completion, correction, and paste time after release.
-The realtime model and parameters were checked in Mistral documentation on 2026-11-01.
+The realtime model and parameters were checked in Mistral documentation on 2026-11-03.
 The correction model and parameters were checked on 2026-10-31.
 No API request has run for Bloop.
 
@@ -384,7 +386,7 @@ Known limits:
 | Main queue | `dispatch2` |
 | Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
 | Microphone permission | `objc2-av-foundation`, `block2`. The authorization methods are `unsafe`; the owner approved them on 2026-11-02 |
-| Network | `tokio`, `tokio-tungstenite` with `rustls` (one root store feature), `serde_json`, `base64`; `reqwest` with `rustls` for correction |
+| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; `reqwest` with `rustls` for correction |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |
 | Errors | `anyhow` (application start only) |

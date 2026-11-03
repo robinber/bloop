@@ -2,4 +2,5 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "mistral")]
 pub mod mistral;

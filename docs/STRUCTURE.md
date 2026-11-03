@@ -1,11 +1,11 @@
 # Code structure
 
-Status: Revision 12 (2026-11-03). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 13 (2026-11-03). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue and the microphone capture, and `bloop-app` the worker.
 The driver starts the microphone capture, but not the worker yet. Until then, the driver keeps the reader of the queue.
 At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
-`bloop-providers` contains only the Keychain account of Mistral. The `mistral` feature comes with the adapter.
+`bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature. `bloop-app` does not build the adapter yet.
 
 ## Goals
 
@@ -102,7 +102,7 @@ src/
 ├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model
 ├── http.rs            Reused correction client, time limits, HTTP error conversion to ProviderError
 └── mistral/
-    ├── mod.rs         Mistral settings; API key from SecretStore (account "mistral")
+    ├── mod.rs         Mistral settings and Keychain account ("mistral"); bloop-app supplies the API key
     ├── transcribe.rs  Voxtral WebSocket: impl Transcriber and TranscriptionSession
     └── chat.rs        Mistral Small: impl ChatModel
 ```
