@@ -155,7 +155,12 @@ The panel ignores mouse events. Thus its transparent area does not block clicks.
 ### Bar animation
 
 - During `Listening`, a 30 Hz timer reads the audio level on the main thread.
-- Bloop converts the level to decibels and smooths it: fast rise, slow fall.
+- Bloop converts the level to decibels.
+- The bars show a fixed range of decibels below a ceiling. The ceiling follows the recent level.
+  Thus the bars move the same with a loud microphone and with a quiet microphone.
+- The ceiling rises immediately to a louder level. It falls slowly at a fixed rate, between two limits.
+- Below a fixed noise floor, the bars show no level. Thus room noise does not move the bars.
+- Bloop smooths the result: fast rise, slow fall.
 - All bars follow the current level at the same time.
 - Each bar has a fixed weight and a small random variation. Thus the bars have different heights.
 - Each height change uses a short implicit animation of about 80 ms.

@@ -17,10 +17,11 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSPanel, NSWorkspace};
 use objc2_foundation::NSString;
 
-use self::layers::{BAR_COUNT, BAR_MIN, BAR_MOVE, BarHeights, Layers, Palette, SHRINK, Shape};
+use self::layers::{
+    BAR_COUNT, BAR_MIN, BAR_MOVE, BarHeights, Layers, Palette, SHRINK, Shape, TICK,
+};
 use crate::scheduler;
 
-const TICK: Duration = Duration::from_millis(33);
 const ERROR_TIME: Duration = Duration::from_secs(1);
 const CARD_TIME: Duration = Duration::from_secs(8);
 const MORPH: Duration = Duration::from_millis(200);

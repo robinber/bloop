@@ -26,6 +26,8 @@ pub(super) const BAR_COUNT: usize = 7;
 pub(super) const BAR_MIN: CGFloat = 6.0;
 pub(super) const BAR_MOVE: Duration = Duration::from_millis(80);
 pub(super) const SHRINK: Duration = Duration::from_millis(120);
+/// The time between two frames of the bars during a capture.
+pub(super) const TICK: Duration = Duration::from_millis(33);
 
 const PILL: CGSize = CGSize::new(150.0, 56.0);
 const CARD: CGSize = CGSize::new(340.0, 104.0);
@@ -45,9 +47,16 @@ const CLOSED_SCALE: CGFloat = 0.8;
 const WEIGHTS: [CGFloat; BAR_COUNT] = [0.5, 0.7, 0.9, 1.0, 0.85, 0.65, 0.45];
 const VARIATION: CGFloat = 0.15;
 const RISE: CGFloat = 0.6;
-const FALL: CGFloat = 0.12;
-const FLOOR_DB: CGFloat = -50.0;
-const CEILING_DB: CGFloat = -10.0;
+const FALL: CGFloat = 0.25;
+const START_CEILING_DB: CGFloat = -20.0;
+const MIN_CEILING_DB: CGFloat = -35.0;
+const MAX_CEILING_DB: CGFloat = -6.0;
+/// The bars show the levels from this value below the ceiling up to the ceiling.
+const RANGE_DB: CGFloat = 30.0;
+/// The bars show no level below this value.
+const NOISE_FLOOR_DB: CGFloat = -55.0;
+/// The ceiling falls by this value each second.
+const DECAY_DB_PER_SECOND: CGFloat = 6.0;
 
 /// The colors of the bars.
 #[derive(Debug, Clone, Copy)]
@@ -262,10 +271,14 @@ impl Layers {
     }
 }
 
-/// Converts the audio level to bar heights: decibels, fast rise, slow fall, and a small random variation.
+/// Converts the audio level to bar heights: decibels below a ceiling that follows the recent level,
+/// fast rise, slow fall, and a small random variation.
+///
+/// The ceiling makes the bars move the same with a loud and a quiet microphone.
 #[derive(Debug)]
 pub(super) struct BarHeights {
     loudness: CGFloat,
+    ceiling: CGFloat,
     random: u64,
 }
 
@@ -273,20 +286,29 @@ impl Default for BarHeights {
     fn default() -> Self {
         Self {
             loudness: 0.0,
+            ceiling: START_CEILING_DB,
             random: 0x9E37_79B9_7F4A_7C15,
         }
     }
 }
 
 impl BarHeights {
-    /// Starts again from silence.
+    /// Starts again from silence, with the start ceiling.
     pub(super) fn reset(&mut self) {
-        self.loudness = 0.0;
+        *self = Self {
+            random: self.random,
+            ..Self::default()
+        };
     }
 
-    /// Returns the heights for the next frame.
+    /// Returns the heights for the next frame, one `TICK` after the previous frame.
     pub(super) fn next(&mut self, level: f32) -> [CGFloat; BAR_COUNT] {
-        let target = loudness(level);
+        let decibels = 20.0 * CGFloat::from(level).max(1e-6).log10();
+        self.ceiling = decibels
+            .max(self.ceiling - DECAY_DB_PER_SECOND * TICK.as_secs_f64())
+            .clamp(MIN_CEILING_DB, MAX_CEILING_DB);
+        let floor = (self.ceiling - RANGE_DB).max(NOISE_FLOOR_DB);
+        let target = ((decibels - floor) / (self.ceiling - floor)).clamp(0.0, 1.0);
         let rate = if target > self.loudness { RISE } else { FALL };
         self.loudness += (target - self.loudness) * rate;
         WEIGHTS.map(|weight| {
@@ -308,11 +330,6 @@ impl BarHeights {
 /// Fixed heights that follow the bar weights, without variation.
 pub(super) fn resting_heights(loudness: CGFloat) -> [CGFloat; BAR_COUNT] {
     WEIGHTS.map(|weight| bar_height(loudness * weight))
-}
-
-fn loudness(level: f32) -> CGFloat {
-    let decibels = 20.0 * CGFloat::from(level).max(1e-6).log10();
-    ((decibels - FLOOR_DB) / (CEILING_DB - FLOOR_DB)).clamp(0.0, 1.0)
 }
 
 fn bar_height(amount: CGFloat) -> CGFloat {
@@ -379,14 +396,25 @@ fn transaction(duration: Option<Duration>, changes: impl FnOnce()) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::{
-        BAR_COUNT, BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, excerpt, loudness, resting_heights,
+        BAR_COUNT, BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, DECAY_DB_PER_SECOND, MIN_CEILING_DB,
+        TICK, excerpt, resting_heights,
     };
 
     const CENTER: usize = 3;
 
     fn fraction(height: f64) -> f64 {
         (height - BAR_MIN) / (BAR_MAX - BAR_MIN)
+    }
+
+    fn amplitude(decibels: f32) -> f32 {
+        10_f32.powf(decibels / 20.0)
+    }
+
+    fn ticks(time: Duration) -> usize {
+        usize::try_from(time.as_millis() / TICK.as_millis()).unwrap()
     }
 
     #[test]
@@ -425,10 +453,62 @@ mod tests {
     }
 
     #[test]
-    fn the_level_maps_from_minus_50_to_minus_10_decibels() {
-        assert!(loudness(0.0).abs() < 1e-9);
-        assert!((loudness(10_f32.powf(-30.0 / 20.0)) - 0.5).abs() < 1e-3);
-        assert!((loudness(1.0) - 1.0).abs() < 1e-9);
+    fn a_loud_and_a_quiet_microphone_move_the_bars_the_same() {
+        let speech: Vec<f32> = [1.0, 0.1, 0.5, 0.02, 0.8, 0.3, 0.05]
+            .into_iter()
+            .flat_map(|level| [level; 4])
+            .collect();
+        let (loud, quiet) = (amplitude(-4.0), amplitude(-22.0));
+        let mut loud_bars = BarHeights::default();
+        let mut quiet_bars = BarHeights::default();
+        for &level in &speech.repeat(3) {
+            loud_bars.next(level * loud);
+            quiet_bars.next(level * quiet);
+        }
+
+        let mut quiet_center = Vec::new();
+        for &level in &speech {
+            let loud_heights = loud_bars.next(level * loud);
+            let quiet_heights = quiet_bars.next(level * quiet);
+            // The loud ceiling stops at MAX_CEILING_DB, 2 dB below the loud peak: about 7% of RANGE_DB.
+            for (loud_height, quiet_height) in loud_heights.into_iter().zip(quiet_heights) {
+                let difference = fraction(loud_height) - fraction(quiet_height);
+                assert!(difference.abs() < 0.1, "level {level}: {difference}");
+            }
+            quiet_center.push(fraction(quiet_heights[CENTER]));
+        }
+        let lowest = quiet_center.iter().copied().fold(f64::INFINITY, f64::min);
+        let highest = quiet_center.iter().copied().fold(0.0, f64::max);
+        assert!(highest - lowest > 0.5, "{lowest}..{highest}");
+    }
+
+    #[test]
+    fn noise_below_the_floor_shows_no_level_also_with_the_lowest_ceiling() {
+        let mut bars = BarHeights::default();
+
+        for _ in 0..ticks(Duration::from_secs(10)) {
+            let heights = bars.next(amplitude(-60.0));
+            assert!(heights.iter().all(|&height| fraction(height).abs() < 1e-9));
+        }
+        assert!((bars.ceiling - MIN_CEILING_DB).abs() < 1e-9);
+    }
+
+    #[test]
+    fn after_a_loud_peak_a_quieter_voice_fills_the_bars_when_the_ceiling_comes_down() {
+        let (peak, voice) = (-6.0, -18.0);
+        let expected = Duration::from_secs_f64(f64::from(peak - voice) / DECAY_DB_PER_SECOND);
+        let mut bars = BarHeights::default();
+        bars.next(amplitude(peak));
+
+        for _ in 0..ticks(expected.mul_f64(0.75)) {
+            bars.next(amplitude(voice));
+        }
+        assert!(bars.loudness < 0.95, "{}", bars.loudness);
+
+        for _ in 0..ticks(expected.mul_f64(0.5)) {
+            bars.next(amplitude(voice));
+        }
+        assert!(bars.loudness > 0.999, "{}", bars.loudness);
     }
 
     #[test]
