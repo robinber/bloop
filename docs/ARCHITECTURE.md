@@ -386,7 +386,7 @@ Known limits:
 | Main queue | `dispatch2` |
 | Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
 | Microphone permission | `objc2-av-foundation`, `block2`. The authorization methods are `unsafe`; the owner approved them on 2026-11-02 |
-| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; `reqwest` with `rustls` for correction |
+| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; `reqwest` with `native-tls` for correction. Both connections then use one TLS stack through `security-framework` |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml` |
 | Errors | `anyhow` (application start only) |
