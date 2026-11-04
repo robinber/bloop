@@ -198,6 +198,8 @@ Bloop does not use Tabi code or assets.
 - During capture, the worker converts samples incrementally to mono signed 16-bit little-endian PCM at the native rate of the microphone.
 - Bloop has no resampler. Bloop adds one only if the live test shows that Voxtral refuses the rate or that accuracy drops.
 - The worker sends each chunk in order. A full queue fails the session; Bloop never silently drops samples.
+- During capture, the worker sends only complete chunks of 100 ms. It keeps the remaining samples for the next queue read.
+  At capture end, the worker sends the remaining samples immediately. Thus the chunk length adds no delay after key release.
 - At capture end, the worker drains accepted samples and flushes the converter before it ends the stream.
 - If the capture is shorter than 300 ms, or its level stays below a threshold, Bloop cancels transcription and pastes nothing.
   Audio can already have reached the provider. The bars already showed the silence during capture.

@@ -157,6 +157,9 @@ async fn transcribe(
 }
 
 /// Streams the samples of `reader`, at `rate` in Hz, until the end of the capture.
+///
+/// During the capture, it sends only complete chunks and keeps the remaining samples for the next drain.
+/// At the end of the capture, it also sends the last, shorter chunk.
 async fn stream(
     generation: Generation,
     rate: NonZeroU32,
@@ -179,14 +182,20 @@ async fn stream(
         backlog_samples = samples.len(),
         "the provider session opened"
     );
+    let length = AudioChunk::length(rate).get();
     let mut chunks = 0_usize;
     let mut sent = 0_usize;
     loop {
-        for chunk in AudioChunk::split(&samples, rate) {
+        let ready = match status {
+            Status::Open => samples.len() / length * length,
+            Status::Ended => samples.len(),
+        };
+        for chunk in AudioChunk::split(&samples[..ready], rate) {
             watch(reader, speech.limits.inactivity, session.send_audio(&chunk)).await?;
             chunks += 1;
         }
-        sent += samples.len();
+        sent += ready;
+        samples.drain(..ready);
         if status == Status::Ended {
             tracing::info!(
                 ?generation,
@@ -198,7 +207,6 @@ async fn stream(
             return Ok(session);
         }
         tokio::time::sleep(POLL).await;
-        samples.clear();
         status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
     }
 }
@@ -319,18 +327,18 @@ mod tests {
         let mut run = Run::start(Script::default(), CAPACITY, LONG);
         let audio = samples(4_000);
 
-        run.push(&audio[..1_000]).unwrap();
+        run.push(&audio[..1_600]).unwrap();
         settle().await;
         let calls = run.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[..1_000]));
+        assert_eq!(sent_audio(&calls), pcm(&audio[..1_600]));
         assert!(!calls.contains(&Call::Finish));
         assert!(run.events.take().is_empty());
-        run.push(&audio[1_000..]).unwrap();
+        run.push(&audio[1_600..]).unwrap();
         run.end_capture();
         settle().await;
 
         let calls = run.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[1_000..]));
+        assert_eq!(sent_audio(&calls), pcm(&audio[1_600..]));
         assert_matches!(
             calls.as_slice(),
             [.., Call::Audio(_), Call::Finish, Call::Drop]
@@ -339,6 +347,30 @@ mod tests {
             run.only_event(),
             Event::TextReady(generation, text) if generation == run.generation && text.as_str() == TEXT
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_capture_audio_goes_in_chunks_of_100_ms_and_the_end_sends_the_rest() {
+        let mut run = Run::start(Script::default(), CAPACITY, LONG);
+        let audio = samples(4_900);
+
+        for part in audio.chunks(700) {
+            run.push(part).unwrap();
+            settle().await;
+        }
+        run.end_capture();
+        settle().await;
+
+        let calls = run.log.take();
+        let lengths: Vec<usize> = calls
+            .iter()
+            .filter_map(|call| match call {
+                Call::Audio(pcm) => Some(pcm.len()),
+                Call::Finish | Call::Drop => None,
+            })
+            .collect();
+        assert_eq!(lengths, [3_200, 3_200, 3_200, 200]);
+        assert_eq!(sent_audio(&calls), pcm(&audio));
     }
 
     #[tokio::test(start_paused = true)]
@@ -431,7 +463,7 @@ mod tests {
     async fn a_lost_microphone_fails_the_capture_without_finishing() {
         let mut run = Run::start(Script::default(), CAPACITY, LONG);
 
-        run.push(&samples(100)).unwrap();
+        run.push(&samples(1_600)).unwrap();
         settle().await;
         run.writer = None;
         settle().await;
@@ -451,7 +483,7 @@ mod tests {
         };
         let mut run = Run::start(script, CAPACITY, LONG);
 
-        run.push(&samples(100)).unwrap();
+        run.push(&samples(1_600)).unwrap();
         settle().await;
         run.writer = None;
         settle().await;
@@ -478,7 +510,7 @@ mod tests {
         for script in failures {
             let mut run = Run::start(script, CAPACITY, LONG);
 
-            run.push(&samples(100)).unwrap();
+            run.push(&samples(1_600)).unwrap();
             settle().await;
 
             assert_eq!(run.log.take(), [Call::Drop], "{script:?}");
@@ -552,7 +584,7 @@ mod tests {
         };
         let mut run = Run::start(script, CAPACITY, LONG);
 
-        run.push(&samples(100)).unwrap();
+        run.push(&samples(1_600)).unwrap();
         settle().await;
 
         assert_eq!(run.log.take(), [Call::Drop]);
@@ -631,7 +663,7 @@ mod tests {
         };
         let mut run = Run::start(script, CAPACITY, limits);
 
-        run.push(&samples(100)).unwrap();
+        run.push(&samples(1_600)).unwrap();
         sleep(Duration::from_millis(1_900)).await;
         assert_matches!(run.log.take().as_slice(), []);
         assert!(run.events.take().is_empty());

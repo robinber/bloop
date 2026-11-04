@@ -470,18 +470,18 @@ mod tests {
         fire_only_timer(&mut driver);
 
         let sink = driver.input.sink.as_mut().expect("a started capture");
-        sink.try_push(&audio[..1_000]).unwrap();
+        sink.try_push(&audio[..1_600]).unwrap();
         settle().await;
         let calls = fake.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[..1_000]));
+        assert_eq!(sent_audio(&calls), pcm(&audio[..1_600]));
         assert!(!calls.contains(&Call::Finish));
         let sink = driver.input.sink.as_mut().expect("a started capture");
-        sink.try_push(&audio[1_000..]).unwrap();
+        sink.try_push(&audio[1_600..]).unwrap();
         driver.handle(Event::DictationKeyUp);
         deliver(&mut driver, &fake).await;
 
         let calls = fake.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[1_000..]));
+        assert_eq!(sent_audio(&calls), pcm(&audio[1_600..]));
         assert_matches!(
             calls.as_slice(),
             [.., Call::Audio(_), Call::Finish, Call::Drop]

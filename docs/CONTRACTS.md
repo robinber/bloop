@@ -130,10 +130,12 @@ pub struct FinalText(String);
 ```
 
 `AudioChunk` contains mono signed 16-bit little-endian PCM at the native sample rate of the microphone, without a file header.
-`AudioChunk::split(&[f32], NonZeroU32)` encodes samples at the given rate as consecutive chunks of 100 ms, in order.
+`AudioChunk::length(NonZeroU32)` returns the number of samples in 100 ms at the given rate. Below 10 Hz, it returns 1.
+It is the only source of the chunk length.
+`AudioChunk::split(&[f32], NonZeroU32)` encodes samples at the given rate as consecutive chunks of this length, in order.
 It is the only constructor. Thus a chunk is never empty and contains only whole samples.
-Only the last chunk can be shorter than 100 ms. Below 10 Hz, each chunk contains one sample.
-The 100 ms length follows the Mistral examples. It is not a measured value.
+Only the last chunk can be shorter than 100 ms.
+The 100 ms length follows the Mistral examples, and it decreases the number of WebSocket messages. It is not a measured value.
 A sample from -1 to 1 uses the full 16-bit range. Values outside that range saturate, and NaN encodes as 0.
 `AudioChunk::as_bytes` exposes the bytes. Only the worker creates these chunks.
 `CaptureSummary` contains the duration and peak level. It contains no recording.
@@ -273,7 +275,9 @@ pub trait SecretStore {
   Thus, for an overrun, the error callback only adds one to an atomic counter. `AudioInput::stop` writes the count to the log.
 - When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
 - The worker reads the queue every 10 to 20 ms. The callback does not wake it.
-  The worker converts the samples incrementally and calls `send_audio`.
+  The worker converts the samples incrementally and calls `send_audio` for each chunk.
+- During the capture, the worker sends only complete chunks of 100 ms. It keeps the remaining samples for the next read.
+  At the end of the capture, the worker sends all remaining samples immediately. Thus the chunk length adds no delay after key release.
 - During a provider operation, the worker checks the queue state at the same interval.
   A full queue or a lost microphone fails the capture without waiting for the provider.
 - The worker reports the overflow mark as `AudioQueueError::Full`. Thus a full queue fails the capture.

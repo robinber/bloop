@@ -1,7 +1,7 @@
 //! Domain values shared by the state machine and the adapters.
 
 use std::fmt;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -80,13 +80,22 @@ fn redacted_text(f: &mut fmt::Formatter<'_>, name: &str, text: &str) -> fmt::Res
 pub struct AudioChunk(Vec<u8>);
 
 impl AudioChunk {
-    /// Encodes samples at `rate`, in Hz, as consecutive chunks of 100 ms, in order.
-    /// The last chunk can be shorter. Below 10 Hz, each chunk holds one sample.
+    /// Returns the number of samples in one chunk at `rate`, in Hz: 100 ms of audio.
+    /// Below 10 Hz, a chunk holds one sample.
+    #[must_use]
+    pub const fn length(rate: NonZeroU32) -> NonZeroUsize {
+        match NonZeroUsize::new((rate.get() / 10) as usize) {
+            Some(length) => length,
+            None => NonZeroUsize::MIN,
+        }
+    }
+
+    /// Encodes samples at `rate`, in Hz, as consecutive chunks of [`length`](Self::length) samples, in order.
+    /// The last chunk can be shorter.
     ///
     /// A sample from -1 to 1 uses the full 16-bit range. Values outside it saturate, and NaN encodes as 0.
     pub fn split(samples: &[f32], rate: NonZeroU32) -> impl Iterator<Item = Self> {
-        let length = (rate.get() / 10).max(1) as usize;
-        samples.chunks(length).map(|part| {
+        samples.chunks(Self::length(rate).get()).map(|part| {
             let mut pcm = Vec::with_capacity(part.len() * size_of::<i16>());
             for &sample in part {
                 pcm.extend_from_slice(&pcm16(sample).to_le_bytes());
@@ -207,13 +216,15 @@ mod tests {
     #[test]
     fn split_keeps_the_order_and_holds_100_ms_at_the_rate_in_a_chunk() {
         for (rate, length) in [(48_000, 4_800), (24_000, 2_400), (9, 1)] {
+            let rate = NonZeroU32::new(rate).unwrap();
             let mut samples = vec![0.0; length * 2];
             samples.push(1.0);
 
-            let chunks: Vec<Vec<u8>> = AudioChunk::split(&samples, NonZeroU32::new(rate).unwrap())
+            let chunks: Vec<Vec<u8>> = AudioChunk::split(&samples, rate)
                 .map(|chunk| chunk.as_bytes().to_vec())
                 .collect();
 
+            assert_eq!(AudioChunk::length(rate).get(), length, "{rate} Hz");
             assert_eq!(chunks.len(), 3, "{rate} Hz");
             assert!(
                 chunks[..2].iter().all(|pcm| pcm.len() == length * 2),
