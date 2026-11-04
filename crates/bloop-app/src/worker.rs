@@ -14,6 +14,10 @@ use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
 use tokio::runtime::Handle;
 use tokio::task::{AbortHandle, JoinHandle};
+use tokio::time::Instant;
+
+#[cfg(test)]
+pub(crate) mod fakes;
 
 const POLL: Duration = Duration::from_millis(20);
 
@@ -65,36 +69,6 @@ pub(crate) struct Task {
 }
 
 impl Task {
-    /// Opens a provider session and streams the samples of `reader`, at `rate` in Hz, to it.
-    pub(crate) fn spawn(
-        runtime: &Handle,
-        generation: Generation,
-        rate: NonZeroU32,
-        reader: Reader,
-        speech: Arc<Speech>,
-        events: Arc<dyn EventSink>,
-    ) -> Self {
-        let end = reader.end_mark();
-        let work = runtime.spawn(transcribe(generation, rate, reader, speech));
-        let abort = work.abort_handle();
-        let report = runtime.spawn(async move {
-            let event = match work.await {
-                Ok(event) => event,
-                Err(error) if error.is_cancelled() => return,
-                Err(_) => {
-                    tracing::error!(?generation, "the transcription task panicked");
-                    Event::CaptureFailed(generation, AppError::Internal)
-                }
-            };
-            events.send(event);
-        });
-        Self {
-            work: abort,
-            report,
-            end,
-        }
-    }
-
     /// Ends the capture normally. Then the driver stops the audio input,
     /// and the work task finishes the session after the last samples.
     pub(crate) fn end_capture(&self) {
@@ -109,28 +83,87 @@ impl Drop for Task {
     }
 }
 
+/// Starts the transcription task of each capture.
+pub(crate) struct Spawner {
+    /// The runtime of the tasks.
+    pub(crate) runtime: Handle,
+    /// The speech provider, or `None` without an API key.
+    pub(crate) speech: Option<Arc<Speech>>,
+    /// Receives the result event of each task.
+    pub(crate) events: Arc<dyn EventSink>,
+}
+
+impl Spawner {
+    /// Opens a provider session and streams the samples of `reader`, at `rate` in Hz, to it.
+    ///
+    /// # Errors
+    ///
+    /// `Unauthorized` without an API key.
+    pub(crate) fn spawn(
+        &self,
+        generation: Generation,
+        rate: NonZeroU32,
+        reader: Reader,
+    ) -> Result<Task, ProviderError> {
+        let speech = self.speech.clone().ok_or(ProviderError::Unauthorized)?;
+        let events = Arc::clone(&self.events);
+        let end = reader.end_mark();
+        let work = self
+            .runtime
+            .spawn(transcribe(generation, rate, reader, speech));
+        let abort = work.abort_handle();
+        let report = self.runtime.spawn(async move {
+            let event = match work.await {
+                Ok(event) => event,
+                Err(error) if error.is_cancelled() => return,
+                Err(_) => {
+                    tracing::error!(?generation, "the transcription task panicked");
+                    Event::CaptureFailed(generation, AppError::Internal)
+                }
+            };
+            events.send(event);
+        });
+        Ok(Task {
+            work: abort,
+            report,
+            end,
+        })
+    }
+}
+
 async fn transcribe(
     generation: Generation,
     rate: NonZeroU32,
     mut reader: Reader,
     speech: Arc<Speech>,
 ) -> Event {
-    let session = match stream(rate, &mut reader, &speech).await {
+    let session = match stream(generation, rate, &mut reader, &speech).await {
         Ok(session) => session,
         Err(error) => return Event::CaptureFailed(generation, error),
     };
+    let finishing = Instant::now();
     match within(speech.limits.completion, session.finish()).await {
-        Ok(transcript) => pipeline::run(generation, transcript),
+        Ok(transcript) => {
+            tracing::info!(
+                ?generation,
+                millis = finishing.elapsed().as_millis(),
+                chars = transcript.as_str().chars().count(),
+                "the transcript is complete"
+            );
+            pipeline::run(generation, transcript)
+        }
         Err(error) => Event::WorkFailed(generation, AppError::Provider(error)),
     }
 }
 
-/// The samples of `reader` are at `rate`, in Hz.
+/// Streams the samples of `reader`, at `rate` in Hz, until the end of the capture.
 async fn stream(
+    generation: Generation,
     rate: NonZeroU32,
     reader: &mut Reader,
     speech: &Speech,
 ) -> Result<Box<dyn TranscriptionSession>, AppError> {
+    let started = Instant::now();
     let options = TranscriptionOptions {
         language: &speech.language,
         vocabulary: &speech.vocabulary,
@@ -139,16 +172,34 @@ async fn stream(
     let start = speech.transcriber.start(options);
     let mut session = watch(reader, speech.limits.connection, start).await?;
     let mut samples = Vec::new();
+    let mut status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
+    tracing::info!(
+        ?generation,
+        millis = started.elapsed().as_millis(),
+        backlog_samples = samples.len(),
+        "the provider session opened"
+    );
+    let mut chunks = 0_usize;
+    let mut sent = 0_usize;
     loop {
-        samples.clear();
-        let status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
         for chunk in AudioChunk::split(&samples, rate) {
             watch(reader, speech.limits.inactivity, session.send_audio(&chunk)).await?;
+            chunks += 1;
         }
+        sent += samples.len();
         if status == Status::Ended {
+            tracing::info!(
+                ?generation,
+                chunks,
+                samples = sent,
+                millis = started.elapsed().as_millis(),
+                "the capture audio drained"
+            );
             return Ok(session);
         }
         tokio::time::sleep(POLL).await;
+        samples.clear();
+        status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
     }
 }
 
@@ -189,152 +240,23 @@ async fn queue_failure(reader: &mut Reader) -> AudioQueueError {
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
-    use std::future;
     use std::num::NonZeroU32;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use bloop_audio::buffer::{self, Writer};
-    use bloop_core::domain::{AudioChunk, Generation, Transcript};
+    use bloop_core::domain::Generation;
     use bloop_core::error::{AppError, AudioQueueError, ProviderError};
-    use bloop_core::ports::ai::{
-        BoxFuture, Transcriber, TranscriptionOptions, TranscriptionSession,
-    };
-    use bloop_core::ports::platform::{AudioSink, EventSink};
+    use bloop_core::ports::platform::AudioSink;
     use bloop_core::session::{Command, Core, Event};
-    use tokio::runtime::Handle;
     use tokio::time::sleep;
 
-    use super::{Limits, Speech, Task};
-
-    const TEXT: &str = "Bonjour à tous.";
-    const CAPACITY: usize = 16_000;
-    const RATE: NonZeroU32 = NonZeroU32::new(16_000).unwrap();
-    const HOUR: Duration = Duration::from_secs(3_600);
-    /// Limits that no test reaches, so that `Reply::Never` means no event within `settle`.
-    const LONG: Limits = Limits {
-        connection: HOUR,
-        inactivity: HOUR,
-        completion: HOUR,
+    use super::fakes::{
+        Call, Fake, LONG, RATE, Recorder, Reply, Script, TEXT, pcm, samples, sent_audio, settle,
     };
+    use super::{Limits, Task};
 
-    #[derive(Debug, Clone, Copy, Default)]
-    enum Reply {
-        #[default]
-        Ok,
-        After(Duration),
-        Fail(ProviderError),
-        Never,
-        Panic,
-    }
-
-    impl Reply {
-        async fn wait(self) -> Result<(), ProviderError> {
-            match self {
-                Self::Ok => Ok(()),
-                Self::After(delay) => {
-                    sleep(delay).await;
-                    Ok(())
-                }
-                Self::Fail(error) => Err(error),
-                Self::Never => future::pending().await,
-                Self::Panic => panic!("the fake provider panicked"),
-            }
-        }
-    }
-
-    #[derive(Debug, Clone, Copy, Default)]
-    struct Script {
-        start: Reply,
-        send: Reply,
-        finish: Reply,
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    enum Call {
-        Audio(Vec<u8>),
-        Finish,
-        Drop,
-    }
-
-    struct Recorder<T>(Mutex<Vec<T>>);
-
-    impl<T> Default for Recorder<T> {
-        fn default() -> Self {
-            Self(Mutex::new(Vec::new()))
-        }
-    }
-
-    impl<T> Recorder<T> {
-        fn push(&self, item: T) {
-            self.0.lock().unwrap().push(item);
-        }
-
-        fn take(&self) -> Vec<T> {
-            std::mem::take(&mut *self.0.lock().unwrap())
-        }
-    }
-
-    impl EventSink for Recorder<Event> {
-        fn send(&self, event: Event) {
-            self.push(event);
-        }
-    }
-
-    struct FakeTranscriber {
-        script: Script,
-        log: Arc<Recorder<Call>>,
-        rates: Arc<Recorder<NonZeroU32>>,
-    }
-
-    impl Transcriber for FakeTranscriber {
-        fn start<'a>(
-            &'a self,
-            options: TranscriptionOptions<'a>,
-        ) -> BoxFuture<'a, Result<Box<dyn TranscriptionSession>, ProviderError>> {
-            self.rates.push(options.sample_rate);
-            let session = FakeSession {
-                script: self.script,
-                log: Arc::clone(&self.log),
-            };
-            Box::pin(async move {
-                self.script.start.wait().await?;
-                Ok(Box::new(session) as Box<dyn TranscriptionSession>)
-            })
-        }
-    }
-
-    struct FakeSession {
-        script: Script,
-        log: Arc<Recorder<Call>>,
-    }
-
-    impl TranscriptionSession for FakeSession {
-        fn send_audio<'a>(
-            &'a mut self,
-            chunk: &'a AudioChunk,
-        ) -> BoxFuture<'a, Result<(), ProviderError>> {
-            Box::pin(async move {
-                self.script.send.wait().await?;
-                self.log.push(Call::Audio(chunk.as_bytes().to_vec()));
-                Ok(())
-            })
-        }
-
-        fn finish(self: Box<Self>) -> BoxFuture<'static, Result<Transcript, ProviderError>> {
-            Box::pin(async move {
-                self.log.push(Call::Finish);
-                self.script.finish.wait().await?;
-                Ok(Transcript::new(TEXT.to_owned()))
-            })
-        }
-    }
-
-    impl Drop for FakeSession {
-        fn drop(&mut self) {
-            self.log.push(Call::Drop);
-        }
-    }
+    const CAPACITY: usize = 16_000;
 
     struct Run {
         generation: Generation,
@@ -352,28 +274,13 @@ mod tests {
 
         fn start_at(rate: NonZeroU32, script: Script, capacity: usize, limits: Limits) -> Self {
             let (writer, reader) = buffer::new(capacity);
-            let log = Arc::new(Recorder::default());
-            let rates = Arc::new(Recorder::default());
-            let events = Arc::new(Recorder::default());
-            let speech = Speech {
-                transcriber: Box::new(FakeTranscriber {
-                    script,
-                    log: Arc::clone(&log),
-                    rates: Arc::clone(&rates),
-                }),
-                language: "fr".to_owned(),
-                vocabulary: Vec::new(),
-                limits,
-            };
+            let fake = Fake::default();
             let generation = generation();
-            let task = Task::spawn(
-                &Handle::current(),
-                generation,
-                rate,
-                reader,
-                Arc::new(speech),
-                Arc::clone(&events) as Arc<dyn EventSink>,
-            );
+            let task = fake
+                .spawner(script, limits)
+                .spawn(generation, rate, reader)
+                .unwrap();
+            let Fake { log, rates, events } = fake;
             Self {
                 generation,
                 task: Some(task),
@@ -405,34 +312,6 @@ mod tests {
             panic!("{commands:?}");
         };
         *generation
-    }
-
-    fn samples(count: u16) -> Vec<f32> {
-        (0..count).map(|index| f32::from(index) / 4_096.0).collect()
-    }
-
-    fn pcm(samples: &[f32]) -> Vec<u8> {
-        AudioChunk::split(samples, RATE)
-            .flat_map(|chunk| chunk.as_bytes().to_vec())
-            .collect()
-    }
-
-    fn sent_audio(calls: &[Call]) -> Vec<u8> {
-        calls
-            .iter()
-            .filter_map(|call| match call {
-                Call::Audio(pcm) => Some(pcm.as_slice()),
-                Call::Finish | Call::Drop => None,
-            })
-            .flatten()
-            .copied()
-            .collect()
-    }
-
-    /// Runs the task until it ends or waits for a reply that never comes.
-    /// The paused clock advances only when all tasks wait.
-    async fn settle() {
-        sleep(Duration::from_secs(5)).await;
     }
 
     #[tokio::test(start_paused = true)]

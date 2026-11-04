@@ -2,10 +2,10 @@
 
 Status: Revision 14 (2026-11-04). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue and the microphone capture, and `bloop-app` the worker.
-The driver starts the microphone capture, but not the worker yet. Until then, the driver keeps the reader of the queue.
-At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
+The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
+At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission. `bloop-app` gives the key to the adapter.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
-`bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature. `bloop-app` does not build the adapter yet.
+`bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature.
 
 ## Goals
 
@@ -178,7 +178,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - The complete transcript enters the text pipeline. Partial transcripts never produce `TextReady`.
 - The worker runs as a work task and a report task. The report task sends the result event.
   The report task also converts a panic of the work task into `CaptureFailed` with `AppError::Internal`.
-- The driver sends result events only after the core creates the job at capture end.
+- The worker finishes the stream only after the end mark. Thus its `TextReady` reaches the core after the core creates the job.
 - The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - `CancelCapture` carries no generation. Thus the driver keeps the generation of the active capture from `StartCapture`.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
@@ -305,13 +305,13 @@ Thus the application operates at the end of each phase.
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
-`bloop-app` keeps three temporary behaviors from Phase 1:
+Until `config.rs` exists, `bloop-app` keeps these temporary constants in `main.rs`:
 
-- `StartCapture` opens no network session.
-- A driver rule that answers `StopCaptureAndProcess` with a `TextReady` event that contains fixed test text.
-- The hold threshold is the `HOLD` constant in `main.rs` until `config.rs` exists.
+- The hold threshold: `HOLD`, 220 ms.
+- The transcription settings: model `voxtral-mini-transcribe-realtime-3-0`, `target_streaming_delay_ms` 480,
+  language `fr`, and an empty word list.
 
-Phase 2 replaces these behaviors with streaming and `config.rs`.
+Phase 2 replaces these constants with `config.rs`.
 
 ## Work method
 

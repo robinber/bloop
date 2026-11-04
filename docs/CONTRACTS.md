@@ -212,7 +212,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
   Cancellation must also work during any pending operation.
 - Bloop does not reconnect or replay audio automatically. No adapter can replace streaming with a complete-file upload.
 
-The driver checks the generation before accepting any result. The provider does not call the core or perform insertion.
+The core ignores a result for an unknown generation. The provider does not call the core or perform insertion.
 
 ## Platform ports
 
@@ -381,7 +381,7 @@ pub struct Pipeline {
 `Pipeline::run(&self, generation: Generation, transcript: Transcript, context: StepContext) -> Event` is an `async fn`.
 Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
 
-The driver starts this pipeline only after `finish` returns the complete transcript.
+The worker runs this pipeline only after `finish` returns the complete transcript.
 For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation.
 The limits for duration and level use `CaptureSummary`. They are not provider options.
 

@@ -55,6 +55,7 @@ Unit tests drive the core with event sequences, without macOS.
 
 - The audio callback does not allocate memory, lock, access files, or wait for the network.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
+- The worker tasks run on a Tokio runtime with one worker thread, `bloop-worker`.
 - The worker reads the audio queue every 10 to 20 ms. The callback does not wake it.
 - The audio level is an atomic value. The orb reads it on the main thread.
 - The worker sends each result to the main queue with its generation.
@@ -283,7 +284,8 @@ The provider implements the streaming contract in [Rust contracts](CONTRACTS.md#
 
 - `StartCapture` starts audio capture and opens the provider session asynchronously.
 - `StopCaptureAndProcess` stops capture and tells the existing task to finish. It does not start another transcription.
-- The driver sends `TextReady` only after the core creates a job and the complete transcript passes through the text steps.
+- The worker sends `TextReady` only after the complete transcript passes through the text steps.
+  The job exists at that time: the core creates it before the driver sets the end mark.
 - `CancelCapture` stops capture and its stream. It carries no generation: the driver keeps the generation of the active capture.
 - `CancelWork` stops the task for the specified generation and forgets its paste target.
 - A failure during capture produces `CaptureFailed`. A failure after capture produces `WorkFailed`.

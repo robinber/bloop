@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 5. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
+Status: Design revision 6. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -66,17 +66,18 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Add the audio and streaming contracts to `bloop-core`, with `Transcript` and a pipeline without text steps.
 - [x] Test start, ordered audio, finish, cancellation, and failure of the worker with a fake provider.
 - [x] Read the API key from Keychain. Without the key, show it in the menu status.
-- [ ] Pass the key that Bloop reads at start to the Mistral adapter. Do not read Keychain a second time.
+- [x] Pass the key that Bloop reads at start to the Mistral adapter. Do not read Keychain a second time.
 - [x] Check the microphone permission at start. First, check if `objc2-av-foundation` gives the check without `unsafe`.
   It does not. The owner approved the `unsafe` calls.
 - [x] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
-- [ ] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
-- [ ] Convert audio incrementally to 16 kHz mono PCM in the worker. Keep network work outside the audio callback.
+- [x] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
+- [x] Convert audio incrementally in the worker, from f32 to 16-bit PCM at the native rate of the microphone.
+  Keep network work outside the audio callback. The resampler waits for the live test.
 - [ ] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.
-- [ ] Send audio chunks to Voxtral during capture, with French and the word list configured at session start.
+- [x] Send audio chunks to Voxtral during capture, with French and the word list configured at session start.
 - [x] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
-- [ ] At capture end, drain queued audio, flush the converter, and request the complete transcript.
-- [ ] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
+- [x] At capture end, drain queued audio, flush the converter, and request the complete transcript.
+- [x] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
 - [ ] Cancel capture and its stream on Escape, other input, or microphone loss.
 - [x] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
   When it arrives, send `SystemSleep` to the core.

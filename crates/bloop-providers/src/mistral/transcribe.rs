@@ -75,7 +75,13 @@ impl Transcriber {
         });
         send(&mut ws, &update).await?;
         match read(&mut ws).await? {
-            ServerEvent::SessionUpdated => Ok(Session { ws }),
+            ServerEvent::SessionUpdated => {
+                tracing::info!(
+                    sample_rate = options.sample_rate.get(),
+                    "the session is configured"
+                );
+                Ok(Session { ws })
+            }
             event => Err(unexpected(&event)),
         }
     }
