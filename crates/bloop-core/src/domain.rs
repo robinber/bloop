@@ -1,6 +1,7 @@
 //! Domain values shared by the state machine and the adapters.
 
 use std::fmt;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -72,24 +73,20 @@ fn redacted_text(f: &mut fmt::Formatter<'_>, name: &str, text: &str) -> fmt::Res
         .finish()
 }
 
-/// 100 ms of audio at [`AudioChunk::SAMPLE_RATE`].
-const MAX_SAMPLES: usize = 1_600;
-
-/// Audio for the speech provider: mono signed 16-bit little-endian PCM at [`Self::SAMPLE_RATE`],
-/// without a file header. A chunk is never empty and holds at most 100 ms of audio.
+/// Audio for the speech provider: mono signed 16-bit little-endian PCM at the sample rate of the capture,
+/// without a file header. A chunk is never empty.
 ///
 /// `Debug` shows only the number of bytes, never the audio.
 pub struct AudioChunk(Vec<u8>);
 
 impl AudioChunk {
-    /// The sample rate of the audio, in Hz.
-    pub const SAMPLE_RATE: u32 = 16_000;
-
-    /// Encodes samples at [`Self::SAMPLE_RATE`] as consecutive chunks, in order.
+    /// Encodes samples at `rate`, in Hz, as consecutive chunks of 100 ms, in order.
+    /// The last chunk can be shorter. Below 10 Hz, each chunk holds one sample.
     ///
     /// A sample from -1 to 1 uses the full 16-bit range. Values outside it saturate, and NaN encodes as 0.
-    pub fn split(samples: &[f32]) -> impl Iterator<Item = Self> {
-        samples.chunks(MAX_SAMPLES).map(|part| {
+    pub fn split(samples: &[f32], rate: NonZeroU32) -> impl Iterator<Item = Self> {
+        let length = (rate.get() / 10).max(1) as usize;
+        samples.chunks(length).map(|part| {
             let mut pcm = Vec::with_capacity(part.len() * size_of::<i16>());
             for &sample in part {
                 pcm.extend_from_slice(&pcm16(sample).to_le_bytes());
@@ -166,7 +163,11 @@ impl LevelMeter {
 
 #[cfg(test)]
 mod tests {
-    use super::{AudioChunk, FinalText, LevelMeter, MAX_SAMPLES, Transcript};
+    use std::num::NonZeroU32;
+
+    use super::{AudioChunk, FinalText, LevelMeter, Transcript};
+
+    const RATE: NonZeroU32 = NonZeroU32::new(16_000).unwrap();
 
     #[test]
     fn debug_shows_the_length_but_not_the_text() {
@@ -181,7 +182,7 @@ mod tests {
     #[test]
     fn transcript_and_audio_debug_show_only_their_size() {
         let transcript = Transcript::new("mot de passe".to_owned());
-        let chunk = AudioChunk::split(&[0.5, -0.5]).next();
+        let chunk = AudioChunk::split(&[0.5, -0.5], RATE).next();
 
         assert_eq!(format!("{transcript:?}"), "Transcript { chars: 12 }");
         assert_eq!(format!("{chunk:?}"), "Some(AudioChunk { bytes: 4 })");
@@ -191,7 +192,7 @@ mod tests {
     fn samples_encode_as_little_endian_pcm16_and_saturate() {
         let samples = [0.0, 0.5, 1.0, -1.0, 2.0, -2.0, f32::NAN];
 
-        let pcm: Vec<u8> = AudioChunk::split(&samples)
+        let pcm: Vec<u8> = AudioChunk::split(&samples, RATE)
             .flat_map(|chunk| chunk.as_bytes().to_vec())
             .collect();
 
@@ -204,18 +205,23 @@ mod tests {
     }
 
     #[test]
-    fn split_keeps_the_order_and_holds_at_most_100_ms_in_a_chunk() {
-        let mut samples = vec![0.0; MAX_SAMPLES * 2];
-        samples.push(1.0);
+    fn split_keeps_the_order_and_holds_100_ms_at_the_rate_in_a_chunk() {
+        for (rate, length) in [(48_000, 4_800), (24_000, 2_400), (9, 1)] {
+            let mut samples = vec![0.0; length * 2];
+            samples.push(1.0);
 
-        let chunks: Vec<Vec<u8>> = AudioChunk::split(&samples)
-            .map(|chunk| chunk.as_bytes().to_vec())
-            .collect();
+            let chunks: Vec<Vec<u8>> = AudioChunk::split(&samples, NonZeroU32::new(rate).unwrap())
+                .map(|chunk| chunk.as_bytes().to_vec())
+                .collect();
 
-        assert_eq!(chunks.len(), 3);
-        assert!(chunks[..2].iter().all(|pcm| pcm.len() == 3_200));
-        assert_eq!(chunks[2], [0xFF, 0x7F]);
-        assert!(AudioChunk::split(&[]).next().is_none());
+            assert_eq!(chunks.len(), 3, "{rate} Hz");
+            assert!(
+                chunks[..2].iter().all(|pcm| pcm.len() == length * 2),
+                "{rate} Hz"
+            );
+            assert_eq!(chunks[2], [0xFF, 0x7F], "{rate} Hz");
+        }
+        assert!(AudioChunk::split(&[], NonZeroU32::MIN).next().is_none());
     }
 
     #[test]

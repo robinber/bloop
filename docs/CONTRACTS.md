@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 14 (2026-11-03). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 15 (2026-11-04). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -129,10 +129,11 @@ pub struct Transcript(String);
 pub struct FinalText(String);
 ```
 
-`AudioChunk` contains mono signed 16-bit little-endian PCM at `AudioChunk::SAMPLE_RATE` (16 kHz), without a file header.
-`AudioChunk::split(&[f32])` encodes samples at that rate as consecutive chunks, in order. It is the only constructor.
-Thus a chunk is never empty, contains only whole samples, and holds at most 100 ms (3,200 bytes).
-The 100 ms limit is an initial value, not a measured limit.
+`AudioChunk` contains mono signed 16-bit little-endian PCM at the native sample rate of the microphone, without a file header.
+`AudioChunk::split(&[f32], NonZeroU32)` encodes samples at the given rate as consecutive chunks of 100 ms, in order.
+It is the only constructor. Thus a chunk is never empty and contains only whole samples.
+Only the last chunk can be shorter than 100 ms. Below 10 Hz, each chunk contains one sample.
+The 100 ms length follows the Mistral examples. It is not a measured value.
 A sample from -1 to 1 uses the full 16-bit range. Values outside that range saturate, and NaN encodes as 0.
 `AudioChunk::as_bytes` exposes the bytes. Only the worker creates these chunks.
 `CaptureSummary` contains the duration and peak level. It contains no recording.
@@ -144,13 +145,14 @@ Audio and text types use a redacting `Debug` implementation.
 ## AI ports
 
 ```rust
-use std::{future::Future, pin::Pin};
+use std::{future::Future, num::NonZeroU32, pin::Pin};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub struct TranscriptionOptions<'a> {
     pub language: &'a str,
     pub vocabulary: &'a [String],
+    pub sample_rate: NonZeroU32,
 }
 
 pub trait Transcriber: Send + Sync {
@@ -196,6 +198,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 ### Transcription lifecycle
 
 - `start` opens a connection and applies the options before the first audio chunk.
+- `sample_rate` is the native rate of the microphone, in Hz. The adapter sends it to the provider without a change.
 - The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
 - One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
 - The adapter reads the pending provider messages before each send and during `finish`. Its buffers belong to the session.
@@ -260,7 +263,7 @@ pub trait SecretStore {
   Thus, before each capture, the audio adapter checks the permission.
   If the permission is missing, `AudioInput::start` returns `AppError::PermissionMissing(Permission::Microphone)`.
 - `AudioInput::start` returns the native sample rate of the device, in Hz. The rate is not zero and stays fixed during the capture.
-  The worker creates its converter with this rate before the first chunk.
+  The driver gives this rate to the worker. The worker sets it in `TranscriptionOptions` and encodes the chunks at this rate.
 - `AudioSink` receives mono samples at the native sample rate.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.

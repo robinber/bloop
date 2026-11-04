@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 13 (2026-11-03). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 14 (2026-11-04). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue and the microphone capture, and `bloop-app` the worker.
 The driver starts the microphone capture, but not the worker yet. Until then, the driver keeps the reader of the queue.
 At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission.
@@ -115,9 +115,11 @@ Each vendor module has its own Cargo feature. The `mistral` feature is the defau
 src/
 ├── lib.rs
 ├── capture.rs         cpal stream, mono mix, LevelMeter update: impl AudioInput
-├── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
-└── convert.rs         Incremental resampling to 16 kHz mono; flush at capture end
+└── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
 ```
+
+Bloop sends the audio at the native rate of the microphone. Thus `bloop-audio` has no `convert.rs` now.
+The owner adds a resampler only if the live test in the [roadmap](ROADMAP.md) shows that Voxtral refuses the rate or that accuracy drops.
 
 ### bloop-macos
 
@@ -300,7 +302,7 @@ Thus the application operates at the end of each phase.
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
-| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
 `bloop-app` keeps three temporary behaviors from Phase 1:

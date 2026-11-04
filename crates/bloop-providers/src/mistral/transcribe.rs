@@ -66,7 +66,7 @@ impl Transcriber {
             "session": {
                 "audio_format": {
                     "encoding": "pcm_s16le",
-                    "sample_rate": AudioChunk::SAMPLE_RATE,
+                    "sample_rate": options.sample_rate.get(),
                 },
                 "target_streaming_delay_ms": self.config.target_streaming_delay_ms,
                 "language": options.language,
@@ -289,6 +289,7 @@ fn transport_error(error: WsError) -> ProviderError {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
     use std::pin::pin;
     use std::sync::LazyLock;
 
@@ -313,6 +314,7 @@ mod tests {
     const MODEL: &str = "voxtral-test";
     const DELAY_MS: u32 = 480;
     const TEXT: &str = "Bonjour à tous.";
+    const RATE: NonZeroU32 = NonZeroU32::new(24_000).unwrap();
 
     static VOCABULARY: LazyLock<Vec<String>> =
         LazyLock::new(|| vec!["Bloop".to_owned(), "Voxtral".to_owned()]);
@@ -330,15 +332,16 @@ mod tests {
         TranscriptionOptions {
             language: "fr",
             vocabulary: &VOCABULARY,
+            sample_rate: RATE,
         }
     }
 
     /// Three chunks of audio, in capture order.
     fn chunks() -> Vec<AudioChunk> {
-        let samples: Vec<f32> = (0..3_300_u16)
+        let samples: Vec<f32> = (0..5_000_u16)
             .map(|index| f32::from(index) / 4_096.0)
             .collect();
-        AudioChunk::split(&samples).collect()
+        AudioChunk::split(&samples, RATE).collect()
     }
 
     /// Binds a fake provider and returns a transcriber that connects to it.
@@ -513,7 +516,7 @@ mod tests {
                 "session": {
                     "audio_format": {
                         "encoding": "pcm_s16le",
-                        "sample_rate": AudioChunk::SAMPLE_RATE,
+                        "sample_rate": 24_000,
                     },
                     "target_streaming_delay_ms": DELAY_MS,
                     "language": "fr",

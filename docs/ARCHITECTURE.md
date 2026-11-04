@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 5 (2026-11-03). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 6 (2026-11-04). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
@@ -194,7 +194,8 @@ Bloop does not use Tabi code or assets.
 - At capture start, the driver schedules the capture limit and the warning. At the limit, the driver stops the capture.
 - Before the limit, the orb warns the user. At the limit, Bloop finishes the stream through the normal path.
 - The callback mixes the channels to mono and calculates the level of each buffer.
-- During capture, the worker converts samples incrementally to 16 kHz mono signed 16-bit little-endian PCM.
+- During capture, the worker converts samples incrementally to mono signed 16-bit little-endian PCM at the native rate of the microphone.
+- Bloop has no resampler. Bloop adds one only if the live test shows that Voxtral refuses the rate or that accuracy drops.
 - The worker sends each chunk in order. A full queue fails the session; Bloop never silently drops samples.
 - At capture end, the worker drains accepted samples and flushes the converter before it ends the stream.
 - If the capture is shorter than 300 ms, or its level stays below a threshold, Bloop cancels transcription and pastes nothing.
@@ -241,6 +242,7 @@ The transcription session follows the provider protocol, checked in Mistral docu
 
 The adapter ignores the `transcription.text.delta` messages.
 The default sample rate of the API is 16 kHz. The official example uses 24 kHz. The documentation does not say if the API accepts 48 kHz.
+Bloop sends the native rate of the microphone, for example 24 kHz for AirPods and 48 kHz for the built-in microphone.
 It also does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
 Phase 2 records them.
 

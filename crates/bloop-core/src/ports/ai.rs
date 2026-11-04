@@ -1,6 +1,7 @@
 //! AI provider ports. They return `BoxFuture`, so the settings can select a provider at run time.
 
 use std::future::Future;
+use std::num::NonZeroU32;
 use std::pin::Pin;
 
 use crate::domain::{AudioChunk, Transcript};
@@ -16,6 +17,8 @@ pub struct TranscriptionOptions<'a> {
     pub language: &'a str,
     /// Words that the provider recognizes in preference to similar words.
     pub vocabulary: &'a [String],
+    /// The sample rate of the audio chunks, in Hz: the native rate of the microphone.
+    pub sample_rate: NonZeroU32,
 }
 
 /// A speech provider that transcribes an audio stream during the capture.

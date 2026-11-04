@@ -1,6 +1,7 @@
 //! Transcription task of one generation: reads the audio queue, streams it to the provider,
 //! and sends the result event.
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -64,16 +65,17 @@ pub(crate) struct Task {
 }
 
 impl Task {
-    /// Opens a provider session and streams the samples of `reader` to it.
+    /// Opens a provider session and streams the samples of `reader`, at `rate` in Hz, to it.
     pub(crate) fn spawn(
         runtime: &Handle,
         generation: Generation,
+        rate: NonZeroU32,
         reader: Reader,
         speech: Arc<Speech>,
         events: Arc<dyn EventSink>,
     ) -> Self {
         let end = reader.end_mark();
-        let work = runtime.spawn(transcribe(generation, reader, speech));
+        let work = runtime.spawn(transcribe(generation, rate, reader, speech));
         let abort = work.abort_handle();
         let report = runtime.spawn(async move {
             let event = match work.await {
@@ -107,8 +109,13 @@ impl Drop for Task {
     }
 }
 
-async fn transcribe(generation: Generation, mut reader: Reader, speech: Arc<Speech>) -> Event {
-    let session = match stream(&mut reader, &speech).await {
+async fn transcribe(
+    generation: Generation,
+    rate: NonZeroU32,
+    mut reader: Reader,
+    speech: Arc<Speech>,
+) -> Event {
+    let session = match stream(rate, &mut reader, &speech).await {
         Ok(session) => session,
         Err(error) => return Event::CaptureFailed(generation, error),
     };
@@ -118,14 +125,16 @@ async fn transcribe(generation: Generation, mut reader: Reader, speech: Arc<Spee
     }
 }
 
-/// The samples of `reader` are at `AudioChunk::SAMPLE_RATE`.
+/// The samples of `reader` are at `rate`, in Hz.
 async fn stream(
+    rate: NonZeroU32,
     reader: &mut Reader,
     speech: &Speech,
 ) -> Result<Box<dyn TranscriptionSession>, AppError> {
     let options = TranscriptionOptions {
         language: &speech.language,
         vocabulary: &speech.vocabulary,
+        sample_rate: rate,
     };
     let start = speech.transcriber.start(options);
     let mut session = watch(reader, speech.limits.connection, start).await?;
@@ -133,7 +142,7 @@ async fn stream(
     loop {
         samples.clear();
         let status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
-        for chunk in AudioChunk::split(&samples) {
+        for chunk in AudioChunk::split(&samples, rate) {
             watch(reader, speech.limits.inactivity, session.send_audio(&chunk)).await?;
         }
         if status == Status::Ended {
@@ -181,6 +190,7 @@ async fn queue_failure(reader: &mut Reader) -> AudioQueueError {
 mod tests {
     use std::assert_matches;
     use std::future;
+    use std::num::NonZeroU32;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -199,6 +209,7 @@ mod tests {
 
     const TEXT: &str = "Bonjour à tous.";
     const CAPACITY: usize = 16_000;
+    const RATE: NonZeroU32 = NonZeroU32::new(16_000).unwrap();
     const HOUR: Duration = Duration::from_secs(3_600);
     /// Limits that no test reaches, so that `Reply::Never` means no event within `settle`.
     const LONG: Limits = Limits {
@@ -273,13 +284,15 @@ mod tests {
     struct FakeTranscriber {
         script: Script,
         log: Arc<Recorder<Call>>,
+        rates: Arc<Recorder<NonZeroU32>>,
     }
 
     impl Transcriber for FakeTranscriber {
         fn start<'a>(
             &'a self,
-            _options: TranscriptionOptions<'a>,
+            options: TranscriptionOptions<'a>,
         ) -> BoxFuture<'a, Result<Box<dyn TranscriptionSession>, ProviderError>> {
+            self.rates.push(options.sample_rate);
             let session = FakeSession {
                 script: self.script,
                 log: Arc::clone(&self.log),
@@ -328,18 +341,25 @@ mod tests {
         task: Option<Task>,
         writer: Option<Writer>,
         log: Arc<Recorder<Call>>,
+        rates: Arc<Recorder<NonZeroU32>>,
         events: Arc<Recorder<Event>>,
     }
 
     impl Run {
         fn start(script: Script, capacity: usize, limits: Limits) -> Self {
+            Self::start_at(RATE, script, capacity, limits)
+        }
+
+        fn start_at(rate: NonZeroU32, script: Script, capacity: usize, limits: Limits) -> Self {
             let (writer, reader) = buffer::new(capacity);
             let log = Arc::new(Recorder::default());
+            let rates = Arc::new(Recorder::default());
             let events = Arc::new(Recorder::default());
             let speech = Speech {
                 transcriber: Box::new(FakeTranscriber {
                     script,
                     log: Arc::clone(&log),
+                    rates: Arc::clone(&rates),
                 }),
                 language: "fr".to_owned(),
                 vocabulary: Vec::new(),
@@ -349,6 +369,7 @@ mod tests {
             let task = Task::spawn(
                 &Handle::current(),
                 generation,
+                rate,
                 reader,
                 Arc::new(speech),
                 Arc::clone(&events) as Arc<dyn EventSink>,
@@ -358,6 +379,7 @@ mod tests {
                 task: Some(task),
                 writer: Some(writer),
                 log,
+                rates,
                 events,
             }
         }
@@ -390,7 +412,7 @@ mod tests {
     }
 
     fn pcm(samples: &[f32]) -> Vec<u8> {
-        AudioChunk::split(samples)
+        AudioChunk::split(samples, RATE)
             .flat_map(|chunk| chunk.as_bytes().to_vec())
             .collect()
     }
@@ -437,6 +459,22 @@ mod tests {
         assert_matches!(
             run.only_event(),
             Event::TextReady(generation, text) if generation == run.generation && text.as_str() == TEXT
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_session_and_the_chunks_use_the_rate_of_the_microphone() {
+        let rate = NonZeroU32::new(48_000).unwrap();
+        let mut run = Run::start_at(rate, Script::default(), CAPACITY, LONG);
+
+        run.push(&samples(4_800)).unwrap();
+        run.end_capture();
+        settle().await;
+
+        assert_eq!(run.rates.take(), [rate]);
+        assert_matches!(
+            run.log.take().as_slice(),
+            [Call::Audio(pcm), Call::Finish, Call::Drop] if pcm.len() == 9_600
         );
     }
 
