@@ -155,7 +155,6 @@ mod tests {
     use std::num::NonZeroU32;
     use std::time::Duration;
 
-    use bloop_audio::buffer;
     use bloop_core::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
     use bloop_core::error::{AppError, ProviderError};
     use bloop_core::ports::platform::{AudioInput, AudioSink, Overlay, Scheduler, TextOutput};
@@ -415,13 +414,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_missing_key_fails_the_capture_and_cancels_the_microphone() {
-        let (mut driver, fake) = driver();
+        let (mut driver, _) = driver();
         driver.spawner.speech = None;
         driver.handle(Event::DictationKeyDown);
 
         fire_only_timer(&mut driver);
         driver.handle(Event::DictationKeyUp);
-        settle().await;
 
         assert!(!driver.capture_active());
         assert_eq!(
@@ -435,12 +433,10 @@ mod tests {
             panic!("{:?}", driver.input.calls);
         };
         assert!(driver.active.is_none() && driver.jobs.is_empty());
-        assert_eq!(fake.rates.take(), [] as [NonZeroU32; 0]);
-        assert!(fake.events.take().is_empty());
-        let (_writer, reader) = buffer::new(1);
         assert_matches!(
-            driver.spawner.spawn(generation, RATE, reader),
-            Err(ProviderError::Unauthorized)
+            driver.start_capture(generation),
+            Some(Event::CaptureFailed(failed, AppError::Provider(ProviderError::Unauthorized)))
+                if failed == generation
         );
     }
 

@@ -129,12 +129,12 @@ impl Transcriber for FakeTranscriber {
         options: TranscriptionOptions<'a>,
     ) -> BoxFuture<'a, Result<Box<dyn TranscriptionSession>, ProviderError>> {
         self.rates.push(options.sample_rate);
-        let session = FakeSession {
-            script: self.script,
-            log: Arc::clone(&self.log),
-        };
         Box::pin(async move {
             self.script.start.wait().await?;
+            let session = FakeSession {
+                script: self.script,
+                log: Arc::clone(&self.log),
+            };
             Ok(Box::new(session) as Box<dyn TranscriptionSession>)
         })
     }

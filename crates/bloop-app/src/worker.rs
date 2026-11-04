@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(run.push(&samples(8)), Err(AudioQueueError::Full));
         settle().await;
 
-        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_eq!(run.log.take(), [] as [Call; 0]);
         assert_matches!(
             run.only_event(),
             Event::CaptureFailed(_, AppError::AudioQueue(AudioQueueError::Full))
@@ -498,22 +498,28 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_provider_failure_while_streaming_fails_the_capture() {
         let failures = [
-            Script {
-                start: Reply::Fail(ProviderError::Unauthorized),
-                ..Script::default()
-            },
-            Script {
-                send: Reply::Fail(ProviderError::Network),
-                ..Script::default()
-            },
+            (
+                Script {
+                    start: Reply::Fail(ProviderError::Unauthorized),
+                    ..Script::default()
+                },
+                vec![],
+            ),
+            (
+                Script {
+                    send: Reply::Fail(ProviderError::Network),
+                    ..Script::default()
+                },
+                vec![Call::Drop],
+            ),
         ];
-        for script in failures {
+        for (script, calls) in failures {
             let mut run = Run::start(script, CAPACITY, LONG);
 
             run.push(&samples(1_600)).unwrap();
             settle().await;
 
-            assert_eq!(run.log.take(), [Call::Drop], "{script:?}");
+            assert_eq!(run.log.take(), calls, "{script:?}");
             assert_matches!(
                 run.only_event(),
                 Event::CaptureFailed(
@@ -595,12 +601,8 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn dropping_the_task_releases_the_session_at_each_wait() {
+    async fn dropping_the_task_releases_the_session_during_send_and_finish() {
         let waits = [
-            Script {
-                start: Reply::Never,
-                ..Script::default()
-            },
             Script {
                 send: Reply::Never,
                 ..Script::default()
@@ -643,7 +645,7 @@ mod tests {
         assert!(run.events.take().is_empty());
         sleep(Duration::from_millis(200)).await;
 
-        assert_eq!(run.log.take(), [Call::Drop]);
+        assert_eq!(run.log.take(), [] as [Call; 0]);
         assert_matches!(
             run.only_event(),
             Event::CaptureFailed(generation, AppError::Provider(ProviderError::Timeout))
