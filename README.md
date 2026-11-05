@@ -13,9 +13,9 @@ The behavior follows the dictation feature of Tabi. Bloop does only this one tas
 ## Status
 
 Phase 1 and Phase 2 are complete. Bloop transcribes the dictation with Voxtral and pastes the raw transcript.
-Phase 3 adds optional correction, one menu toggle, and a daily-use trial.
+Phase 3 adds optional correction, one menu toggle, the dictionary, and a daily-use trial.
 Phase 4 adds persistent settings and more menu choices when needed.
-The [roadmap](docs/ROADMAP.md#priorities) gives the priorities. Later features are not required to finish Bloop for personal use.
+The [roadmap](docs/ROADMAP.md#priorities) gives the priorities.
 Bloop is for personal use on one Mac.
 
 ## Build

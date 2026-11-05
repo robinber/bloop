@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 6 (2026-11-05). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 7 (2026-11-05). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -23,6 +23,8 @@ A feature that is off does not change the dictation path. Low latency stays a pr
 - Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds the optional correction.
 - Phase 3 adds a correction toggle and validates daily use. The toggle is off at each application start.
 - Phase 4 adds persistent settings and more menu choices when needed.
+- A dictionary gives the written form of names and terms (Phase 3).
+  After the user edits a pasted text, Bloop proposes new entries (Phase 6).
 - The user holds Right Command to speak.
 - Bloop sets no maximum capture duration. The owner can reconsider this after daily use.
 - A small orb shows the session state. The orb is part of the MVP.
@@ -52,11 +54,12 @@ Bloop uses Tabi as a behavior reference only. Bloop does not copy Tabi code, pro
 | Status indicator | Web view "orb" at the bottom of the screen: dark pill, target application icon, seven orange bars that follow the current voice level; closes at key release; no indicator during processing | Native panel with the same layout and behavior; the icon goes directly into a layer |
 | Transcription | Two paths: a WebSocket relay during capture, and an upload of the complete recording after key release. In 45 of 49 dictations, the words came from the upload. | One streaming connection to the selected speech provider during capture; no upload |
 | Correction | `mistral-medium-2604`, an identifier that the Mistral documentation does not list; five styles, each with a list of applications; long dictations get a correction in parts during the capture | Optional; `mistral-small-2603` or the model that the menu selects; one prompt that the menu selects; no style for each application |
+| Dictionary | Pairs "tabi writes, should be", applied when the sentence fits. After a paste, Tabi watches the field and proposes the corrections of the user. | One dictionary file (Phase 3). Learning from fixes in Phase 6, with a question before each new entry. |
 | Insertion | Synthetic Command-V; Tabi detects when the target reads the clipboard | Same method |
 | Clipboard | Items marked as concealed and transient | Same markers; restore the previous content |
 | No text field | The text shows in a small window | The orb shows the text in a card and copies it |
 | Text at the cursor | Adapts the first letter, the spaces, and the final period. The log confirms the three operations. | Phase 8 |
-| Other functions | Names read from the front window, learned corrections, dictionary, audio ducking on the built-in output, sounds, noise suppression, microphone selector, history, reading, OCR, translation, and questions to an assistant | Some features in Phase 6 to Phase 8; see the [roadmap](ROADMAP.md) |
+| Other functions | Names read from the front window, learned corrections, dictionary, audio ducking on the built-in output, sounds, noise suppression, microphone selector, history, reading, OCR, translation, and questions to an assistant | Some features in Phase 3 to Phase 8; see the [roadmap](ROADMAP.md) |
 
 Tabi and Bloop use different keys. Both applications can operate at the same time.
 
@@ -96,6 +99,7 @@ Phase 2 measured the transcription completion time after key release. Phase 3 me
 | Audio | System default microphone; bounded queues in memory; no maximum capture duration |
 | Network | One transcription stream during capture; one correction request after the complete transcript, when the correction is on |
 | Correction | Off by default; one prompt file that the menu selects; raw transcript if the correction fails |
+| Dictionary | One file. The written forms go to the transcription. The pairs go to the correction prompt. Bloop asks before each new entry (Phase 6). |
 | Target check | Same frontmost application and no new click or key press since capture ended |
 | Insertion | Command-V with a clipboard item that the target reads on demand |
 | Clipboard | Restore the previous content after the target reads the text |
@@ -140,7 +144,7 @@ ASD-STE100 applies to repository documents. It does not change the French text.
 
 ## Later work
 
-The [roadmap](ROADMAP.md#priorities) gives the priorities. Later features are candidates, not requirements for completion.
+The [roadmap](ROADMAP.md#priorities) gives the priorities.
 These items have no phase yet.
 
 - Text formatting: paragraphs, and lists with `- `. The model applies it from the structure of the speech or from spoken commands.

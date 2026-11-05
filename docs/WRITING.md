@@ -50,6 +50,8 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 | Settings snapshot | The settings, and the objects built from them, that one generation uses |
 | Status menu | The menu of the Bloop item in the menu bar |
 | Paste command | The Command-V event that Bloop posts |
+| Dictionary | The user list of written forms, with an optional form that Bloop writes now |
+| Suggestion | A dictionary entry that Bloop proposes after the user edits a pasted text |
 | Driver | The `bloop-app` component that sends events to the core and executes its commands |
 | MVP | Minimum viable product; the smallest version that proves the complete process |
 

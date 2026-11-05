@@ -1,14 +1,15 @@
 # Code structure
 
-Status: Revision 17 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 18 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
 At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission. `bloop-app` gives the key to the adapter.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
 `bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature.
-Phase 3 adds optional correction and one toggle to the existing status menu.
-Phase 4 adds the settings hub and general menu model. The [roadmap](ROADMAP.md#priorities) gives the priorities.
+Phase 3 adds optional correction, one toggle to the existing status menu, and the dictionary.
+Phase 4 adds the settings hub and general menu model. Phase 6 adds learning from fixes.
+The [roadmap](ROADMAP.md#priorities) gives the priorities.
 
 ## Goals
 
@@ -92,6 +93,8 @@ These items are outside the structure: plugins loaded at run time, and support f
 src/
 ├── lib.rs
 ├── domain.rs          Generation, AudioChunk, CaptureSummary, LevelMeter, TargetInfo, Transcript, FinalText
+├── dictionary.rs      Dictionary and its entries: written forms and pairs (Phase 3)
+├── fixes.rs           Comparison of the pasted text and the edited text: suggestions (Phase 6)
 ├── session.rs         Core, Capture, Job, Event, Command, OrbView, InsertOutcome, FallbackReason
 ├── pipeline.rs        Complete transcript to result event; Phase 3 adds the text steps, raw fallback, and step report
 ├── steps/             Text steps (Phase 3)
@@ -140,6 +143,7 @@ src/
 ├── app.rs             NSApplication setup, accessory mode, run loop start
 ├── events.rs          MainSink: impl EventSink through the main queue
 ├── keys.rs            Event tap for the dictation key, other input, and Escape
+├── focus.rs           Accessibility watch of the focused field after a paste (Phase 6)
 ├── orb/
 │   ├── mod.rs         OrbPanel: impl Overlay
 │   ├── panel.rs       NSPanel configuration and position
@@ -161,6 +165,7 @@ src/
 ├── settings/          Settings schema, file read and write, template, prompt files (Phase 4)
 ├── hub.rs             Settings hub: current snapshot, objects built from it, menu status (Phase 4)
 ├── menu.rs            Menu model and menu actions (Phase 4)
+├── dictionary.rs      Dictionary file: read (Phase 3), save and ignore a pair (Phase 6)
 ├── driver.rs          Driver: events to the core, commands to the ports
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, pipeline, result event
 ├── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
@@ -210,7 +215,6 @@ schema = 1
 key = "right_command"
 hold_ms = 220
 language = "fr"
-vocabulary = ["Rust", "Tokio", "objc2"]
 
 [transcriber]
 provider = "mistral"
@@ -233,6 +237,7 @@ prompt = "natural-light"
 - A menu action changes one key through the hub. The hub writes the file, reads it again, and builds the changed objects.
 - The hub builds the chat client one time. It builds the step list of each snapshot from the selected prompt and model.
 - `[refine] prompt` names a file in the prompts folder, without the `.md` extension.
+- The dictionary has its own file, `dictionary.toml`, next to `config.toml`.
 - Each table rejects unknown keys. A `schema` value that is newer than Bloop is an error.
 - The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the file rules and the menu.
 
@@ -265,7 +270,7 @@ Future DGX-hosted and Microsoft adapters use the same streaming contract. Their 
 
 ### Add a text feature
 
-Examples: word replacements, snippets, translation.
+Examples: snippets, translation.
 This procedure applies from Phase 3.
 
 1. Add a `TextStep` in `bloop-core/src/steps/`. A step that needs a model receives an `Arc<dyn ChatModel>`.
@@ -330,22 +335,23 @@ There is no separate file transcription path or later migration.
 
 ## Implementation plan
 
-Follow the [roadmap priorities](ROADMAP.md#priorities). Later phases are not all required for completion.
+Follow the [roadmap priorities](ROADMAP.md#priorities).
 The application operates at the end of each selected phase.
 
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
-| 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval.rs`. `bloop-macos`: one toggle in the existing `menu.rs`. `prompts/natural-light.md` and the test set. |
+| 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval.rs`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
 | 4: Settings and status menu | `bloop-core`: the menu model in `ports/platform.rs`. `bloop-providers`: `TranscriberConfig`, `ChatConfig`, and the build functions. `bloop-app`: `settings/`, `hub.rs`, `menu.rs`. `bloop-macos`: `menu.rs` renders the model. |
-| 5 to 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
+| 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
+| 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 
 Until Phase 4 adds the settings, `bloop-app` keeps these temporary constants in `main.rs`:
 
 - The hold threshold: `HOLD`, 220 ms.
 - The transcription settings: model `voxtral-mini-transcribe-realtime-3-0`, `target_streaming_delay_ms` 480,
-  language `fr`, and an empty word list.
+  language `fr`, and an empty word list. Phase 3 replaces the word list with the dictionary.
 - The correction model and prompt (Phase 3): `mistral-small-2603` and `natural-light`.
 
 Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.

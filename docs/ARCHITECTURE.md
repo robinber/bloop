@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 9 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 10 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -123,7 +123,7 @@ Job:     Processing -> Ready -> Inserting -> end
 
 - The orb is an `NSPanel` with the borderless and nonactivating styles.
   It never becomes the key window or the main window.
-- The panel ignores mouse events and has a clear background.
+- The panel ignores mouse events and has a clear background. From Phase 6, it accepts mouse events only while it shows the suggestion card.
 - The panel uses the status window level. It shows on all Spaces and above full-screen applications.
 - The panel opens at the bottom center of the screen that contains the mouse pointer, inside the visible frame.
 - Core Animation layers draw the orb. No timer runs while the orb is hidden.
@@ -183,6 +183,7 @@ During processing, the orb is not visible. Tabi has the same behavior.
 | Closing | When the capture ends, the bars go down, then the pill shrinks and fades out, in about 200 ms |
 | Error | The pill opens with red bars for about 1 second, then closes |
 | Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V", in about 200 ms. The card shows the first 240 characters. It closes after 8 seconds or at the next capture. |
+| Suggestion card | The pill becomes a card with the suggested dictionary entry and the "Save" and "Ignore" buttons (Phase 6). It closes after 8 seconds. |
 
 Bloop does not use Tabi code or assets.
 
@@ -400,7 +401,7 @@ Phase 4 adds the design below. Prompt and model submenus depend on useful altern
   Bloop writes a temporary file and renames it. Thus the comments and the other keys stay.
 - At the dictation key press and when the menu opens, Bloop reads a file again if its modification time changed.
   Bloop does not watch the files.
-- At the first start, Bloop writes a commented template and the default prompts. If a default prompt file is missing, Bloop writes it again.
+- At the first start, Bloop writes a commented template, an empty dictionary, and the default prompts. If a default prompt file is missing, Bloop writes it again.
 - Each generation uses the settings snapshot that exists when the core creates it.
   Thus a change never affects an active capture or a running job.
 - If the settings are invalid or the selected prompt is missing, the menu shows the error and its line. A capture then fails with the error view.
@@ -420,10 +421,48 @@ Status lines: permissions, API key, settings errors
 ──────────
 Copy last result
 Open config.toml…
+Open dictionary…
 Open prompts folder…
 ──────────
 Quit Bloop
 ```
+
+## Dictionary and learning from fixes
+
+The dictionary is the file `~/Library/Application Support/Bloop/dictionary.toml`.
+Each entry has a written form. An entry can also have the form that Bloop writes now.
+
+```toml
+[[entry]]
+written = "objc2"
+
+[[entry]]
+heard = "comme Tabby"
+written = "comme Taby"
+```
+
+- Phase 3 reads the dictionary at start. From Phase 4, the hub reads it again at the dictation key press if it changed.
+- The written forms go to Voxtral in `context_bias`. Thus the transcription spells them correctly, also when the correction is off.
+- When the correction is on, `LlmRefine` adds the pairs to the system message after the prompt.
+  The model applies a pair only when the sentence fits.
+- Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
+- If the dictionary file is invalid, a capture fails with the error view. The log gives the line. From Phase 4, the menu also shows it.
+
+Phase 6 adds learning from fixes:
+
+1. After a `Landed` paste, Bloop reads the value of the focused element through Accessibility and finds the pasted text in it.
+2. Bloop watches the field until the focus leaves it, the pasted text disappears, a new dictation starts, or 60 seconds pass.
+3. Bloop compares the pasted text with the edited text, word by word. A replacement of one to three words is a suggestion.
+   Bloop ignores changes of punctuation or capital letters only, deletions, long rewrites, and pairs that the user ignored before.
+4. A card near the orb shows the suggestion with "Save" and "Ignore". The card accepts clicks and never takes keyboard focus.
+5. After 8 seconds without a click, the card closes. The suggestion then stays in the status menu.
+6. "Save" adds the pair to the dictionary with `toml_edit`. "Ignore" records the pair. Thus Bloop does not propose it again.
+
+- Bloop never saves an entry without a user action.
+- The field text stays in memory during the watch only. The log records only the number of suggestions.
+- If Accessibility cannot read the field, for example in some Electron applications or terminals, Bloop proposes nothing.
+- During a capture, the card waits. When the capture ends, the card shows, with the same rules as the fallback card.
+- The 60-second watch and the 8-second card are initial values. Phase 6 checks them during daily use.
 
 ## Data and logs
 
@@ -439,9 +478,10 @@ Quit Bloop
 - For each correction, the log records the model identifier, the prompt name, and the prompt hash.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
-- The settings file contains nonsecret settings only: key, hold threshold, language, word list, streaming delay, models, correction state, and prompt name.
+- The settings file contains nonsecret settings only: key, hold threshold, language, streaming delay, models, correction state, and prompt name.
 - Without the settings file, Bloop writes a template with the default values (Phase 4).
 - The prompt files are in `~/Library/Application Support/Bloop/prompts/`. They contain no dictated text.
+- The dictionary file contains the user words and the saved or ignored pairs. It contains no other dictated text.
 
 ## Bundle and permissions
 
@@ -477,6 +517,7 @@ Quit Bloop
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml`, `toml_edit` |
 | Prompt hash | `sha2` |
+| Accessibility read | `objc2-application-services` (Phase 6; check the API coverage) |
 | Errors | `anyhow` (application start only) |
 | Logs | `tracing`, `tracing-subscriber`, `tracing-appender` |
 | Secrets in memory | `secrecy` |

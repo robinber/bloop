@@ -1,9 +1,9 @@
 # Rust contracts
 
-Status: revision 18 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 19 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. The menu model is a Phase 4 proposal.
+The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. The dictionary types are a Phase 3 proposal. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -144,6 +144,24 @@ A sample from -1 to 1 uses the full 16-bit range. Values outside that range satu
 `FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
 `FinalText::from(transcript)` keeps the raw transcript as the final text, without a copy.
 Audio and text types use a redacting `Debug` implementation.
+
+The dictionary types are a Phase 3 proposal:
+
+```rust
+pub struct DictionaryEntry {
+    pub heard: Option<String>,
+    pub written: String,
+}
+
+pub struct Dictionary {
+    entries: Vec<DictionaryEntry>,
+}
+```
+
+`Dictionary::written_forms` gives the written forms for `TranscriptionOptions::vocabulary`.
+`Dictionary::pairs` gives the entries that have a heard form, for `LlmRefine`.
+`Dictionary` uses a redacting `Debug` that shows only the number of entries.
+`bloop-app` reads and writes the file. `bloop-core` contains the types only.
 
 ## AI ports
 
@@ -397,6 +415,16 @@ pub trait StatusItem {
 - AppKit calls `MenuSource` from Objective-C. Thus its methods must not panic.
 - When the status changes, `bloop-app` calls `StatusItem::set_icon`. The menu content changes at the next open.
 
+## Learning from fixes
+
+Phase 6 proposal. Review the signatures before the adapters.
+
+- A pure function in `bloop-core` compares the pasted text and the edited text, and returns the suggestions.
+- A platform port watches the focused field after a `Landed` paste. It returns the edited text at the end of the watch.
+- A new orb view carries the suggestion. The core shows it with the rules of the fallback card.
+- The hub saves or ignores the pair in the dictionary file. The core does not store the dictionary.
+- The field text stays in memory. Types that contain it use a redacting `Debug`.
+
 ## Errors
 
 ```rust
@@ -509,7 +537,7 @@ Phase 2 returns the complete raw transcript. Phase 3 adds the optional correctio
 
 | Step | Behavior |
 | --- | --- |
-| `LlmRefine` | Sends the prompt and the text to a `ChatModel`. Rejects incomplete or empty replies. Prediction, short-text skipping, and length ratio checks depend on the evaluation below. |
+| `LlmRefine` | Sends the prompt, the dictionary pairs, and the text to a `ChatModel`. Rejects incomplete or empty replies. Prediction, short-text skipping, and length ratio checks depend on the evaluation below. |
 | `Typography` | Replaces a non-breaking space before `?`, `!`, `:`, `;`, and `»`, and after `«`, with a normal space. Replaces `’` with `'`. Does not change line breaks. |
 | `Trim` | Removes line breaks at the start and at the end. |
 
