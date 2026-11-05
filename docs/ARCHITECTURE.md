@@ -226,7 +226,7 @@ During capture, each audio send has the inactivity limit.
 The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed identifier, not the alias.
 `target_streaming_delay_ms` (80 to 1200, or 2400) sets the balance between delay and accuracy.
 The provider never corrects the text that it sent. Thus this value also changes the final text.
-Phase 2 selects the value from accuracy and completion time measurements.
+On 2026-11-05, the owner kept 480 ms.
 
 The transcription session follows the provider protocol, checked in Mistral documentation on 2026-11-03:
 
@@ -248,7 +248,8 @@ For the built-in microphone at 48 kHz, it transcribed the speech. The [roadmap](
 
 On 2026-11-05, the owner decided to convert each capture to 16 kHz mono before the provider, for all microphones.
 The documentation does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
-Phase 2 records them. For a silent session, Voxtral sent no delta and returned an empty transcript without an error.
+For a silent session, Voxtral sent no delta and returned an empty transcript without an error.
+The maximum session length and the inactivity limit stay unknown.
 
 On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
 It does not insert a partial transcript or retry the stream automatically. The user can dictate again.

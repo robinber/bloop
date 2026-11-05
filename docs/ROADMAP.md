@@ -80,7 +80,9 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
 - [x] At capture end, drain queued audio, flush the converter, and request the complete transcript.
 - [x] Paste the complete raw transcript, and remove the fixed test text. Keep partial transcripts outside the insertion path.
-- [ ] Cancel capture and its stream on Escape, other input, or microphone loss.
+- [x] Cancel capture and its stream on Escape, other input, or microphone loss.
+  The owner checked Escape on the real app. Unit tests cover other input and microphone loss.
+  On 2026-11-05, the owner decided to do no manual check for these two cases.
 - [x] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
   When it arrives, send `SystemSleep` to the core.
 - [x] For a short or silent capture, paste nothing. Voxtral returns an empty transcript, and the pipeline sends `NothingHeard`.
@@ -88,10 +90,18 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Let a new capture start while a job runs. Paste the texts in session order.
 - [x] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
   Fake provider tests cover each case. On 2026-11-05, the owner decided to do no manual network test.
-- [ ] Select queue capacities and connection, inactivity, and completion time limits from measurements.
-- [ ] Select `target_streaming_delay_ms` from accuracy and completion time measurements.
-- [ ] Record the provider behavior that its documentation does not give: sample rates, session length, inactivity limit, silent session.
-- [ ] Log the duration of each step.
+- [x] Select queue capacities and connection, inactivity, and completion time limits from measurements.
+  On 2026-11-05, the owner kept the initial values: a queue of 960,000 samples, and limits of 5 s, 5 s, and 15 s.
+  The measured session opening (282 ms to 1,001 ms) and completion (376 ms to 1,612 ms) stay below these limits.
+- [x] Select `target_streaming_delay_ms` from accuracy and completion time measurements.
+  On 2026-11-05, the owner kept 480 ms: the transcripts were satisfactory.
+- [x] Record the provider behavior that its documentation does not give: sample rates, session length, inactivity limit, silent session.
+  The measured sections below record the sample rates and the silent session.
+  The maximum session length and the inactivity limit stay unknown. The owner does not need them:
+  dictations are short, and Bloop sends audio without a pause during a capture.
+- [x] Log the duration of each step.
+  The log gives the microphone start, the session opening, the capture, the drain, the completion, and the paste.
+  Phase 3 logs the duration of the correction step.
 
 Acceptance:
 
@@ -107,8 +117,6 @@ Acceptance:
 - The log never contains the API key.
 - Before the first answer, macOS shows the microphone request at start, and the menu shows Ready.
   After a denial, the menu shows the microphone permission at the next start. After a new build, macOS keeps the permission.
-- Record memory use and completion time at 5, 10, and 20 minutes. Check provider and queue limits.
-  These durations are test cases, not capture limits.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
 
 Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the hold threshold and the fixed test text:
