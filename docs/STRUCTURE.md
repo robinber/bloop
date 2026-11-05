@@ -23,13 +23,13 @@ Bloop is one Cargo workspace with five crates. All crates use the Rust 2024 edit
 bloop/
 ├── Cargo.toml                 Workspace, shared dependency versions, shared lints
 ├── crates/
-│   ├── bloop-core/            Domain types, state machine, pipeline, text steps, ports
+│   ├── bloop-core/            Domain types, state machine, pipeline, text steps (Phase 3), ports
 │   ├── bloop-providers/       AI providers: one module for each vendor
 │   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
 │   └── bloop-app/             Executable: settings, construction, driver
 ├── prompts/
-│   └── natural-clean-v1.md    Correction prompt under version control
+│   └── natural-clean-v1.md    Correction prompt under version control (Phase 3)
 ├── bundle/
 │   └── Info.plist             Bundle metadata; LSUIElement for accessory mode
 ├── scripts/
@@ -86,26 +86,26 @@ src/
 ├── domain.rs          Generation, AudioChunk, CaptureSummary, LevelMeter, TargetInfo, Transcript, FinalText
 ├── session.rs         Core, Capture, Job, Event, Command, OrbView, InsertOutcome, FallbackReason
 ├── pipeline.rs        Complete transcript to result event; Phase 3 adds the text steps and raw fallback
-├── steps/
+├── steps/             Text steps (Phase 3)
 │   ├── mod.rs
 │   ├── refine.rs      LlmRefine: correction through a ChatModel and a prompt
 │   └── trim.rs        Trim: removes line breaks at the start and at the end
 ├── ports/
-│   ├── ai.rs          Transcriber, TranscriptionSession, ChatModel, TextStep, BoxFuture
+│   ├── ai.rs          Transcriber, TranscriptionSession, BoxFuture; Phase 3 adds ChatModel and TextStep
 │   └── platform.rs    EventSink, AudioSink, AudioInput, Overlay, TextOutput, Scheduler, SecretStore
-└── error.rs           AppError, ProviderError, StepError, AudioQueueError, SecretError, Permission
+└── error.rs           AppError, ProviderError, AudioQueueError, SecretError, Permission; Phase 3 adds StepError
 ```
 
 ### bloop-providers
 
 ```text
 src/
-├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model
-├── http.rs            Reused correction client, time limits, HTTP error conversion to ProviderError
+├── lib.rs             TranscriberConfig and build_transcriber (Phase 2), ChatConfig and build_chat_model (Phase 3)
+├── http.rs            Reused correction client, time limits, HTTP error conversion to ProviderError (Phase 3)
 └── mistral/
     ├── mod.rs         Mistral settings and Keychain account ("mistral"); bloop-app supplies the API key
     ├── transcribe.rs  Voxtral WebSocket: impl Transcriber and TranscriptionSession
-    └── chat.rs        Mistral Small: impl ChatModel
+    └── chat.rs        Mistral Small: impl ChatModel (Phase 3)
 ```
 
 Each vendor module has its own Cargo feature. The `mistral` feature is the default.
@@ -149,7 +149,7 @@ src/
 ```text
 src/
 ├── main.rs            Reads settings, starts Tokio, builds objects, starts the AppKit run loop
-├── config.rs          TOML settings with default values
+├── config.rs          TOML settings with default values (Phase 2)
 ├── driver.rs          Driver: events to the core, commands to the ports
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, result event
 └── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
@@ -184,10 +184,12 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - `CancelCapture` carries no generation. Thus the driver keeps the generation of the active capture from `StartCapture`.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
-- The app validates the capture duration and supplies it to the driver. The core does not read TOML settings.
-- At `StartCapture`, the driver schedules `CaptureLimitReached` and the limit warning with the `Scheduler`. The audio callback sends no event.
+- The app validates the capture duration and supplies it to the driver (Phase 2). The core does not read TOML settings.
+- At `StartCapture`, the driver schedules `CaptureLimitReached` and the limit warning with the `Scheduler` (Phase 2). The audio callback sends no event.
 
 ## Settings and provider selection
+
+Phase 2 adds these settings with `config.rs`. Phase 3 adds the `[chat]` and `[refine]` tables.
 
 ```toml
 [dictation]
@@ -235,10 +237,10 @@ If the provider name is unknown, Bloop stops at start with a clear error.
 ### Add a provider
 
 1. Add a module in `bloop-providers/src/` with its own Cargo feature.
-2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel`.
-3. Add a variant to `TranscriberConfig` or `ChatConfig`. Add one match arm in the build function.
+2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel` (Phase 3).
+3. Add a variant to `TranscriberConfig` (Phase 2) or `ChatConfig` (Phase 3). Add one match arm in the build function.
 4. Store the API key in Keychain. Use the vendor name as the account.
-5. Set `provider` in `config.toml`.
+5. Set `provider` in `config.toml` (Phase 2).
 
 The other crates do not change.
 Every STT adapter sends audio during capture. It must not collect a complete recording before sending it.
@@ -247,6 +249,7 @@ Future DGX-hosted and Microsoft adapters use the same streaming contract. Their 
 ### Add a text feature
 
 Examples: French typography, word replacements, translation, one style for each application.
+This procedure applies from Phase 3.
 
 1. Add a `TextStep` in `bloop-core/src/steps/`. A step that needs a model receives an `Arc<dyn ChatModel>`.
 2. Add unit tests for the step.
@@ -277,7 +280,7 @@ There is no separate file transcription path or later migration.
 
 | Crate | Tests |
 | --- | --- |
-| `bloop-core` | State machine: event sequences and expected commands. Pipeline and steps with fake providers. |
+| `bloop-core` | State machine: event sequences and expected commands. Pipeline. Steps with fake providers (Phase 3). |
 | `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Real API tests run manually. |
 | `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
 | `bloop-app` | Driver with fake ports: slow connection, full queue, release, failure, cancellation, and stale results |

@@ -303,7 +303,7 @@ pub trait SecretStore {
 - `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
   The clipboard restore still follows a later read.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
-- At `StartCapture`, the driver schedules `CaptureLimitReached` with the `Scheduler`. The core ignores it for a finished capture.
+- At `StartCapture`, the driver schedules `CaptureLimitReached` with the `Scheduler` (Phase 2). The core ignores it for a finished capture.
 - The maximum duration does not change during a capture. The audio adapter does not use it.
 - `AudioInput::stop` stops the producer after the final samples and returns the capture summary.
 - The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
@@ -318,7 +318,7 @@ pub trait SecretStore {
 Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
 The warning must carry the capture generation. A warning for a finished capture has no effect.
 The warning must keep recording active and must not create a job or change keyboard focus.
-At `StartCapture`, the driver schedules the warning with the `Scheduler`.
+At `StartCapture`, the driver must schedule the warning with the `Scheduler`.
 The orb view of the warning shows the remaining time as one fixed value. It does not count down.
 
 ## Errors
@@ -394,7 +394,7 @@ pub struct Pipeline {
 Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
-For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation.
+For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation (Phase 2).
 The limits for duration and level use `CaptureSummary`. They are not provider options.
 
 1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard`.
