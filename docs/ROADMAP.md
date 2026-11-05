@@ -250,6 +250,12 @@ Phase 4 adds persistence and the other settings. It is not required for the dail
 When the correction is off, the raw transcript path does not change.
 The dictionary gives the written form of names and terms. The [architecture](ARCHITECTURE.md#dictionary-and-learning-from-fixes) gives the design.
 
+Measured on 2026-11-05, on the free Mistral tier: each request to `mistral-small-2603` and `mistral-small-latest` returned HTTP 429
+`rate_limited` (code 1300), also one request of 5 tokens alone. `ministral-8b-2512` answered with the same key.
+After the owner activated a paid tier, the first correction in Bloop used HTTP/2 and took 642 ms
+(556 prompt tokens, 66 completion tokens, finish reason `stop`). The transcript was complete 881 ms after key release.
+The paste command came 1,529 ms after key release.
+
 ### Required work
 
 - [x] Remove the legacy event `CaptureLimitReached` from the core, its tests, and the contracts.
