@@ -250,14 +250,17 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
                     .as_ref()
                     .map_or("?", |event| event["type"].as_str().unwrap_or("?"));
                 tracing::info!(
-                    kind,
+                    ?kind,
                     "the provider sent an event that the adapter does not use"
                 );
                 Ok(None)
             }
             Ok(event) => Ok(Some(event)),
             Err(error) => {
-                tracing::warn!(category = ?error.classify(), "the provider sent invalid JSON");
+                tracing::warn!(
+                    category = ?error.classify(),
+                    "the adapter cannot decode the provider event"
+                );
                 Err(ProviderError::InvalidResponse)
             }
         },
