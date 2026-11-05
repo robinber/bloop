@@ -80,7 +80,11 @@ impl Transcriber {
                     sample_rate = options.sample_rate.get(),
                     "the session is configured"
                 );
-                Ok(Session { ws })
+                Ok(Session {
+                    ws,
+                    deltas: 0,
+                    delta_chars: 0,
+                })
             }
             event => Err(unexpected(&event)),
         }
@@ -116,14 +120,22 @@ impl ai::Transcriber for Transcriber {
 /// One transcription. Dropping it closes the connection, which cancels the transcription.
 struct Session {
     ws: Socket,
+    deltas: usize,
+    delta_chars: usize,
 }
 
 impl Session {
+    fn count(&mut self, delta: &Text) {
+        self.deltas += 1;
+        self.delta_chars += delta.0.chars().count();
+    }
+
     /// Reads the provider events that already arrived, without waiting for more.
     fn drain(&mut self) -> Result<(), ProviderError> {
         while let Some(item) = self.ws.next().now_or_never() {
             match decode(item)? {
-                None | Some(ServerEvent::Delta) => {}
+                None => {}
+                Some(ServerEvent::Delta { text }) => self.count(&text),
                 Some(event) => return Err(unexpected(&event)),
             }
         }
@@ -152,10 +164,15 @@ impl TranscriptionSession for Session {
             let text = loop {
                 match read(&mut self.ws).await? {
                     ServerEvent::Done { text } => break text,
-                    ServerEvent::Delta => {}
+                    ServerEvent::Delta { text } => self.count(&text),
                     event => return Err(unexpected(&event)),
                 }
             };
+            tracing::info!(
+                deltas = self.deltas,
+                delta_chars = self.delta_chars,
+                "the provider sent the transcript"
+            );
             // The transcript is complete, and the drop of the stream closes the socket.
             // Thus a failed close has no effect on the result.
             if self.ws.close(None).await.is_err() {
@@ -175,7 +192,10 @@ enum ServerEvent {
     #[serde(rename = "session.updated")]
     SessionUpdated,
     #[serde(rename = "transcription.text.delta")]
-    Delta,
+    Delta {
+        #[serde(default)]
+        text: Text,
+    },
     #[serde(rename = "transcription.done")]
     Done { text: Text },
     #[serde(rename = "error")]
@@ -185,7 +205,7 @@ enum ServerEvent {
 }
 
 /// Text from the provider. `Debug` shows only the number of characters.
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 struct Text(String);
 
 impl fmt::Debug for Text {
@@ -224,7 +244,15 @@ async fn read(ws: &mut Socket) -> Result<ServerEvent, ProviderError> {
 fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>, ProviderError> {
     match item {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
-            Ok(ServerEvent::Other) => Ok(None),
+            Ok(ServerEvent::Other) => {
+                let kind =
+                    serde_json::from_str::<Value>(&text).map(|event| event["type"].to_string());
+                tracing::info!(
+                    kind = kind.as_deref().unwrap_or("?"),
+                    "the provider sent an event that the adapter does not use"
+                );
+                Ok(None)
+            }
             Ok(event) => Ok(Some(event)),
             Err(error) => {
                 tracing::warn!(category = ?error.classify(), "the provider sent invalid JSON");

@@ -243,7 +243,7 @@ The transcription session follows the provider protocol, checked in Mistral docu
 5. At capture end, the adapter sends `input_audio.end`. The `text` of `transcription.done` is the complete transcript.
 6. The provider has no abort message. To cancel, the adapter closes the connection.
 
-The adapter ignores the `transcription.text.delta` messages.
+The adapter does not use the text of the `transcription.text.delta` messages. It logs only their number and length, and the type of each event that it does not use.
 The default sample rate of the API is 16 kHz. The official example uses 24 kHz. The documentation does not say if the API accepts 48 kHz.
 Bloop sends the native rate of the microphone, for example 24 kHz for AirPods and 48 kHz for the built-in microphone.
 It also does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
