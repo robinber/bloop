@@ -24,8 +24,7 @@ Right Command released, or the configured capture limit reached
     -> queued audio drains, the converter flushes, and the stream ends
     -> Voxtral returns the complete transcript
     -> Mistral Small correction
-    -> target check
-    -> paste, or fallback card
+    -> clipboard save, target check, then paste or fallback card
     -> the orb closes
 ```
 
