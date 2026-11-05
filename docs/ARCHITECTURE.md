@@ -310,28 +310,29 @@ When the capture ends through key release or the duration limit, the paste modul
 - the process identifier of the frontmost application;
 - the counters of key-down and mouse-down events (`CGEventSourceCounterForEventType`).
 
-The target check before the paste:
+The target check:
 
 1. The frontmost application has the same process identifier.
 2. The event counters did not change.
 3. Secure input is not active (`IsSecureEventInputEnabled`).
 
-If the check passes:
+The paste:
 
 1. Bloop saves all items of the current clipboard, with the data of all their types.
    If macOS cannot list the items, Bloop does not restore the clipboard, and the text stays in it.
    If some types cannot be read, Bloop restores the other types. The log records the number of missing types.
-2. Bloop writes one clipboard item. Its string type uses an on-demand data provider.
+2. Bloop does the target check. The save can wait for another application, thus the check comes after the save.
+   If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.
+3. Bloop writes one clipboard item. Its string type uses an on-demand data provider.
    The item also has the `org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType` markers.
-3. Bloop posts Command-V with key code 9 and the Command flag only.
-4. The data provider supplies the text when the target reads it. A successful read makes the result `Landed`.
-5. 300 ms after the read, Bloop restores the saved items if the clipboard did not change after step 2.
+4. Bloop posts Command-V with key code 9 and the Command flag only.
+5. The data provider supplies the text when the target reads it. A successful read makes the result `Landed`.
+6. 300 ms after the read, Bloop restores the saved items if the clipboard did not change after step 3.
    The restored items have the `org.nspasteboard.TransientType` marker. Thus a clipboard manager does not record them again.
    Then Bloop reports the result. Thus the next paste saves the restored clipboard, not the text of this paste.
-6. If no read occurs within 1 second, Bloop replaces the item with a normal text item and shows the fallback card.
-   Bloop replaces the item only if the clipboard did not change after step 2.
+7. If no read occurs within 1 second, Bloop replaces the item with a normal text item and shows the fallback card.
+   Bloop replaces the item only if the clipboard did not change after step 3.
 
-If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.
 Bloop posts no more than one paste command for each session.
 When a job ends without a paste result, Bloop forgets its target and reports no result for it.
 A posted paste command can still land. The restore then follows the read as usual.

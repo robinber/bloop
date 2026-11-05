@@ -1,9 +1,10 @@
 //! `Paster`: target check, pasteboard, and Command-V. It operates on the main thread.
 //!
-//! Before the paste, Bloop saves the clipboard. The pasteboard item supplies its text only when
-//! the target application reads it. 300 ms after this read, Bloop restores the saved clipboard if
-//! nobody changed it, then reports `Landed`. Without a read within one second, the item becomes
-//! a normal text item and the result is `Fallback(NotRead)`.
+//! Before the paste, Bloop saves the clipboard. The save can wait for another application, thus
+//! the target check comes after it. The pasteboard item supplies its text only when the target
+//! application reads it. 300 ms after this read, Bloop restores the saved clipboard if nobody
+//! changed it, then reports `Landed`. Without a read within one second, the item becomes a normal
+//! text item and the result is `Fallback(NotRead)`.
 //!
 //! A new paste first ends the previous transaction. If the target did not read the previous item,
 //! Bloop restores the saved clipboard at that moment. Thus the new paste saves the content of the
@@ -82,12 +83,16 @@ impl Paster {
         }
     }
 
-    fn paste(&mut self, generation: Generation, text: &FinalText) {
+    /// Saves the clipboard, runs the target check, writes the item, and posts Command-V.
+    ///
+    /// Returns the reason of a failed check. Then Bloop wrote no item and posted no paste command.
+    fn paste(&mut self, generation: Generation, text: &FinalText) -> Result<(), FallbackReason> {
         let pasteboard = NSPasteboard::generalPasteboard();
         if let Some(previous) = self.provider.take() {
             previous.abandon(&pasteboard);
         }
         let saved = save(&pasteboard);
+        check(self.targets.take(generation))?;
         let written = pasteboard.clearContents();
         let provider = TextProvider::new(self.mtm, generation, text, saved, written);
         let item = NSPasteboardItem::new();
@@ -103,14 +108,15 @@ impl Paster {
         if !accepted {
             tracing::error!("the clipboard refused the paste item");
             provider.give_up();
-            return;
+            return Ok(());
         }
         if !post_paste() {
             tracing::error!("Bloop could not create the paste command");
             provider.give_up();
-            return;
+            return Ok(());
         }
         after(READ_TIME, &provider, TextProvider::give_up);
+        Ok(())
     }
 }
 
@@ -131,16 +137,13 @@ impl TextOutput for Paster {
     }
 
     fn insert(&mut self, generation: Generation, text: FinalText) {
-        match check(self.targets.take(generation)) {
-            Ok(()) => self.paste(generation, &text),
-            Err(reason) => {
-                tracing::info!(?reason, "the target check failed");
-                self.copy(&text);
-                MainSink.send(Event::InsertDone(
-                    generation,
-                    InsertOutcome::Fallback(reason),
-                ));
-            }
+        if let Err(reason) = self.paste(generation, &text) {
+            tracing::info!(?reason, "the target check failed");
+            self.copy(&text);
+            MainSink.send(Event::InsertDone(
+                generation,
+                InsertOutcome::Fallback(reason),
+            ));
         }
     }
 
