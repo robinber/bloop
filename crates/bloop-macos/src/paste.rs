@@ -115,6 +115,7 @@ impl Paster {
             provider.give_up();
             return Ok(());
         }
+        tracing::info!(?generation, "the paste command is posted");
         after(READ_TIME, &provider, TextProvider::give_up);
         Ok(())
     }
@@ -363,6 +364,8 @@ define_class!(
             }
             if item.setString_forType(&self.ivars().text, data_type) {
                 if self.step(Transaction::read) {
+                    let generation = self.ivars().generation;
+                    tracing::info!(?generation, "the target read the text");
                     after(RESTORE_DELAY, &self.retain(), Self::restore_now);
                 }
             } else {

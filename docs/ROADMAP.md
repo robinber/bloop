@@ -253,7 +253,7 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
 ### Required work
 
 - [x] Remove the legacy event `CaptureLimitReached` from the core, its tests, and the contracts.
-- [ ] Log the paste command and the target read with the generation.
+- [x] Log the paste command and the target read with the generation.
 - [ ] Add the text step contracts to `bloop-core`: `ChatModel`, `ChatReply`, `TextStep`, `StepOutcome`, `StepError`, and the step report.
 - [ ] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
 - [ ] Add the shared HTTP client and the Mistral chat adapter.

@@ -316,7 +316,7 @@ Record the raw and corrected medians, the longest observed delays, and fallback 
 
 The paste command is the time when Bloop posts Command-V. The target read is the time when the target reads the clipboard item.
 The `InsertDone` event comes about 300 ms after the target read, after the clipboard restore. Thus `InsertDone` does not measure the paste.
-Phase 3 logs the paste command and the target read with the generation.
+The paste module logs `the paste command is posted` and `the target read the text`, each with the generation.
 These values are targets, not Bloop measurements. Streaming still needs completion, correction, and paste time after release.
 The realtime model and parameters were checked in Mistral documentation on 2026-11-03.
 The correction model and parameters were checked on 2026-10-31 and on 2026-11-05.
