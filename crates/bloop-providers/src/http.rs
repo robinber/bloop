@@ -9,7 +9,7 @@ use std::time::Duration;
 use bloop_core::error::ProviderError;
 use http_body_util::{BodyExt as _, Full, LengthLimitError, Limited};
 use hyper::body::Bytes;
-use hyper::{Request, StatusCode};
+use hyper::{Request, StatusCode, Version};
 use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::{self, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
@@ -52,34 +52,37 @@ pub(crate) fn client(limit: Duration) -> Result<Client, ProviderError> {
 }
 
 /// Sends `request` with `client` and decodes the JSON body of a successful response.
+/// It also returns the HTTP version of the response.
 pub(crate) async fn send<T: DeserializeOwned>(
     client: &Client,
     request: Request<Full<Bytes>>,
-) -> Result<T, ProviderError> {
-    let body = tokio::time::timeout(client.limit, exchange(&client.inner, request))
+) -> Result<(Version, T), ProviderError> {
+    let (version, body) = tokio::time::timeout(client.limit, exchange(&client.inner, request))
         .await
         .map_err(|_| {
             tracing::warn!("the provider did not answer within the time limit");
             ProviderError::Timeout
         })??;
-    serde_json::from_slice(&body).map_err(|error| {
+    let value = serde_json::from_slice(&body).map_err(|error| {
         tracing::warn!(
             category = ?error.classify(),
             "the adapter cannot decode the provider response"
         );
         ProviderError::InvalidResponse
-    })
+    })?;
+    Ok((version, value))
 }
 
-/// Sends `request` and reads the body of a successful response.
+/// Sends `request` and reads the body of a successful response, with the HTTP version of the response.
 async fn exchange(
     client: &legacy::Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
     request: Request<Full<Bytes>>,
-) -> Result<Bytes, ProviderError> {
+) -> Result<(Version, Bytes), ProviderError> {
     let response = client
         .request(request)
         .await
         .map_err(|error| request_error(&error))?;
+    let version = response.version();
     let status = response.status();
     if !status.is_success() {
         return Err(status_error(status));
@@ -88,7 +91,7 @@ async fn exchange(
         .collect()
         .await
         .map_err(|error| body_error(&*error))?;
-    Ok(body.to_bytes())
+    Ok((version, body.to_bytes()))
 }
 
 fn status_error(status: StatusCode) -> ProviderError {

@@ -244,7 +244,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 `max_tokens` limits the reply. The step that sends the request calculates it from the input length.
 `Finish::Complete` means that the provider ended the reply normally (`stop` for Mistral).
 `Truncated` means that the reply stopped at the token limit. A reply that is not `Complete` is a step failure.
-The chat adapter logs the request duration, the token counts, and the finish reason. It never logs the text.
+The chat adapter logs the request duration, the token counts, the finish reason, and the negotiated HTTP version. It never logs the text.
 Each chat adapter applies the time limit that `bloop-app` gives at construction. An expired limit returns `ProviderError::Timeout`.
 Thus the correction behaves the same with each provider.
 `ChatRequest`, `ChatReply`, and `StepOutcome` contain text. They implement a redacting `Debug`.

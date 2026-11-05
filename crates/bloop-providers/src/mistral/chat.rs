@@ -60,7 +60,8 @@ impl Chat {
             }),
         };
         let started = Instant::now();
-        let completion: Completion = http::send(&self.client, self.request(&body)?).await?;
+        let (version, completion): (_, Completion) =
+            http::send(&self.client, self.request(&body)?).await?;
         let Some(choice) = completion.choices.into_iter().next() else {
             tracing::warn!("the provider sent no choice");
             return Err(ProviderError::InvalidResponse);
@@ -77,6 +78,7 @@ impl Chat {
         let usage = completion.usage.unwrap_or_default();
         tracing::info!(
             model = %self.config.model,
+            http_version = ?version,
             millis = started.elapsed().as_millis(),
             prompt_tokens = usage.prompt_tokens,
             completion_tokens = usage.completion_tokens,
@@ -528,6 +530,40 @@ mod tests {
 
         server.abort();
         assert_eq!(result.err(), Some(ProviderError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn a_body_that_stalls_after_the_headers_gives_timeout() {
+        let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = accept(&listener).await;
+            let head = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{\"choices\": [";
+            stream.write_all(head.as_bytes()).await.unwrap();
+            std::future::pending::<()>().await;
+            drop(stream);
+        });
+
+        let result = chat.complete(request(None)).await;
+
+        server.abort();
+        assert_eq!(result.err(), Some(ProviderError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn dropping_the_request_after_the_provider_received_it_closes_the_connection() {
+        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+
+        let mut stream = tokio::select! {
+            result = chat.complete(request(None)) => panic!("the fake provider never answers: {result:?}"),
+            (stream, _) = accept(&listener) => stream,
+        };
+
+        let mut buffer = [0; 64];
+        let count = tokio::time::timeout(LIMIT, stream.read(&mut buffer))
+            .await
+            .expect("the connection closes before the limit")
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[tokio::test]
