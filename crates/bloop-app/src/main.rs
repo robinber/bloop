@@ -103,7 +103,7 @@ fn main() -> ExitCode {
         spawner,
         HOLD,
     );
-    // Install the tap last: macOS disables a tap that gets events before the run loop runs.
+    // Install the tap after the slow setup: macOS disables a tap that gets events before the run loop runs.
     let tap = KeyTap::install(mtm);
     if tap.is_none() {
         tracing::error!(

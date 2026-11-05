@@ -27,7 +27,7 @@ bloop/
 │   ├── bloop-providers/       AI providers: one module for each vendor
 │   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
-│   └── bloop-app/             Executable: settings, construction, driver
+│   └── bloop-app/             Executable: settings (Phase 2), construction, driver
 ├── prompts/
 │   └── natural-clean-v1.md    Correction prompt under version control (Phase 3)
 ├── bundle/
@@ -148,7 +148,7 @@ src/
 
 ```text
 src/
-├── main.rs            Reads settings, starts Tokio, builds objects, starts the AppKit run loop
+├── main.rs            Reads the API key, starts Tokio, builds objects, starts the AppKit run loop
 ├── config.rs          TOML settings with default values (Phase 2)
 ├── driver.rs          Driver: events to the core, commands to the ports
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, result event

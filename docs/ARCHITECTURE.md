@@ -109,6 +109,7 @@ Job:     Processing -> Ready -> Inserting -> end
 - During `Pending` and `Listening`, the tap blocks Escape. It also blocks the key repeats and the key up of that
   Escape press, because they can arrive after the capture ends. At other times, Escape goes to the application as usual.
 - macOS disables a tap after a slow callback. The callback enables the tap again when it receives that event.
+  Bloop installs the tap after the slow setup at start, because the run loop does not run before this setup ends.
   The tap can miss the key release while it is disabled. Thus the interruption ends the hold as a combination.
 - Bloop marks the events that it posts. The tap ignores these events.
 - Secure input stops key events to the tap. In this condition, the dictation key has no effect. This is a known limit.
