@@ -79,11 +79,11 @@ impl Reader {
         let gone = self.state()?;
         let limit = self.consumer.slots();
         samples.reserve(limit);
-        for _ in 0..limit {
-            let Ok(sample) = self.consumer.pop() else {
-                break;
-            };
-            samples.push(sample);
+        if let Ok(chunk) = self.consumer.read_chunk(limit) {
+            let (first, second) = chunk.as_slices();
+            samples.extend_from_slice(first);
+            samples.extend_from_slice(second);
+            chunk.commit_all();
         }
         Ok(if gone { Status::Ended } else { Status::Open })
     }
@@ -143,6 +143,19 @@ mod tests {
 
         assert_eq!(reader.drain(&mut samples), Ok(Status::Ended));
         assert_eq!(samples, [0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn a_drain_keeps_the_order_of_samples_that_wrap_around_the_ring() {
+        let (mut writer, mut reader) = new(4);
+        let mut samples = Vec::new();
+
+        writer.try_push(&[0.1, 0.2, 0.3]).unwrap();
+        assert_eq!(reader.drain(&mut samples), Ok(Status::Open));
+        writer.try_push(&[0.4, 0.5, 0.6]).unwrap();
+        assert_eq!(reader.drain(&mut samples), Ok(Status::Open));
+
+        assert_eq!(samples, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
     }
 
     #[test]
