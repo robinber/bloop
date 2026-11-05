@@ -84,7 +84,7 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
   When it arrives, send `SystemSleep` to the core.
 - [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
-- [ ] Let a new capture start while a job runs. Paste the texts in session order.
+- [x] Let a new capture start while a job runs. Paste the texts in session order.
 - [ ] Read and validate `dictation.max_duration_secs`. Reject zero and unsupported values with a clear error.
 - [ ] Warn before the configured limit. Stop at the limit and finalize the stream once.
 - [ ] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
@@ -141,6 +141,22 @@ Measured on the reference Mac (macOS 27) with Voxtral, with the 16 kHz conversio
 
 - The session opened in 324 ms for the built-in microphone.
 - The sample count at 16 kHz matched the capture duration: 47,446 samples for 2.965 s.
+
+Measured on the reference Mac (macOS 27) with Voxtral and the built-in microphone at 48 kHz, on 2026-11-05.
+Four chained dictations: each capture started while the job of the previous capture waited for its transcript or its paste.
+The owner confirmed that the texts landed complete, in session order, in the correct field.
+
+| Capture | Deltas | Transcript | Capture end to complete transcript | Capture end to paste |
+| --- | --- | --- | --- | --- |
+| 2.45 s | 11 | 41 characters | 1,155 ms | 1,551 ms |
+| 4.06 s | 20 | 88 characters | 1,295 ms | 1,605 ms |
+| 2.84 s | 14 | 71 characters | 1,001 ms | 1,319 ms |
+| 0.80 s | 6 | 17 characters | 1,612 ms | 1,929 ms |
+
+- Three single dictations on the same day: 10.36 s, 8.50 s, and 1.25 s of capture.
+  The transcript was complete 451, 966, and 791 ms after the capture ended. The paste landed after 782, 1,283, and 1,141 ms.
+- The session opened in 282 to 372 ms, and one time in 1,001 ms.
+- The time from capture end to complete transcript changes from 451 to 1,612 ms. These values do not show a relation to the capture duration.
 
 ## Phase 3: Correction and daily use
 
