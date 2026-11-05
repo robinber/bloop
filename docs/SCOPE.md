@@ -20,7 +20,7 @@ Simple behavior and low latency have priority over additional features.
 - Streaming is the only STT path. Audio goes to the provider while capture continues.
 - Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds correction.
 - The user holds Right Command to speak.
-- The user can set the maximum capture duration in the TOML settings.
+- Bloop sets no maximum capture duration. The owner can reconsider this after daily use.
 - A small orb shows the session state. The orb is part of the MVP.
 - The application does not send messages or execute commands.
 - The repository uses English and ASD-STE100 writing rules.
@@ -78,7 +78,7 @@ Phase 2 measures transcription completion time after key release. Phase 3 measur
 | Dictation key | Hold Right Command for 220 ms. A combination or a short press does nothing. |
 | Cancel | Escape during a session. Bloop blocks this Escape event. |
 | Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
-| Audio | System default microphone; bounded queues in memory; configurable duration limit; warning before the limit |
+| Audio | System default microphone; bounded queues in memory; no maximum capture duration |
 | Network | One transcription stream during capture; one correction request after the complete transcript |
 | Text profile | Natural Clean; one prompt; raw transcript if the correction fails |
 | Target check | Same frontmost application and no new click or key press since capture ended |
@@ -128,7 +128,6 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 ## Open decisions
 
-- Select the default capture duration after tests at 5, 10, and 20 minutes. These durations are test cases, not validated limits.
 - Select audio queue capacities and connection, inactivity, and completion time limits from Phase 2 tests.
 - Confirm the French typography rules of Natural Clean.
 - Confirm the capture start: at the hold threshold or at key press. Phase 2 checks for a lost first word.

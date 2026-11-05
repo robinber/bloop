@@ -4,7 +4,7 @@ Status: revision 16 (2026-11-05). `bloop-core` implements the session state mach
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
-Configurable capture duration and its warning are Phase 2 requirements. The current state machine already accepts `CaptureLimitReached`.
+Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
 The [code structure](STRUCTURE.md) gives the file for each type.
@@ -57,7 +57,7 @@ pub enum Event {
     OtherInputDuringHold,
     Escape,
     HoldElapsed(Generation),
-    CaptureLimitReached(Generation),
+    CaptureLimitReached(Generation), // Legacy event; the driver does not send it.
     CaptureFailed(Generation, AppError),
     TextReady(Generation, FinalText),
     NothingHeard(Generation),
@@ -304,10 +304,8 @@ pub trait SecretStore {
 - `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
   The clipboard restore still follows a later read.
 - The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
-- At `StartCapture`, the driver schedules `CaptureLimitReached` with the `Scheduler` (Phase 2). The core ignores it for a finished capture.
-- The maximum duration does not change during a capture. The audio adapter does not use it.
 - `AudioInput::stop` stops the producer after the final samples and returns the capture summary.
-- The worker drains accepted samples and flushes the converter before `finish`. Reaching the duration limit is not a failure.
+- The worker drains accepted samples and flushes the converter before `finish`.
 - `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.
 - `SecretString` does not show its value in `Debug` output.
 - `SecretStore::get` returns `NotFound` when the store has no key for the account.
@@ -315,12 +313,6 @@ pub trait SecretStore {
   The user fixes each case differently. Thus the menu shows a different line for each.
 - Bloop reads each API key one time at start, on the main thread, before the run loop.
   macOS can show an access dialog and block that thread until the user answers. A new key needs a restart of Bloop.
-
-Phase 2 must extend the event and orb contracts to show a warning before the capture limit.
-The warning must carry the capture generation. A warning for a finished capture has no effect.
-The warning must keep recording active and must not create a job or change keyboard focus.
-At `StartCapture`, the driver must schedule the warning with the `Scheduler`.
-The orb view of the warning shows the remaining time as one fixed value. It does not count down.
 
 ## Errors
 
@@ -396,7 +388,7 @@ Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(ge
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
 For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation (Phase 2).
-The limits for duration and level use `CaptureSummary`. They are not provider options.
+The checks for short or silent captures use `CaptureSummary`. They are not provider options.
 
 1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard`.
 2. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.
@@ -419,7 +411,6 @@ Phase 2 returns the complete raw transcript. Phase 3 adds correction. Raw fallba
 | Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
 | Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
 | Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
-| Capture limit | `CaptureLimitReached` for the active capture has the same effect as key release. Duplicate limit events and a later key release create no second job. |
 | Order | The core emits `Insert` only for the first job in the queue. |
 | Last result | The core keeps the text of the last `Insert` for `CopyLastResult`. |
 | Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
@@ -443,13 +434,13 @@ These rules apply from Phase 2. Test them with fake ports before implementing th
 - `StopCaptureAndProcess` signals the existing task to finish; it never opens a second transcription session.
 - `CancelCapture` carries no generation. The driver keeps the generation of the active capture from `StartCapture`.
 - `CancelWork` stops the task of its generation and calls `TextOutput::cancel`.
-- The task drains accepted audio, flushes conversion, and calls `finish` once. Release and duration limit events cannot finish it twice.
+- The task drains accepted audio, flushes conversion, and calls `finish` once. A repeated key release cannot finish it twice.
 - `TextReady` requires a complete transcript and an existing job. Partial transcripts never create jobs.
 - Escape, other input, and microphone loss stop the active capture and its stream. System sleep also cancels all jobs.
 - A full queue, failed connection, or timeout ends the affected session with an error. It never triggers replay or incomplete insertion.
 - Cancellation while connecting, sending, or finishing must release resources. Late results from cancelled generations have no effect.
 - A failure before release returns capture to `Idle`. A failure after release removes its job and unblocks later jobs.
-- Capture duration settings do not size queues. Test bounded audio memory at each supported duration.
+- Audio queue capacity does not grow with capture duration. Check bounded audio memory during long dictations.
 
 Phase 2 tests must cover release and failure races, provider messages during capture, slow connections, full queues, and cancellation.
 The existing state machine is the starting point. Update its events only when these tests show a need.

@@ -19,7 +19,7 @@ Streaming is the only STT path.
 Right Command held for 220 ms
     -> the orb opens, capture starts, and the provider connection opens
     -> audio chunks go to Voxtral while the user speaks
-Right Command released, or the configured capture limit reached
+Right Command released
     -> the capture stops and the orb closes
     -> queued audio drains, the converter flushes, and the stream ends
     -> Voxtral returns the complete transcript
@@ -76,7 +76,7 @@ Job:     Processing -> Ready -> Inserting -> end
 | Capture state | Starts when | Ends when |
 | --- | --- | --- |
 | `Pending` | The user presses Right Command alone. | 220 ms pass: `Listening`. Key release or other input: `Idle`, with no signal. |
-| `Listening` | The hold threshold passes. | Key release or the configured capture limit: `Idle` and a new job. Other input or Escape: `Idle`, with no job. |
+| `Listening` | The hold threshold passes. | Key release: `Idle` and a new job. Other input or Escape: `Idle`, with no job. |
 
 | Job status | Starts when | Ends when |
 | --- | --- | --- |
@@ -85,7 +85,6 @@ Job:     Processing -> Ready -> Inserting -> end
 | `Inserting` | The paste module receives the text. | Paste or fallback card: end. |
 
 - Bloop permits one capture at a time.
-- At the capture limit, Bloop stops recording and processes the audio already captured. A later key release creates no second job.
 - A new capture can start while jobs run. Thus the user can dictate again before the previous text lands.
 - Jobs paste their text in session order.
 - No more than 3 jobs exist at the same time: processing, ready, or pasting. If 3 jobs exist when the hold threshold
@@ -176,7 +175,6 @@ During processing, the orb is not visible. Tabi has the same behavior.
 | --- | --- |
 | Opening | The pill grows from 80% to 100% and fades in, in about 150 ms |
 | Listening | The bars follow the voice level |
-| Capture warning | Before the duration limit, the orb shows the remaining time. Recording continues. The orb keeps keyboard focus unchanged. |
 | Closing | When the capture ends, the bars go down, then the pill shrinks and fades out, in about 200 ms |
 | Error | The pill opens with red bars for about 1 second, then closes |
 | Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V", in about 200 ms. The card shows the first 240 characters. It closes after 8 seconds or at the next capture. |
@@ -186,14 +184,9 @@ Bloop does not use Tabi code or assets.
 ## Audio
 
 - The capture uses the system default input device in its native format.
-- `dictation.max_duration_secs` sets the maximum duration of one capture, in seconds.
-- Bloop validates this value before capture. The value must be a positive integer within the tested provider and application limits.
-- Bloop reports an invalid setting. It does not silently reduce the duration or treat zero as unlimited.
-- Each capture keeps the duration selected at its start. A settings change applies to later captures.
-- Before capture, Bloop allocates bounded queues. Their capacity does not grow with the selected capture duration.
+- Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
+- Before capture, Bloop allocates bounded queues. Their capacity does not grow with the capture duration.
 - Capture starts while the provider connection opens. A queue keeps the initial samples until the connection is ready.
-- At capture start, the driver schedules the capture limit and the warning. At the limit, the driver stops the capture.
-- Before the limit, the orb warns the user. At the limit, Bloop finishes the stream through the normal path.
 - The callback mixes the channels to mono and calculates the level of each buffer.
 - During capture, the worker converts samples incrementally to mono signed 16-bit little-endian PCM at 16 kHz, for all microphones.
 - The worker resamples with the FFT resampler of `rubato`. It filters the audio before it lowers the rate. Thus it prevents aliasing.
@@ -207,8 +200,7 @@ Bloop does not use Tabi code or assets.
 - Bloop releases each audio chunk after sending it. Cancellation discards remaining chunks.
 - Bloop keeps no complete recording and writes no audio to disk.
 
-The default duration, supported range, and warning interval remain open until Phase 2 tests.
-The [settings example](STRUCTURE.md#settings-and-provider-selection) shows a configurable value, not a measured capacity.
+Long dictation checks measure memory use and completion time. They do not set a maximum capture duration.
 
 ## Mistral connections
 
@@ -299,12 +291,12 @@ The provider implements the streaming contract in [Rust contracts](CONTRACTS.md#
 - `CancelCapture` stops capture and its stream. It carries no generation: the driver keeps the generation of the active capture.
 - `CancelWork` stops the task for the specified generation and forgets its paste target.
 - A failure during capture produces `CaptureFailed`. A failure after capture produces `WorkFailed`.
-- Target capture stays at key release or the capture limit. Insertion still follows session order.
+- Bloop records the target at key release. Insertion still follows session order.
 - Phase 2 tests release, failure, and cancellation races with a fake provider before the real adapter.
 
 ## Paste
 
-When the capture ends through key release or the duration limit, the paste module records the target:
+At key release, the paste module records the target:
 
 - the process identifier of the frontmost application;
 - the counters of key-down and mouse-down events (`CGEventSourceCounterForEventType`).
@@ -368,7 +360,7 @@ Known limits:
 - The log records state changes, step durations, fallback reasons, error categories, and panics.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
-- The settings file contains nonsecret settings only: key, hold threshold, capture duration, language, word list, models, and prompt version.
+- The settings file contains nonsecret settings only: key, hold threshold, language, word list, models, and prompt version.
 - Without the settings file, Bloop uses default values.
 
 ## Bundle and permissions

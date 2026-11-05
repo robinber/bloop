@@ -184,8 +184,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 - The driver keeps task handles by generation. `CancelCapture` stops the active capture and its stream; `CancelWork` stops the specified job and forgets its paste target.
 - `CancelCapture` carries no generation. Thus the driver keeps the generation of the active capture from `StartCapture`.
 - After each event, the driver tells the event tap if a capture is active. The tap uses this value for Escape.
-- The app validates the capture duration and supplies it to the driver (Phase 2). The core does not read TOML settings.
-- At `StartCapture`, the driver schedules `CaptureLimitReached` and the limit warning with the `Scheduler` (Phase 2). The audio callback sends no event.
+- Bloop sets no maximum capture duration. The driver schedules no timer to end capture.
 
 ## Settings and provider selection
 
@@ -195,7 +194,6 @@ Phase 2 adds these settings with `config.rs`. Phase 3 adds the `[chat]` and `[re
 [dictation]
 key = "right_command"
 hold_ms = 220
-max_duration_secs = 600
 language = "fr"
 vocabulary = ["Rust", "Tokio", "objc2"]
 
@@ -213,11 +211,6 @@ reasoning_effort = "none"
 enabled = true
 prompt = "natural-clean-v1"
 ```
-
-`max_duration_secs` is the maximum duration of one capture, in seconds.
-The value `600` shows a ten-minute configuration. It is not a validated default or a provider limit.
-Phase 2 selects the default and supported range after the long capture tests in the [roadmap](ROADMAP.md).
-Invalid values stop capture setup with a clear error. A duration limit finishes the active stream instead of cancelling it.
 
 The `provider` field selects a variant of a tagged enum in `bloop-providers`:
 

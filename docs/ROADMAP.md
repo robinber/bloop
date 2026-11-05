@@ -19,7 +19,7 @@ Streaming is the only STT path. There is no file transcription stage or later st
 - [x] Select Right Command as the first dictation key.
 - [x] Simplify the architecture and the Rust contracts.
 - [x] Define the crate structure and the extension procedures.
-- [x] Define a configurable capture duration, a warning before the limit, and processing of the captured audio at the limit.
+- [x] Keep capture without a maximum duration, as the owner decided on 2026-11-05.
 - [x] Select streaming as the only STT path from Phase 2.
 - [x] Review the Phase 2 streaming contracts before implementation.
 
@@ -85,12 +85,9 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
   When it arrives, send `SystemSleep` to the core.
 - [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
 - [x] Let a new capture start while a job runs. Paste the texts in session order.
-- [ ] Read and validate `dictation.max_duration_secs`. Reject zero and unsupported values with a clear error.
-- [ ] Warn before the configured limit. Stop at the limit and finalize the stream once.
 - [ ] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
 - [ ] Select queue capacities and connection, inactivity, and completion time limits from measurements.
 - [ ] Select `target_streaming_delay_ms` from accuracy and completion time measurements.
-- [ ] Select the default duration, supported range, and warning interval from tests at 5, 10, and 20 minutes.
 - [ ] Record the provider behavior that its documentation does not give: sample rates, session length, inactivity limit, silent session.
 - [ ] Log the duration of each step.
 
@@ -100,10 +97,9 @@ Acceptance:
 - Audio reaches the provider before key release during a normal dictation.
 - A slow connection does not lose the first word. Queue exhaustion fails the session instead of silently dropping samples.
 - An interruption releases the microphone and the affected stream. Each cancelled generation ignores later results.
-- A configured limit stops capture and finalizes transcription once. A later key release creates no second job.
+- Key release stops capture and finalizes transcription once. A repeated key release creates no second job.
 - Partial or failed transcripts cause no insertion. A failure during capture does not leave a job waiting in the queue.
 - A failure after capture removes its job and releases the next job for insertion.
-- A warning keeps keyboard focus unchanged. A warning from a finished capture has no effect.
 - A settings change does not change an active capture. Invalid values prevent capture with a clear error.
 - Without the API key, the menu asks to add it. If the user denies access, the menu asks to allow it.
 - After the documented `security` command, Bloop reads the key without an access dialog, also after a new build.
@@ -111,6 +107,7 @@ Acceptance:
 - Before the first answer, macOS shows the microphone request at start, and the menu shows Ready.
   After a denial, the menu shows the microphone permission at the next start. After a new build, macOS keeps the permission.
 - Record memory use and completion time at 5, 10, and 20 minutes. Check provider and queue limits.
+  These durations are test cases, not capture limits.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
 
 Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the hold threshold and the fixed test text:
@@ -164,7 +161,7 @@ The owner confirmed that the texts landed complete, in session order, in the cor
 - [ ] Send the transcript to Mistral Small.
 - [ ] Apply the raw fallback rules.
 - [ ] Compare raw and final text on a fixed set of French dictations.
-- [ ] Check correction completeness and request time limits with long dictations up to the supported capture duration.
+- [ ] Check correction completeness and request time limits with long dictations.
 - [ ] Use Bloop for one working day on the reference Mac.
 
 Include questions, negations, numbers, names, technical terms, and spoken corrections in the test set.

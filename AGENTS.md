@@ -49,6 +49,7 @@ These are explicit owner decisions, not hypothetical reuse:
 - `BoxFuture` in the AI ports, so that the settings select the provider at run time.
 - Streaming is the only STT path. Finish Phase 1 with fixed text, then implement streaming in Phase 2.
 - Providers implement one streaming contract. Do not add file transcription or an upload fallback.
+- Capture has no maximum duration. Add a duration limit only if the owner requests it.
 
 ### Crate boundaries
 
