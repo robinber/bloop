@@ -57,7 +57,6 @@ pub enum Event {
     OtherInputDuringHold,
     Escape,
     HoldElapsed(Generation),
-    CaptureLimitReached(Generation), // Legacy event; the driver does not send it. Phase 3 removes it.
     CaptureFailed(Generation, AppError),
     TextReady(Generation, FinalText),
     NothingHeard(Generation),

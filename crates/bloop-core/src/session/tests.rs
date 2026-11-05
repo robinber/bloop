@@ -77,23 +77,6 @@ fn key_release_records_the_target_and_starts_a_job() {
 }
 
 #[test]
-fn capture_limit_stops_the_capture_once_like_a_key_release() {
-    let mut core = Core::new();
-    let generation = start_listening(&mut core);
-
-    assert_eq!(
-        core.handle(Event::CaptureLimitReached(generation)),
-        vec![
-            Command::RecordTarget(generation),
-            Command::StopCaptureAndProcess(generation),
-            Command::CloseOrb
-        ]
-    );
-    assert_eq!(core.handle(Event::CaptureLimitReached(generation)), vec![]);
-    assert_eq!(core.handle(Event::DictationKeyUp), vec![]);
-}
-
-#[test]
 fn combination_during_pending_cancels_without_commands() {
     let mut core = Core::new();
     let generation = press(&mut core);
@@ -193,7 +176,6 @@ fn stale_capture_events_do_not_touch_the_active_capture() {
     );
     let current = start_listening(&mut core);
 
-    assert_eq!(core.handle(Event::CaptureLimitReached(stale)), vec![]);
     assert_eq!(
         core.handle(Event::CaptureFailed(stale, AppError::Microphone)),
         vec![]
@@ -649,7 +631,6 @@ fn events_for_an_unknown_generation_are_ignored() {
 
     for event in [
         Event::HoldElapsed(unknown),
-        Event::CaptureLimitReached(unknown),
         Event::CaptureFailed(unknown, AppError::Microphone),
         Event::TextReady(unknown, text("x")),
         Event::NothingHeard(unknown),

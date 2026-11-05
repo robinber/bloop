@@ -20,8 +20,6 @@ pub enum Event {
     Escape,
     /// The hold timer of a generation expired.
     HoldElapsed(Generation),
-    /// The capture of a generation reached its time limit.
-    CaptureLimitReached(Generation),
     /// The capture of a generation stopped with an error. The driver logs the error.
     CaptureFailed(Generation, AppError),
     /// The job of a generation produced its final text.
@@ -156,7 +154,6 @@ impl Core {
             Event::DictationKeyUp => self.key_up(),
             Event::OtherInputDuringHold | Event::Escape => self.cancel_capture(),
             Event::HoldElapsed(generation) => self.hold_elapsed(generation),
-            Event::CaptureLimitReached(generation) => self.capture_limit_reached(generation),
             Event::CaptureFailed(generation, _) => self.capture_failed(generation),
             Event::TextReady(generation, text) => self.text_ready(generation, text),
             Event::NothingHeard(generation) => self.nothing_heard(generation),
@@ -196,14 +193,6 @@ impl Core {
         match self.capture {
             Capture::Idle | Capture::Pending(_) => self.cancel_capture(),
             Capture::Listening(generation) => self.finish_capture(generation),
-        }
-    }
-
-    fn capture_limit_reached(&mut self, generation: Generation) -> Vec<Command> {
-        if self.capture == Capture::Listening(generation) {
-            self.finish_capture(generation)
-        } else {
-            Vec::new()
         }
     }
 
