@@ -14,6 +14,7 @@ use std::time::Duration;
 use bloop_audio::capture::Microphone;
 use bloop_core::domain::LevelMeter;
 use bloop_core::error::{AppError, ProviderError};
+use bloop_core::pipeline::Pipeline;
 use bloop_core::ports::platform::{EventSink, SecretStore};
 use bloop_macos::MainThreadMarker;
 use bloop_macos::app::App;
@@ -77,6 +78,7 @@ fn main() -> ExitCode {
                     target_streaming_delay_ms: STREAMING_DELAY_MS,
                 },
             )),
+            pipeline: Pipeline::new(Vec::new()),
             language: LANGUAGE.to_owned(),
             vocabulary,
             limits: Limits::default(),

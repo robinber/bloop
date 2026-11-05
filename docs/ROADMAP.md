@@ -256,8 +256,8 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
 - [x] Log the paste command and the target read with the generation.
   Measured on 2026-11-05, three raw dictations after this change: key release to paste command 708, 744, and 1,158 ms.
   The target read the text 3 to 10 ms after the paste command. `InsertDone` came 315 to 318 ms after the read.
-- [ ] Add the text step contracts to `bloop-core`: `ChatModel`, `ChatReply`, `TextStep`, `StepOutcome`, `StepError`, and the step report.
-- [ ] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
+- [x] Add the text step contracts to `bloop-core`: `ChatModel`, `ChatReply`, `TextStep`, `StepOutcome`, `StepError`, and the step report.
+- [x] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
 - [ ] Add the shared HTTP client and the Mistral chat adapter.
   Test them with a fake HTTP server: reply, truncated reply, 401, 403, other errors, and timeout.
 - [ ] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.

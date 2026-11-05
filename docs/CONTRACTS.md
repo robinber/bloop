@@ -1,9 +1,10 @@
 # Rust contracts
 
-Status: revision 20 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
-the transcription ports, the platform ports, the Phase 2 pipeline, and the dictionary types without `Dictionary::pairs`.
+Status: revision 20 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums,
+and the transcription, chat, text step, and platform ports.
+It also implements the pipeline with its step report, the text steps, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
+The text step and pipeline signatures follow the Phase 3 design of 2026-11-05. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -246,7 +247,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 The chat adapter logs the request duration, the token counts, and the finish reason. It never logs the text.
 Each chat adapter applies the time limit that `bloop-app` gives at construction. An expired limit returns `ProviderError::Timeout`.
 Thus the correction behaves the same with each provider.
-`ChatReply` and `StepOutcome` contain text. They implement a redacting `Debug`.
+`ChatRequest`, `ChatReply`, and `StepOutcome` contain text. They implement a redacting `Debug`.
 `StepContext` contains the language of the dictation. A step that needs the target application adds the target to `StepContext`.
 The driver then gives the target to the running task at key release, because the task starts before `RecordTarget`.
 A step does not write logs. It returns its outcome, and the pipeline adds it to the step report.
@@ -453,6 +454,7 @@ pub enum StepError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rejection {
     Incomplete,
+    Empty,
     TooShort,
     TooLong,
 }
@@ -487,7 +489,8 @@ pub enum AppError {
 }
 ```
 
-`StepError` and `Rejection` are Phase 3 additions. The other error types exist.
+`StepError` and `Rejection` are the Phase 3 errors of the text steps.
+`Rejection::Empty` is for a reply that is empty or contains only whitespace. It does not depend on the character ratio.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
@@ -527,36 +530,47 @@ pub struct PipelineOutput {
 }
 ```
 
+`Pipeline::new(steps)` keeps the steps in the given order.
 `Pipeline::run(&self, generation: Generation, transcript: Transcript, context: &StepContext) -> PipelineOutput` is an `async fn`.
-Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
+Until the correction toggle exists, the worker runs a pipeline without steps.
 In Phase 3, `bloop-app` captures the correction toggle for each generation and selects its step list.
 The toggle is off at application start. Changes affect only subsequent generations.
 Phase 4 builds the list from the full settings snapshot. The steps share the chat client through `Arc`.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
-The worker logs the step report. From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu status.
+The worker builds the `StepContext` from the language of the dictation.
+The worker logs each `StepReport` at the `info` level: the step name and the `Debug` output of the result.
+From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu status.
 The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
 and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
 
-1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard` and an empty report.
-2. `run` applies the steps in order. If a step skips or fails, the text before that step continues to the next step.
+1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard` and an empty report. No step runs.
+2. `run` applies the steps in order. Each step gets the current text, and `Applied` replaces it.
+   If a step skips or fails, the text before that step continues to the next step. Each step adds one `StepReport`.
 3. `run` returns `TextReady` with the final text.
 
-Without steps, the final text is the raw transcript. This is the path when the correction is off.
+Without steps, the final text is the raw transcript, without a copy. This is the path when the correction is off.
 Phase 2 returns the complete raw transcript. Phase 3 adds the optional correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
 
 | Step | Behavior |
 | --- | --- |
-| `LlmRefine` | Sends the prompt, the dictionary pairs, and the text to a `ChatModel`. Rejects incomplete or empty replies. Prediction, short-text skipping, and length ratio checks depend on the evaluation below. |
-| `Typography` | Replaces a non-breaking space before `?`, `!`, `:`, `;`, and `»`, and after `«`, with a normal space. Replaces `’` with `'`. Does not change line breaks. |
-| `Trim` | Removes line breaks at the start and at the end. |
+| `LlmRefine` | Sends one request to a `ChatModel`. The system message is the prompt. The user message is the text between a `<transcript>` line and a `</transcript>` line. The request has no prediction. Rejects an incomplete reply (`Incomplete`) and an empty reply (`Empty`). The short-text skip and the character ratio check are optional and off by default. A later change adds the dictionary pairs to the system message, after the prompt. |
+| `Typography` | Replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) with a normal space immediately before `?`, `!`, `:`, `;`, and `»`, and immediately after `«`. Replaces `’` with `'`. Does not add a space. Does not change line breaks or other characters. |
+| `Trim` | Removes `\n` and `\r` at the start and at the end. Does not remove spaces. |
 
 When the correction is on, the step list is `LlmRefine`, `Typography`, `Trim`. When it is off, the list is empty.
+The step names in the report are `llm_refine`, `typography`, and `trim`.
+
+`LlmRefine` calculates `max_tokens` in a private function of `steps/refine.rs`: ceil(characters / 2.5 × 1.6) + 32, from 64 to 2,048.
+The characters are the Unicode scalar values of the text, without the delimiters.
 
 The first evaluation uses one model and `natural-light`, without predicted output.
 The skip below 4 words and the 50% to 160% character ratio are candidate heuristics, not meaning checks.
 Select or remove them against the test set before daily use. Expected spoken corrections must pass.
 For example, "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
+`LlmRefine::with_min_words` and `LlmRefine::with_ratio` turn them on. Both are off by default.
+The words are the parts between whitespace. Below the minimum, the step returns `Skipped(TooFewWords)` and sends no request.
+The ratio compares the character counts of the reply and the text. Outside the ratio, the step rejects the reply with `TooShort` or `TooLong`.
 The correction timeout also needs evaluation: a blocked first job delays subsequent insertions.
 Tests must cover timeout to raw fallback, cancellation during correction, and corrections that complete in reverse order.
 

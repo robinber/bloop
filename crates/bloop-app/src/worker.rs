@@ -9,8 +9,8 @@ use bloop_audio::buffer::{EndMark, Reader, Status};
 use bloop_audio::convert::{self, ConvertError, Converter};
 use bloop_core::domain::{AudioChunk, Generation};
 use bloop_core::error::{AppError, AudioQueueError, ProviderError};
-use bloop_core::pipeline;
-use bloop_core::ports::ai::{Transcriber, TranscriptionOptions, TranscriptionSession};
+use bloop_core::pipeline::Pipeline;
+use bloop_core::ports::ai::{StepContext, Transcriber, TranscriptionOptions, TranscriptionSession};
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
 use tokio::runtime::Handle;
@@ -22,9 +22,10 @@ pub(crate) mod fakes;
 
 const POLL: Duration = Duration::from_millis(20);
 
-/// The speech provider and the options of its sessions.
+/// The speech provider, the options of its sessions, and the text steps of its transcripts.
 pub(crate) struct Speech {
     pub(crate) transcriber: Box<dyn Transcriber>,
+    pub(crate) pipeline: Pipeline,
     pub(crate) language: String,
     pub(crate) vocabulary: Vec<String>,
     pub(crate) limits: Limits,
@@ -150,7 +151,19 @@ async fn transcribe(
                 chars = transcript.as_str().chars().count(),
                 "the transcript is complete"
             );
-            pipeline::run(generation, transcript)
+            let context = StepContext {
+                language: speech.language.clone(),
+            };
+            let output = speech.pipeline.run(generation, transcript, &context).await;
+            for report in &output.report {
+                tracing::info!(
+                    ?generation,
+                    step = report.step,
+                    result = ?report.result,
+                    "a text step ended"
+                );
+            }
+            output.event
         }
         Err(error) => Event::WorkFailed(generation, AppError::Provider(error)),
     }

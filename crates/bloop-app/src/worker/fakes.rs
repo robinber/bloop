@@ -8,6 +8,7 @@ use std::time::Duration;
 use bloop_audio::convert;
 use bloop_core::domain::{AudioChunk, Transcript};
 use bloop_core::error::ProviderError;
+use bloop_core::pipeline::Pipeline;
 use bloop_core::ports::ai::{BoxFuture, Transcriber, TranscriptionOptions, TranscriptionSession};
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
@@ -107,6 +108,7 @@ impl Fake {
                 log: Arc::clone(&self.log),
                 rates: Arc::clone(&self.rates),
             }),
+            pipeline: Pipeline::new(Vec::new()),
             language: "fr".to_owned(),
             vocabulary: Vec::new(),
             limits,

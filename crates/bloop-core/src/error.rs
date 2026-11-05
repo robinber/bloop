@@ -26,6 +26,28 @@ pub enum ProviderError {
     InvalidResponse,
 }
 
+/// A failure of a text step. The pipeline keeps the text from before the step.
+#[derive(Debug)]
+pub enum StepError {
+    /// The provider request of the step failed.
+    Provider(ProviderError),
+    /// The step did not accept the reply of the provider.
+    Rejected(Rejection),
+}
+
+/// The reason why a step did not accept the reply of a provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rejection {
+    /// The reply did not end normally, for example at the token limit.
+    Incomplete,
+    /// The reply is empty or contains only whitespace.
+    Empty,
+    /// The reply has fewer characters than the minimum ratio permits.
+    TooShort,
+    /// The reply has more characters than the maximum ratio permits.
+    TooLong,
+}
+
 /// A failure of the bounded audio queue between the microphone and the worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioQueueError {

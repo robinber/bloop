@@ -1,11 +1,12 @@
 //! AI provider ports. They return `BoxFuture`, so the settings can select a provider at run time.
 
+use std::fmt;
 use std::future::Future;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 
 use crate::domain::{AudioChunk, Transcript};
-use crate::error::ProviderError;
+use crate::error::{ProviderError, StepError};
 
 /// A future that can move between threads, as a trait object.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -46,4 +47,159 @@ pub trait TranscriptionSession: Send + 'static {
 
     /// Ends the audio input and waits for the complete transcript.
     fn finish(self: Box<Self>) -> BoxFuture<'static, Result<Transcript, ProviderError>>;
+}
+
+/// One request to a chat model. It borrows its text.
+///
+/// `Debug` shows only the number of characters of each text, never the text.
+pub struct ChatRequest<'a> {
+    /// The instructions of the system message.
+    pub system: &'a str,
+    /// The user message.
+    pub user: &'a str,
+    /// A hint: the expected reply is near this text. An adapter without this feature ignores it.
+    pub prediction: Option<&'a str>,
+    /// The maximum number of tokens of the reply.
+    pub max_tokens: NonZeroU32,
+}
+
+impl fmt::Debug for ChatRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChatRequest")
+            .field("system_chars", &self.system.chars().count())
+            .field("user_chars", &self.user.chars().count())
+            .field(
+                "prediction_chars",
+                &self.prediction.map(|text| text.chars().count()),
+            )
+            .field("max_tokens", &self.max_tokens)
+            .finish()
+    }
+}
+
+/// How the reply of a chat model ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finish {
+    /// The provider ended the reply normally (`stop` for Mistral).
+    Complete,
+    /// The reply stopped at the token limit.
+    Truncated,
+    /// The reply ended for another reason.
+    Other,
+}
+
+/// The reply of a chat model.
+///
+/// `Debug` shows only the number of characters and the finish reason, never the text.
+pub struct ChatReply {
+    /// The text of the reply.
+    pub text: String,
+    /// How the reply ended. A step uses only a `Complete` reply.
+    pub finish: Finish,
+}
+
+impl fmt::Debug for ChatReply {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChatReply")
+            .field("chars", &self.text.chars().count())
+            .field("finish", &self.finish)
+            .finish()
+    }
+}
+
+/// A chat provider that a text step uses.
+///
+/// The adapter applies the time limit that it gets at construction.
+/// An expired limit returns `ProviderError::Timeout`.
+pub trait ChatModel: Send + Sync {
+    /// Sends one request and waits for the complete reply.
+    fn complete<'a>(
+        &'a self,
+        request: ChatRequest<'a>,
+    ) -> BoxFuture<'a, Result<ChatReply, ProviderError>>;
+}
+
+/// The data of the dictation that the text steps can use.
+#[derive(Debug, Clone)]
+pub struct StepContext {
+    /// The language of the dictation, for example `fr`.
+    pub language: String,
+}
+
+/// The result of a text step that did not fail.
+///
+/// `Debug` shows only the number of characters, never the text.
+pub enum StepOutcome {
+    /// The step gives this text. It replaces the text of the previous step.
+    Applied(String),
+    /// The step did not change the text.
+    Skipped(SkipReason),
+}
+
+impl fmt::Debug for StepOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Applied(text) => f
+                .debug_struct("Applied")
+                .field("chars", &text.chars().count())
+                .finish(),
+            Self::Skipped(reason) => f.debug_tuple("Skipped").field(reason).finish(),
+        }
+    }
+}
+
+/// The reason why a text step did not change the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    /// The text has fewer words than the step requires.
+    TooFewWords,
+}
+
+/// One change to the text after the transcription, for example the correction.
+///
+/// A step writes no logs. It returns its outcome, and the pipeline adds it to the step report.
+pub trait TextStep: Send + Sync {
+    /// The name of the step in the step report.
+    fn name(&self) -> &'static str;
+
+    /// Applies the step to `text`, the text after the previous step.
+    fn apply<'a>(
+        &'a self,
+        text: &'a str,
+        context: &'a StepContext,
+    ) -> BoxFuture<'a, Result<StepOutcome, StepError>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use super::{ChatReply, ChatRequest, Finish, SkipReason, StepOutcome};
+
+    #[test]
+    fn debug_shows_the_length_of_the_texts_but_not_the_texts() {
+        let request = ChatRequest {
+            system: "Corrige le texte.",
+            user: "mot de passe secret",
+            prediction: Some("secret"),
+            max_tokens: NonZeroU32::new(64).unwrap(),
+        };
+        let reply = ChatReply {
+            text: "Mot de passe secret.".to_owned(),
+            finish: Finish::Complete,
+        };
+        let applied = StepOutcome::Applied("secret".to_owned());
+        let skipped = StepOutcome::Skipped(SkipReason::TooFewWords);
+
+        assert_eq!(
+            format!("{request:?}"),
+            "ChatRequest { system_chars: 17, user_chars: 19, prediction_chars: Some(6), max_tokens: 64 }"
+        );
+        assert_eq!(
+            format!("{reply:?}"),
+            "ChatReply { chars: 20, finish: Complete }"
+        );
+        assert_eq!(format!("{applied:?}"), "Applied { chars: 6 }");
+        assert_eq!(format!("{skipped:?}"), "Skipped(TooFewWords)");
+    }
 }
