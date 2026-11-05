@@ -533,6 +533,7 @@ mod tests {
                     ..Script::default()
                 },
                 vec![],
+                ProviderError::Unauthorized,
             ),
             (
                 Script {
@@ -540,9 +541,10 @@ mod tests {
                     ..Script::default()
                 },
                 vec![Call::Drop],
+                ProviderError::Network,
             ),
         ];
-        for (script, calls) in failures {
+        for (script, calls, expected) in failures {
             let mut run = Run::start(script, CAPACITY, LONG);
 
             run.push(&samples(1_600)).unwrap();
@@ -551,10 +553,8 @@ mod tests {
             assert_eq!(run.log.take(), calls, "{script:?}");
             assert_matches!(
                 run.only_event(),
-                Event::CaptureFailed(
-                    _,
-                    AppError::Provider(ProviderError::Unauthorized | ProviderError::Network)
-                )
+                Event::CaptureFailed(_, AppError::Provider(error)) if error == expected,
+                "{script:?}"
             );
         }
     }
