@@ -224,7 +224,7 @@ The user stores the key with the `security add-generic-password` command.
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
 | Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection 5 s, inactivity 5 s, completion 15 s: initial values, not measured |
-| Correction | `mistral-small-2603` initially; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
+| Correction | `mistral-small-latest`, the alias of Mistral Small; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
 
 Phase 3 selects the correction timeout from the delay acceptable in daily use, including long dictations.
 An earlier job that waits for correction also delays later insertions. On timeout, use the raw transcript.
@@ -267,6 +267,8 @@ During capture, each audio send has the inactivity limit.
 
 The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed identifier, not the alias.
 The Mistral lifecycle policy permits changes to a Public Preview model, also with a fixed identifier.
+The correction uses the alias `mistral-small-latest`, as the owner decided on 2026-11-05.
+Mistral can change the model behind the alias. The log names the alias, not the version.
 `target_streaming_delay_ms` (80 to 1200, or 2400) sets the balance between delay and accuracy.
 The provider never corrects the text that it sent. Thus this value also changes the final text.
 On 2026-11-05, the owner kept 480 ms.

@@ -229,7 +229,7 @@ target_streaming_delay_ms = 480
 
 [chat]
 provider = "mistral"
-model = "mistral-small-2603"
+model = "mistral-small-latest"
 reasoning_effort = "none"
 
 [refine]
@@ -365,7 +365,7 @@ The correction prompt (Phase 3) is `natural-light`. `prompts.rs` puts the file i
 
 From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
 The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.
-The correction uses `mistral-small-2603` with `reasoning_effort` `none` and temperature 0.
+The correction uses `mistral-small-latest` with `reasoning_effort` `none` and temperature 0.
 Thus `main.rs` names no provider.
 Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.
 Phase 4 replaces the constants with the settings hub and persists the toggle.

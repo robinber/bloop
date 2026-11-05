@@ -142,7 +142,7 @@ mod tests {
 
         assert_eq!(config.account(), "mistral");
         let ChatConfig::Mistral(mistral) = &config;
-        assert_eq!(mistral.model, "mistral-small-2603");
+        assert_eq!(mistral.model, "mistral-small-latest");
         assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
         assert_eq!(mistral.temperature, 0.0);
     }

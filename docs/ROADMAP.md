@@ -244,7 +244,7 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 ## Phase 3: Optional correction and dictionary
 
 Priority: now. Deliver one correction that the owner can use in the usual applications.
-Start with the Mistral chat provider, `mistral-small-2603`, and `natural-light`. Keep `natural-full` as a later option.
+Start with the Mistral chat provider, `mistral-small-latest`, and `natural-light`. Keep `natural-full` as a later option.
 The correction is off at each application start. One status menu toggle enables it for subsequent dictations.
 Phase 4 adds persistence and the other settings. It is not required for the daily-use trial.
 When the correction is off, the raw transcript path does not change.
