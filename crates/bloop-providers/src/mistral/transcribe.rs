@@ -606,6 +606,7 @@ mod tests {
         session.send_audio(&chunks[0]).await.unwrap();
         arrived(&session).await;
         session.send_audio(&chunks[1]).await.unwrap();
+        assert_eq!((session.deltas, session.delta_chars), (1, 7));
         let transcript = Box::new(session).finish().await.unwrap();
 
         server.await.unwrap();

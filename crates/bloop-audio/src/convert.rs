@@ -222,7 +222,7 @@ mod tests {
                 .position(|sample| sample.abs() > AMPLITUDE / 2.0)
                 .unwrap();
             assert!(
-                first.abs_diff(onset) <= 16,
+                first.abs_diff(onset) <= 4,
                 "{rate}: the tone starts at {first}"
             );
             let error = (onset + 160..output.len() - 160)

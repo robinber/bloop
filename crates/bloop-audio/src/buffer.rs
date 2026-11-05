@@ -136,11 +136,13 @@ mod tests {
         let mut samples = Vec::new();
 
         writer.try_push(&[0.1, 0.2]).unwrap();
+        assert_eq!(reader.failure(), None);
         reader.end_mark().set();
         writer.try_push(&[0.3]).unwrap();
         assert_eq!(reader.drain(&mut samples), Ok(Status::Open));
         drop(writer);
 
+        assert_eq!(reader.failure(), None);
         assert_eq!(reader.drain(&mut samples), Ok(Status::Ended));
         assert_eq!(samples, [0.1, 0.2, 0.3]);
     }
@@ -199,20 +201,5 @@ mod tests {
         assert_eq!(reader.drain(&mut samples), Ok(Status::Ended));
         assert_eq!(reader.drain(&mut samples), Ok(Status::Ended));
         assert_eq!(samples, [0.1, 0.2]);
-    }
-
-    #[test]
-    fn an_open_or_ended_queue_has_no_failure() {
-        let (mut writer, mut reader) = new(8);
-        let mut samples = Vec::new();
-
-        writer.try_push(&[0.1]).unwrap();
-        assert_eq!(reader.failure(), None);
-        reader.end_mark().set();
-        drop(writer);
-        assert_eq!(reader.failure(), None);
-
-        assert_eq!(reader.drain(&mut samples), Ok(Status::Ended));
-        assert_eq!(samples, [0.1]);
     }
 }
