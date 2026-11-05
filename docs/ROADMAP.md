@@ -132,6 +132,16 @@ Measured on the reference Mac (macOS 27) with Voxtral, before the 16 kHz convers
   The session opened in 330 ms. The transcript was complete 578 ms after the capture ended.
   The paste landed 912 ms after the capture ended. For comparison, the Tabi log shows 1,143 ms from key up to keystroke for a recent dictation.
 
+Measured on the reference Mac (macOS 27) with Voxtral, with the 16 kHz conversion, on 2026-11-05:
+
+| Microphone | Capture | Deltas | Transcript | Capture end to complete transcript | Capture end to paste |
+| --- | --- | --- | --- | --- | --- |
+| AirPods, 24 kHz | 8.58 s | 31 | 127 characters | 376 ms | 716 ms |
+| Built-in microphone, 48 kHz | 2.97 s | 9 | 38 characters | 680 ms | 1,013 ms |
+
+- The session opened in 324 ms for the built-in microphone.
+- The sample count at 16 kHz matched the capture duration: 47,446 samples for 2.965 s.
+
 ## Phase 3: Correction and daily use
 
 - [ ] Add the Natural Clean prompt to version control.
