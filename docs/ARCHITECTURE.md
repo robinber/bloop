@@ -239,6 +239,7 @@ The correction HTTP client:
 - The request limit is the correction limit that `bloop-app` gives.
   It applies from the connection start to the end of the response body. Thus it also limits DNS and TLS.
 - The response body limit is 1 MiB. A larger body is `ProviderError::InvalidResponse`.
+- For an HTTP error, the client reads at most 16 KiB of the body and logs only its `type` and `code` fields with the status.
 - The adapter logs the negotiated HTTP version with each reply. Thus the log shows if the request used HTTP/2.
 - The client keeps the default connection pool of `hyper-util`. At the next request, the pool closes a connection that it did not use for more than 90 s.
   Bloop does not change the keep-alive settings.

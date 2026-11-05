@@ -518,6 +518,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_mistral_rate_limit_error_gives_http_429() {
+        let body = json!({
+            "object": "error",
+            "message": "Rate limit exceeded",
+            "type": "rate_limited",
+            "param": null,
+            "code": "1300",
+            "raw_status_code": 429,
+        })
+        .to_string();
+
+        let result = complete(429, body).await;
+
+        assert_eq!(result.err(), Some(ProviderError::Http(429)));
+    }
+
+    #[tokio::test]
+    async fn an_http_error_with_a_stalled_body_gives_the_status() {
+        let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = accept(&listener).await;
+            let head = "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{\"type\": ";
+            stream.write_all(head.as_bytes()).await.unwrap();
+            std::future::pending::<()>().await;
+            drop(stream);
+        });
+
+        let result = tokio::time::timeout(LIMIT, chat.complete(request(None)))
+            .await
+            .expect("the request limit ends a stalled error body");
+
+        server.abort();
+        assert_eq!(result.err(), Some(ProviderError::Http(429)));
+    }
+
+    #[tokio::test]
+    async fn an_http_error_with_a_large_body_gives_the_status() {
+        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+        let body = json!({ "type": "rate_limited", "code": "1300" }).to_string()
+            + &" ".repeat(http::BODY_LIMIT);
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = accept(&listener).await;
+            let response = format!(
+                "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            if let Err(error) = stream.write_all(response.as_bytes()).await {
+                assert!(
+                    matches!(
+                        error.kind(),
+                        ErrorKind::BrokenPipe | ErrorKind::ConnectionReset
+                    ),
+                    "{error}"
+                );
+            }
+        });
+
+        let result = chat.complete(request(None)).await;
+
+        server.await.unwrap();
+        assert_eq!(result.err(), Some(ProviderError::Http(429)));
+    }
+
+    #[tokio::test]
     async fn a_provider_slower_than_the_limit_gives_timeout() {
         let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
         let server = tokio::spawn(async move {

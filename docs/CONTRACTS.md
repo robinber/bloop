@@ -245,6 +245,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 `Finish::Complete` means that the provider ended the reply normally (`stop` for Mistral).
 `Truncated` means that the reply stopped at the token limit. A reply that is not `Complete` is a step failure.
 The chat adapter logs the request duration, the token counts, the finish reason, and the negotiated HTTP version. It never logs the text.
+For an HTTP error, it logs the status and the provider error `type` and `code`, but never the message or the body of the error.
 Each chat adapter applies the time limit that `bloop-app` gives at construction. An expired limit returns `ProviderError::Timeout`.
 Thus the correction behaves the same with each provider.
 `ChatRequest`, `ChatReply`, and `StepOutcome` contain text. They implement a redacting `Debug`.
@@ -492,6 +493,9 @@ pub enum AppError {
 `StepError` and `Rejection` are the Phase 3 errors of the text steps.
 `Rejection::Empty` is for a reply that is empty or contains only whitespace. It does not depend on the character ratio.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
+For an HTTP error, the chat adapter reads at most 16 KiB of the body within the request time limit.
+It logs only the `type` and `code` fields, because the message and the other fields can contain text from the request.
+If the body is missing, too large, or not JSON, the log contains only the status. The body does not change the `ProviderError`.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
 `tungstenite` writes the handshake request with the API key to the `log` crate at trace level.
