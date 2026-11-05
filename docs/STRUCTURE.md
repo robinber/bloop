@@ -1,7 +1,8 @@
 # Code structure
 
-Status: Revision 14 (2026-11-04). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
-`bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue and the microphone capture, and `bloop-app` the worker.
+Status: Revision 15 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+`bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
+`bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
 At start, `bloop-macos` reads the API key from Keychain and checks the microphone permission. `bloop-app` gives the key to the adapter.
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
@@ -115,11 +116,12 @@ Each vendor module has its own Cargo feature. The `mistral` feature is the defau
 src/
 ├── lib.rs
 ├── capture.rs         cpal stream, mono mix, LevelMeter update: impl AudioInput
-└── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
+├── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
+└── convert.rs         Converter: incremental resampling to 16 kHz mono; flush at capture end
 ```
 
-Bloop sends the audio at the native rate of the microphone. Thus `bloop-audio` has no `convert.rs` now.
-The owner adds a resampler only if the live test in the [roadmap](ROADMAP.md) shows that Voxtral refuses the rate or that accuracy drops.
+`convert.rs` uses the FFT resampler of `rubato`. This resampler filters the audio before it lowers the rate. Thus it prevents aliasing.
+On 2026-11-05, the owner selected 16 kHz for all microphones, because Voxtral returned no text for AirPods audio at 24 kHz.
 
 ### bloop-macos
 
@@ -302,7 +304,7 @@ Thus the application operates at the end of each phase.
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
-| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
 
 Until `config.rs` exists, `bloop-app` keeps these temporary constants in `main.rs`:

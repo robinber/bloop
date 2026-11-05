@@ -9,6 +9,7 @@ publish.workspace = true
 bloop-core.workspace = true
 cpal.workspace = true
 rtrb.workspace = true
+rubato.workspace = true
 tracing.workspace = true
 
 [lints]
