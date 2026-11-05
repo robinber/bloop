@@ -201,6 +201,8 @@ Measured on the reference Mac (macOS 27) with Voxtral at 16 kHz, on 2026-11-05, 
 - Decision: the capture uses the built-in microphone when the default input is a Bluetooth device.
   The [architecture](ARCHITECTURE.md#audio) gives the rule.
 - Owner report on 2026-11-05, after two hours of use with the rule: no lost first word, and faster starts.
+  A video in the AirPods kept its sound during a capture, because the AirPods stayed in their high-quality profile.
+  The owner prefers this: a capture must not change the sound of the AirPods. Phase 7 keeps this when it adds the audio pause.
   This report is not a measurement. Check the first-word loss again before Phase 5 starts.
 - Known limits of the rule. Keep them in view for Phase 5 and Phase 7:
   - A Bluetooth device with a good microphone, for example a conference speaker, also gives way to the built-in microphone.
