@@ -44,6 +44,12 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 | Port | A trait in `bloop-core` that an adapter implements |
 | Adapter | The component that implements a port for a provider or a system API |
 | Text step | One change to the text after the transcription, for example the correction |
+| Correction | The optional text step that a chat model applies to the transcript |
+| Prompt | The instructions that the correction sends to the chat model with the transcript |
+| Step report | The result of each text step of one job, for the log |
+| Settings snapshot | The settings, and the objects built from them, that one generation uses |
+| Status menu | The menu of the Bloop item in the menu bar |
+| Paste command | The Command-V event that Bloop posts |
 | Driver | The `bloop-app` component that sends events to the core and executes its commands |
 | MVP | Minimum viable product; the smallest version that proves the complete process |
 

@@ -1,9 +1,9 @@
 # Rust contracts
 
-Status: revision 16 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 18 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step signatures are Phase 3 proposals.
+The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -57,7 +57,7 @@ pub enum Event {
     OtherInputDuringHold,
     Escape,
     HoldElapsed(Generation),
-    CaptureLimitReached(Generation), // Legacy event; the driver does not send it.
+    CaptureLimitReached(Generation), // Legacy event; the driver does not send it. Phase 3 removes it.
     CaptureFailed(Generation, AppError),
     TextReady(Generation, FinalText),
     NothingHeard(Generation),
@@ -174,29 +174,61 @@ pub trait TranscriptionSession: Send + 'static {
 pub struct ChatRequest<'a> {
     pub system: &'a str,
     pub user: &'a str,
+    pub prediction: Option<&'a str>,
+    pub max_tokens: NonZeroU32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Finish {
+    Complete,
+    Truncated,
+    Other,
+}
+
+pub struct ChatReply {
+    pub text: String,
+    pub finish: Finish,
 }
 
 pub trait ChatModel: Send + Sync {
     fn complete<'a>(&'a self, request: ChatRequest<'a>)
-        -> BoxFuture<'a, Result<String, ProviderError>>;
+        -> BoxFuture<'a, Result<ChatReply, ProviderError>>;
 }
 
 pub struct StepContext {
     pub language: String,
-    pub target: TargetInfo,
+}
+
+pub enum StepOutcome {
+    Applied(String),
+    Skipped(SkipReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipReason {
+    TooFewWords,
 }
 
 pub trait TextStep: Send + Sync {
     fn name(&self) -> &'static str;
 
     fn apply<'a>(&'a self, text: &'a str, context: &'a StepContext)
-        -> BoxFuture<'a, Result<String, StepError>>;
+        -> BoxFuture<'a, Result<StepOutcome, StepError>>;
 }
 ```
 
 The traits return `BoxFuture`. Thus they are dyn-compatible, and the settings can select a provider at run time.
 Each returned future requires an allocation. Audio chunks and these futures are created outside the audio callback.
 Vendor options, for example `reasoning_effort`, stay in the provider settings. They are not in the requests.
+`prediction` is a hint: the expected reply is near this text. An adapter without this feature ignores it.
+`max_tokens` limits the reply. The step that sends the request calculates it from the input length.
+`Finish::Complete` means that the provider ended the reply normally (`stop` for Mistral).
+`Truncated` means that the reply stopped at the token limit. A reply that is not `Complete` is a step failure.
+The chat adapter logs the request duration, the token counts, and the finish reason. It never logs the text.
+`ChatReply` and `StepOutcome` contain text. They implement a redacting `Debug`.
+`StepContext` contains the language of the dictation. A step that needs the target application adds the target to `StepContext`.
+The driver then gives the target to the running task at key release, because the task starts before `RecordTarget`.
+A step does not write logs. It returns its outcome, and the pipeline adds it to the step report.
 
 ### Transcription lifecycle
 
@@ -314,6 +346,57 @@ pub trait SecretStore {
 - Bloop reads each API key one time at start, on the main thread, before the run loop.
   macOS can show an access dialog and block that thread until the user answers. A new key needs a restart of Bloop.
 
+## Menu model
+
+Phase 4 proposal. Review these types before the menu adapter.
+These plain data types go in `ports/platform.rs`. `bloop-app` builds the model, and `bloop-macos` renders it.
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusIcon {
+    Ready,
+    Attention,
+}
+
+pub struct MenuModel {
+    pub icon: StatusIcon,
+    pub items: Vec<MenuItem>,
+}
+
+pub enum MenuItem {
+    Status { title: String, action: Option<ActionId> },
+    Action { title: String, action: ActionId, enabled: bool },
+    Toggle { title: String, action: ActionId, checked: bool, enabled: bool },
+    Choice { title: String, options: Vec<ChoiceOption> },
+    Separator,
+}
+
+pub struct ChoiceOption {
+    pub title: String,
+    pub action: ActionId,
+    pub selected: bool,
+}
+
+pub trait MenuSource {
+    fn model(&self) -> MenuModel;
+    fn activate(&self, action: ActionId);
+}
+
+pub trait StatusItem {
+    fn set_icon(&mut self, icon: StatusIcon);
+}
+```
+
+- `bloop-macos` calls `MenuSource::model` each time the menu opens, and rebuilds the items.
+- A `Choice` is a submenu with one selected option.
+- An `ActionId` is valid only in the model that contains it. `bloop-app` ignores an unknown identifier.
+- `MenuSource` and `StatusItem` run on the main thread. They have no `Send` bound.
+- AppKit calls `MenuSource` from Objective-C. Thus its methods must not panic.
+- When the status changes, `bloop-app` calls `StatusItem::set_icon`. The menu content changes at the next open.
+
 ## Errors
 
 ```rust
@@ -329,7 +412,14 @@ pub enum ProviderError {
 #[derive(Debug)]
 pub enum StepError {
     Provider(ProviderError),
-    Rejected(&'static str),
+    Rejected(Rejection),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rejection {
+    Incomplete,
+    TooShort,
+    TooLong,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -361,7 +451,7 @@ pub enum AppError {
 }
 ```
 
-`StepError` is a Phase 3 addition. The other error types exist.
+`StepError` and `Rejection` are Phase 3 additions. The other error types exist.
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
@@ -379,27 +469,58 @@ Neither event retries transcription or permits partial insertion.
 
 ```rust
 pub struct Pipeline {
-    steps: Vec<Box<dyn TextStep>>,
+    steps: Vec<Arc<dyn TextStep>>,
+}
+
+pub struct StepReport {
+    pub step: &'static str,
+    pub result: StepResult,
+}
+
+pub enum StepResult {
+    Applied,
+    Skipped(SkipReason),
+    Failed(StepError),
+}
+
+pub struct PipelineOutput {
+    pub event: Event,
+    pub report: Vec<StepReport>,
 }
 ```
 
-`Pipeline::run(&self, generation: Generation, transcript: Transcript, context: StepContext) -> Event` is an `async fn`.
+`Pipeline::run(&self, generation: Generation, transcript: Transcript, context: &StepContext) -> PipelineOutput` is an `async fn`.
 Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
+In Phase 3, `bloop-app` captures the correction toggle for each generation and selects its step list.
+The toggle is off at application start. Changes affect only subsequent generations.
+Phase 4 builds the list from the full settings snapshot. The steps share the chat client through `Arc`.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
+The worker logs the step report. From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu status.
 The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
 and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
 
-1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard`.
-2. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.
+1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard` and an empty report.
+2. `run` applies the steps in order. If a step skips or fails, the text before that step continues to the next step.
 3. `run` returns `TextReady` with the final text.
 
-Phase 2 returns the complete raw transcript. Phase 3 adds correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
+Without steps, the final text is the raw transcript. This is the path when the correction is off.
+Phase 2 returns the complete raw transcript. Phase 3 adds the optional correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
 
 | Step | Behavior |
 | --- | --- |
-| `LlmRefine` | Sends the text to a `ChatModel` with a prompt. Skips a text with fewer than 4 words. Rejects a result shorter than 50% or longer than 160% of the input. |
+| `LlmRefine` | Sends the prompt and the text to a `ChatModel`. Rejects incomplete or empty replies. Prediction, short-text skipping, and length ratio checks depend on the evaluation below. |
+| `Typography` | Replaces a non-breaking space before `?`, `!`, `:`, `;`, and `»`, and after `«`, with a normal space. Replaces `’` with `'`. Does not change line breaks. |
 | `Trim` | Removes line breaks at the start and at the end. |
+
+When the correction is on, the step list is `LlmRefine`, `Typography`, `Trim`. When it is off, the list is empty.
+
+The first evaluation uses one model and `natural-light`, without predicted output.
+The skip below 4 words and the 50% to 160% character ratio are candidate heuristics, not meaning checks.
+Select or remove them against the test set before daily use. Expected spoken corrections must pass.
+For example, "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
+The correction timeout also needs evaluation: a blocked first job delays subsequent insertions.
+Tests must cover timeout to raw fallback, cancellation during correction, and corrections that complete in reverse order.
 
 ## Required behavior
 
@@ -420,6 +541,7 @@ Phase 2 returns the complete raw transcript. Phase 3 adds correction. Raw fallba
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
+| Settings | Phase 3 captures the correction toggle when the core creates a generation. Phase 4 captures the full settings snapshot. Changes never affect an active capture or a running job. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.

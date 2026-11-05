@@ -1,14 +1,31 @@
 # Roadmap
 
-Status: Design revision 7. Phase 1 and Phase 2 are complete. Phase 3 is planned.
+Status: Design revision 9. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
-Complete the acceptance checks for each phase before the next phase.
+Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
+Complete the acceptance checks of the selected work before adding more scope.
 Record actual results separately from proposed targets.
 The [implementation plan](STRUCTURE.md#implementation-plan) gives the crates and files for each phase.
 
 First, prove the key, orb, and insertion with fixed text.
 Then add streaming transcription and insert the complete raw transcript. Add correction after that path works.
 Streaming is the only STT path. There is no file transcription stage or later streaming migration.
+After Phase 2, each phase adds features to a path that operates.
+A feature that is off does not change the dictation path. Phase 3 adds one correction toggle to the status menu.
+
+## Priorities
+
+| Priority | Work | Reason to start |
+| --- | --- | --- |
+| Now | Phase 3: one correction prompt, raw fallback, a toggle, and daily use | Prove that correction reduces manual edits at an acceptable delay. |
+| Next if needed | Phase 5: capture at key press | First-word loss still interrupts daily use. Do this before advanced settings. |
+| Next | Phase 4: persistent settings and clear errors | Keep the settings used during the Phase 3 trial. Add choices only when needed. |
+| When errors repeat | Phase 6: dictionary and replacements | The same names or technical terms need manual edits. Settings support comes from Phase 4. |
+| Later | Phase 7: sounds, other audio, and input choices | A specific daily-use problem justifies one feature. |
+| Explore only | Phase 8: Accessibility features | Define one concrete need before designing or implementing a feature. |
+
+Bloop can be useful after Phase 3. Completion does not require every later feature.
+Keep the five-crate workspace and the existing ports. Do not add a framework for future features.
 
 ## Phase 0: Design
 
@@ -138,6 +155,11 @@ The owner accepted the lost first word. The owner also accepted the menu tests f
 - 31 live dictations at 16 kHz: the median from key release to complete transcript is 847 ms (416 to 1,622 ms).
   The Tabi reference is 512 ms. Bloop posts Command-V when the transcript is complete.
 
+Note added later on 2026-11-05: in the Phase 2 tables, the paste time is the time of the `InsertDone` event.
+Bloop sends this event after the target read and the 300 ms clipboard restore delay.
+In four logged dictations, the `Insert` command came less than 1 ms after the complete transcript.
+`InsertDone` came 317 to 328 ms after it. Thus the paste command came about 320 ms before the recorded paste time.
+
 Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the hold threshold and the fixed test text:
 
 | Microphone | Format | Start of the microphone | Capture peak |
@@ -197,25 +219,149 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
   On 2026-11-04, four AirPods captures for dictation had peaks from 0.013 to 0.148.
   Their speech is not known, because Voxtral returned no text at 24 kHz.
 
-## Phase 3: Correction and daily use
+## Phase 3: Optional correction
 
-- [ ] Add the Natural Clean prompt to version control.
-- [ ] Send the transcript to Mistral Small.
-- [ ] Apply the raw fallback rules.
-- [ ] Compare raw and final text on a fixed set of French dictations.
-- [ ] Check correction completeness and request time limits with long dictations.
-- [ ] Read `config.toml` at start, with the streaming delay and the word list. Remove the temporary constants in `main.rs`.
-- [ ] When the provider refuses the API key (401 or 403), show it in the menu.
-- [ ] Use Bloop for one working day on the reference Mac.
+Priority: now. Deliver one correction that the owner can use in the usual applications.
+Start with `mistral-small-2603` and `natural-light`. Keep `natural-full` as a later option.
+The correction is off at each application start. One status menu toggle enables it for subsequent dictations.
+Phase 4 adds persistence and the other settings. It is not required for the daily-use trial.
+When the correction is off, the raw transcript path does not change.
 
-Include questions, negations, numbers, names, technical terms, and spoken corrections in the test set.
+### Required work
+
+- [ ] Remove the legacy event `CaptureLimitReached` from the core, its tests, and the contracts.
+- [ ] Log the paste command and the target read with the generation.
+- [ ] Add the text step contracts to `bloop-core`: `ChatModel`, `ChatReply`, `TextStep`, `StepOutcome`, `StepError`, and the step report.
+- [ ] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
+- [ ] Add the shared HTTP client and the Mistral chat adapter.
+  Test them with a fake HTTP server: reply, truncated reply, 401, 403, other errors, and timeout.
+- [ ] Write `natural-light` in `prompts/`.
+- [ ] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
+  Include questions, negations, numbers, names, technical terms, spoken corrections, hesitations, dictated instructions, and long dictations.
+- [ ] Add a small evaluation tool for one prompt and one model through the real API.
+  Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the model identifier, and the prompt hash.
+- [ ] Review the short-text skip and length ratio rules against the samples before enabling them.
+  Include "à 2 heures, non, 3 heures" to "à 3 heures": the correct result has 40% of the input length.
+  These rules detect some abnormal replies. They do not verify meaning.
+- [ ] Select the correction timeout from short and long dictations. Compare the delay with an immediate raw result.
+  Check `max_tokens`. Never insert a truncated reply. Long captures do not require correction in separate parts.
+- [ ] Run the pipeline in the existing worker after `finish`.
+- [ ] Add one correction toggle to the existing status menu. Do not add the general menu model or settings hub yet.
+  Capture its value for each generation. A toggle change must not affect an active capture or a running job.
+- [ ] Test correction failure and timeout, sleep during correction, and two corrections that finish in reverse order.
+  Verify raw fallback, no late insertion after cancellation, and one ordered insertion for each job.
+- [ ] Log the step report of each job: step name, result, and fallback reason.
+  The chat adapter logs the request duration, the token counts, and the finish reason.
+- [ ] Check if the terminal of the reference Mac protects a paste that contains line breaks (bracketed paste).
+  If it does not, define the insertion protection before testing corrected text there.
+- [ ] Use Bloop with the correction on for one working day on the reference Mac.
+
+### Acceptance and stopping rule
+
+- Unit tests cover the raw path, an empty transcript, each step result, and each raw fallback reason.
+- For each sample, compare the manual edits needed with and without correction: fewer, equal, or more.
+  Record changes to names, numbers, negations, questions, and certainty separately.
+- Fix the test set and the maximum number of prompt revisions before evaluation. Keep the reserved validation samples separate.
+  Do not continue prompt changes without a new decision when this limit is reached.
+- Use a prompt with no known meaning errors in the validation samples. This does not prove correctness for all dictations.
+- Record the median and the longest observed delay from key release to paste command, with correction on and off.
+  Use comparable dictations of about 10 seconds. The median target remains 1.5 seconds with correction on.
+  Record the correction duration, fallback frequency, model identifier, and prompt hash.
+- The trial needs fewer manual edits and an acceptable delay. No paste goes to the wrong application during the trial.
+- The log contains no transcript and no corrected text.
+
+If the benefit is insufficient, reduce the prompt scope or keep correction off. Record the result and the remaining limits.
+An evaluation that selects the raw path is a valid outcome. Do not add optimizations only to keep the phase open.
+
+### Optional work after the first trial
+
+These items do not block Phase 3 completion. Start one only when the measurements justify it.
+
+- Compare correction with and without predicted outputs. Change one factor at a time.
+- Measure prompt caching or connection warm-up only if the affected stage contributes enough delay.
+- Evaluate `natural-full` or another model only if the first prompt leaves useful corrections undone.
+- If transcription dominates the delay, evaluate streaming settings as a separate experiment. Keep the Phase 2 baseline.
+  Candidates include `target_streaming_delay_ms` at 240, 320, and 480 ms.
+  Establish the behavior of `input_audio.flush` before testing it with `input_audio.end`.
+
+## Phase 4: Settings and status menu
+
+Priority: after the Phase 3 trial. Start with settings that the trial shows are useful.
+First-word loss can move Phase 5 ahead of this phase.
+Bloop and the user edit one settings file. The status menu turns features on and off.
+The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the design.
+
+- [ ] Get the owner approval for `NSMenuDelegate` and the menu action selector in the "status item and menu" surface.
+  Record it in `AGENTS.md`.
+- [ ] Add the settings schema to `bloop-app`, with default values, `schema = 1`, and errors that give the line.
+- [ ] At the first start, write a commented `config.toml` template and the default prompt files.
+- [ ] Write a menu change with `toml_edit` to a temporary file. Then rename the file. Keep the comments and the other keys.
+- [ ] Add the settings hub. At the dictation key press and when the menu opens, read the changed files again.
+- [ ] Give each generation the settings snapshot that exists when the core creates it. Remove the temporary constants in `main.rs`.
+- [ ] Build the chat client one time. Build the step list of each snapshot from the selected prompt and model.
+- [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
+- [ ] Persist the existing "Correct with Mistral" toggle. Add "Open config.toml…" and "Open prompts folder…".
+- [ ] Add the "Prompt" and "Model" submenus when alternatives from the Phase 3 evaluation justify them.
+  The second default prompt and model choices do not block the first settings delivery.
+- [ ] Show the status lines: missing permissions, missing or refused API key, and invalid settings or prompt.
+- [ ] When a provider refuses the API key (401 or 403) in a request, show it in the menu.
+- [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.
 
 Acceptance:
 
-- Record the median time from key release to paste. The target is 1.5 seconds or less for ten-second dictations.
-- The reviewed samples keep the original meaning. Record every meaning error and fix its cause.
-- No paste goes to the wrong application during the test day.
-- A settings change does not change an active capture. Invalid values prevent capture with a clear error.
-- Record the model identifiers and the prompt version with the results.
+- A menu change applies from the next dictation. It does not change an active capture or a running job.
+- A change to `config.toml` or to a prompt file in an editor applies from the next dictation.
+- After a menu change, `config.toml` keeps its comments.
+- With invalid settings or a missing prompt, the menu shows the error and its line. A capture fails with the error view.
+- Check that the settings integration preserves the Phase 3 correction and raw paths.
 
-If latency exceeds the target, identify the slow stage and measure each adjustment. Record quality and failures with the latency results.
+## Phase 5: Capture at key press
+
+Priority: next if first-word loss still interrupts daily use. It does not depend on the Phase 4 settings.
+On 2026-11-05, the owner reopened the capture start at the hold threshold, because some dictations lost their first word.
+
+- [ ] On the reference Mac, check the effect of a short microphone start at each Right Command press.
+  Check the microphone indicator in the menu bar and the audio of AirPods.
+- [ ] From these results, design the start at key press. Update the architecture and the contracts.
+- [ ] Test a short press, a combination, and a capture after the hold threshold with core and driver tests.
+
+Acceptance:
+
+- The transcript contains the first word of each test phrase.
+- A Right Command shortcut or a short press sends no audio to the provider.
+- Record the effect on the microphone indicator and on AirPods audio.
+
+## Phase 6: Dictionary and replacements
+
+Priority: when repeated errors in names or technical terms cause manual edits.
+Start with dictionary words and exact replacements. Add snippets only when a repeated use case needs them.
+
+- [ ] Add a dictionary to the settings: words for the `context_bias` of Voxtral, and replacements from a heard form to a written form.
+- [ ] Add snippets: a spoken trigger that inserts a stored text.
+- [ ] Apply the replacements and the snippets in a text step after the correction. Thus the model cannot change them.
+- [ ] Add a menu item that opens the dictionary.
+
+## Phase 7: Sounds, other audio, and input choices
+
+Priority: later. Select one feature for a specific daily-use problem; do not treat this list as one required delivery.
+
+- [ ] Add start and stop sounds, with a menu toggle.
+- [ ] Pause or lower other audio during the capture, with a menu toggle.
+- [ ] Add a "Microphone" submenu with the input devices.
+- [ ] Add a "Language" submenu. The language goes to the transcription session and to the text steps.
+- [ ] Get the owner approval for each new `unsafe` surface, for example `NSSound` or Core Audio.
+
+## Phase 8: Accessibility features
+
+Priority: exploration only. These features are not required to finish Bloop for personal use.
+Select one need, define its acceptance checks, and assess its cost before implementation.
+These features read the focused element or the front window through Accessibility.
+Each new `unsafe` surface needs the owner approval.
+
+- [ ] Fit the text to the cursor: first letter, spaces, and final period.
+- [ ] Read the names in the front window. Give them to the transcription and to the correction.
+- [ ] Learn from fixes: after a paste, watch the field and propose dictionary entries.
+- [ ] Undo a cancel: for 5 seconds after Escape, let the user get the text of the cancelled session.
+- [ ] Edit the selection by voice: replace the selected text with the result of a dictated instruction.
+
+Phases 6 to 8 list candidate features. Detail only the selected feature before work starts.
