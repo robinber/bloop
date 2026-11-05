@@ -173,9 +173,9 @@ impl TranscriptionSession for Session {
                 delta_chars = self.delta_chars,
                 "the provider sent the transcript"
             );
-            // The transcript is complete, and the drop of the stream closes the socket.
-            // Thus a failed close has no effect on the result.
-            if self.ws.close(None).await.is_err() {
+            // The transcript never waits for the close: the close frame gets one try, and the
+            // drop of the stream closes the socket.
+            if !matches!(self.ws.close(None).now_or_never(), Some(Ok(()))) {
                 tracing::debug!("the provider connection did not close cleanly");
             }
             Ok(Transcript::new(text.0))
