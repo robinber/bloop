@@ -283,8 +283,10 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
   Verify raw fallback, no late insertion after cancellation, and one ordered insertion for each job.
 - [ ] Log the step report of each job: step name, result, and fallback reason.
   The chat adapter logs the request duration, the token counts, and the finish reason.
-- [ ] Check if the terminal of the reference Mac protects a paste that contains line breaks (bracketed paste).
+- [x] Check if the terminal of the reference Mac protects a paste that contains line breaks (bracketed paste).
   If it does not, define the insertion protection before testing corrected text there.
+  On 2026-11-05, Ghostty 1.4.0 with zsh kept two pasted lines without executing them, because zsh turns on bracketed paste.
+  Thus Bloop needs no protection step for this terminal.
 - [ ] Use Bloop with the correction on for one working day on the reference Mac.
 
 ### Acceptance and stopping rule

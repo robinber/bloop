@@ -393,7 +393,7 @@ Known limits:
   For a large image, this can take some time.
 - Key code 9 is the V key on the AZERTY and QWERTY layouts. Other layouts are later work.
 - A terminal without bracketed paste can execute pasted text that contains line breaks. A correction prompt can return line breaks.
-  Phase 3 checks the terminal of the reference Mac.
+  On 2026-11-05, the terminal of the reference Mac (Ghostty 1.4.0 with zsh) did not execute pasted lines: zsh turns on bracketed paste.
 
 ## Settings and status menu
 
