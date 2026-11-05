@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 10 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 11 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -8,6 +8,7 @@ Status: Proposed design, revision 10 (2026-11-05). Phase 1 and Phase 2 are compl
 - The behavior follows Tabi. The design stays small.
 - All code uses Rust. The interface uses AppKit through `objc2`. Bloop has no web view.
 - Bloop never loses the text. If a paste is not possible, Bloop shows the text and copies it.
+- Bloop is provider-agnostic. Ports in `bloop-core` hide the providers. Mistral is the default provider and the only adapter today.
 - A feature that is off does not change the dictation path. Phase 3 adds a correction toggle; Phase 4 adds persistent settings.
 
 ## Process
@@ -20,11 +21,11 @@ Streaming is the only STT path.
 ```text
 Right Command held for 220 ms
     -> the orb opens, capture starts, and the provider connection opens
-    -> audio chunks go to Voxtral while the user speaks
+    -> audio chunks go to the speech provider while the user speaks
 Right Command released
     -> the capture stops and the orb closes
     -> queued audio drains, the converter flushes, and the stream ends
-    -> Voxtral returns the complete transcript
+    -> the speech provider returns the complete transcript
     -> when the correction is on: correction, typography, trim
     -> clipboard save, target check, then paste or fallback card
     -> the orb closes
@@ -211,6 +212,8 @@ Long dictation checks measure memory use and completion time. They do not set a 
 
 ## Mistral connections
 
+This section describes the Mistral adapters, the default providers. Another provider implements the same ports with its own protocol.
+
 A WebSocket connection serves each transcription session. A reused HTTP client (`reqwest`) serves correction requests.
 The API key comes from Keychain (service `bloop`, account `mistral`).
 The user stores the key with the `security add-generic-password` command.
@@ -222,7 +225,7 @@ The user stores the key with the `security add-generic-password` command.
 
 Phase 3 selects the correction timeout from the delay acceptable in daily use, including long dictations.
 An earlier job that waits for correction also delays later insertions. On timeout, use the raw transcript.
-The worker applies the transcription limits. The HTTP client of the chat adapter applies the correction limit.
+The worker applies the transcription limits. Each chat adapter applies the correction limit that `bloop-app` gives at construction.
 
 The correction HTTP client:
 
@@ -415,9 +418,9 @@ The planned menu:
 ```text
 Status lines: permissions, API key, settings errors
 ──────────
-✓ Correct with Mistral
+✓ Correct text
   Prompt ▸        natural-light, natural-full, prompts of the user
-  Model ▸         mistral-small-2603, ministral-8b-2512
+  Model ▸         the models of the configured chat provider
 ──────────
 Copy last result
 Open config.toml…
@@ -442,7 +445,8 @@ written = "comme Taby"
 ```
 
 - Phase 3 reads the dictionary at start. From Phase 4, the hub reads it again at the dictation key press if it changed.
-- The written forms go to Voxtral in `context_bias`. Thus the transcription spells them correctly, also when the correction is off.
+- The written forms go to the speech provider in `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
+  Thus the transcription spells them correctly, also when the correction is off. A provider without this feature ignores them.
 - When the correction is on, `LlmRefine` adds the pairs to the system message after the prompt.
   The model applies a pair only when the sentence fits.
 - Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
@@ -501,7 +505,7 @@ Phase 6 adds learning from fixes:
   If the user denied access, or a restriction blocks it, the menu shows the permission.
   The menu does not show the answer to the first request. A denial shows in the menu at the next start.
   Without the permission, a capture fails with the error view.
-- Without the Mistral API key in Keychain, the menu status shows the missing key at start. A capture then fails with the error view.
+- Without the API key of the selected provider in Keychain, the menu status shows the missing key at start. A capture then fails with the error view.
 
 ## Candidate crates
 

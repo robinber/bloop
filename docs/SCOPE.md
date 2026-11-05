@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 7 (2026-11-05). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 8 (2026-11-05). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -16,8 +16,9 @@ A feature that is off does not change the dictation path. Low latency stays a pr
 - All application code uses Rust.
 - The interface uses native AppKit through `objc2`. Bloop has no web view.
 - The speech input and text output use French.
-- Mistral Voxtral converts speech to text.
-- An optional text step corrects the text with a Mistral chat model. The correction is off by default.
+- Bloop is provider-agnostic. The settings select the speech provider and the chat provider.
+- Mistral is the default provider: Voxtral converts speech to text, and a Mistral chat model corrects the text.
+- An optional text step corrects the text. The correction is off by default.
 - The user can edit the correction prompts and add other prompts.
 - Streaming is the only STT path. Audio goes to the provider while capture continues.
 - Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds the optional correction.
@@ -107,7 +108,7 @@ Phase 2 measured the transcription completion time after key release. Phase 3 me
 | Recovery | Menu item "Copy last result" until a newer result replaces it |
 | Interface | Menu bar item only; no Dock icon; no settings window; correction toggle in Phase 3, more choices in Phase 4 |
 | Settings | One TOML file that the user and Bloop edit (Phase 4); prompt files that the user can edit |
-| Credentials | Mistral API key in macOS Keychain |
+| Credentials | The API key of each provider in macOS Keychain; the account is the provider name |
 | Latency target | Median of 1.5 seconds or less from key release to paste command, with the correction on |
 
 The target check does not need the Accessibility tree of the target.
@@ -115,7 +116,7 @@ Thus browsers, Electron applications, and terminals use the same path as TextEdi
 
 ## Correction prompts
 
-The correction sends one prompt and the complete transcript to a Mistral chat model.
+The correction sends one prompt and the complete transcript to the selected chat model. The prompts do not depend on the provider.
 Phase 3 starts with `natural-light`. `natural-full` remains a candidate after the first daily-use trial:
 
 - `natural-light` corrects punctuation and capital letters. It removes hesitations and stutters, and applies spoken corrections.

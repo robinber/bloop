@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 18 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 19 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -112,7 +112,7 @@ src/
 
 ```text
 src/
-├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model (Phase 4)
+├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model (Phase 3)
 ├── http.rs            Shared correction client, time limits, HTTP error conversion to ProviderError (Phase 3)
 └── mistral/
     ├── mod.rs         Mistral settings and Keychain account ("mistral"); bloop-app supplies the API key
@@ -252,6 +252,8 @@ pub enum TranscriberConfig {
 ```
 
 Each vendor declares its own settings.
+Each config gives the Keychain account of its provider. `bloop-app` reads the key with `SecretStore` and gives it to the build function.
+`bloop-app` uses only these configs and the `Transcriber` and `ChatModel` traits. It names no provider.
 If the provider name is unknown, the settings are invalid. The menu shows the error, and captures fail with the error view.
 
 ## Extension procedures
@@ -260,7 +262,7 @@ If the provider name is unknown, the settings are invalid. The menu shows the er
 
 1. Add a module in `bloop-providers/src/` with its own Cargo feature.
 2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel` (Phase 3).
-3. Add a variant to `TranscriberConfig` or `ChatConfig` (Phase 4). Add one match arm in the build function.
+3. Add a variant to `TranscriberConfig` or `ChatConfig` (Phase 3). Add one match arm in the build function.
 4. Store the API key in Keychain. Use the vendor name as the account.
 5. Set `provider` in `config.toml` (Phase 4).
 
@@ -342,8 +344,8 @@ The application operates at the end of each selected phase.
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
-| 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval.rs`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
-| 4: Settings and status menu | `bloop-core`: the menu model in `ports/platform.rs`. `bloop-providers`: `TranscriberConfig`, `ChatConfig`, and the build functions. `bloop-app`: `settings/`, `hub.rs`, `menu.rs`. `bloop-macos`: `menu.rs` renders the model. |
+| 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`, the provider configs and build functions in `lib.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval.rs`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
+| 4: Settings and status menu | `bloop-core`: the menu model in `ports/platform.rs`. `bloop-app`: `settings/`, `hub.rs`, `menu.rs`. `bloop-macos`: `menu.rs` renders the model. |
 | 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
 | 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 
@@ -354,6 +356,8 @@ Until Phase 4 adds the settings, `bloop-app` keeps these temporary constants in 
   language `fr`, and an empty word list. Phase 3 replaces the word list with the dictionary.
 - The correction model and prompt (Phase 3): `mistral-small-2603` and `natural-light`.
 
+From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
+Thus `main.rs` names no provider. The hold threshold and the language stay constants until Phase 4.
 Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.
 Phase 4 replaces the constants with the settings hub and persists the toggle.
 

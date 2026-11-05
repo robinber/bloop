@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 19 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 20 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. The dictionary types are a Phase 3 proposal. The menu model is a Phase 4 proposal.
@@ -243,6 +243,8 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 `Finish::Complete` means that the provider ended the reply normally (`stop` for Mistral).
 `Truncated` means that the reply stopped at the token limit. A reply that is not `Complete` is a step failure.
 The chat adapter logs the request duration, the token counts, and the finish reason. It never logs the text.
+Each chat adapter applies the time limit that `bloop-app` gives at construction. An expired limit returns `ProviderError::Timeout`.
+Thus the correction behaves the same with each provider.
 `ChatReply` and `StepOutcome` contain text. They implement a redacting `Debug`.
 `StepContext` contains the language of the dictation. A step that needs the target application adds the target to `StepContext`.
 The driver then gives the target to the running task at key release, because the task starts before `RecordTarget`.
@@ -252,6 +254,8 @@ A step does not write logs. It returns its outcome, and the pipeline adds it to 
 
 - `start` opens a connection and applies the options before the first audio chunk.
 - `sample_rate` is the rate of the audio chunks, in Hz. The worker sets 16 kHz. The adapter sends it to the provider without a change.
+- `vocabulary` contains the written forms of the dictionary. The adapter maps it to a provider feature, for example `context_bias`.
+  An adapter without such a feature ignores it.
 - The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
 - One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
 - The adapter reads the pending provider messages before each send and during `finish`. Its buffers belong to the session.

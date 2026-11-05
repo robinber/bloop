@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 10. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 11. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -222,7 +222,7 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 ## Phase 3: Optional correction and dictionary
 
 Priority: now. Deliver one correction that the owner can use in the usual applications.
-Start with `mistral-small-2603` and `natural-light`. Keep `natural-full` as a later option.
+Start with the Mistral chat provider, `mistral-small-2603`, and `natural-light`. Keep `natural-full` as a later option.
 The correction is off at each application start. One status menu toggle enables it for subsequent dictations.
 Phase 4 adds persistence and the other settings. It is not required for the daily-use trial.
 When the correction is off, the raw transcript path does not change.
@@ -236,16 +236,19 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
 - [ ] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
 - [ ] Add the shared HTTP client and the Mistral chat adapter.
   Test them with a fake HTTP server: reply, truncated reply, 401, 403, other errors, and timeout.
+- [ ] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.
+  `bloop-app` builds the providers from typed settings and names no provider. Phase 4 reads these settings from the file.
 - [ ] Write `natural-light` in `prompts/`.
 - [ ] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
-- [ ] Send the written forms of the dictionary to Voxtral in `context_bias`. Remove the empty word list constant.
+- [ ] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
+  Remove the empty word list constant.
 - [ ] Give the dictionary pairs to `LlmRefine`. The step adds them to the system message after the prompt.
 - [ ] If the dictionary file is invalid, log the error with its line. A capture then fails with the error view.
 - [ ] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
   Include questions, negations, numbers, names, technical terms, spoken corrections, hesitations, dictated instructions, and long dictations.
   Include dictionary pairs in a sentence that fits and in a sentence that does not fit.
 - [ ] Add a small evaluation tool for one prompt and one model through the real API.
-  Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the model identifier, and the prompt hash.
+  Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the provider, the model identifier, and the prompt hash.
 - [ ] Review the short-text skip and length ratio rules against the samples before enabling them.
   Include "à 2 heures, non, 3 heures" to "à 3 heures": the correct result has 40% of the input length.
   These rules detect some abnormal replies. They do not verify meaning.
@@ -309,9 +312,10 @@ The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the design.
 - [ ] Give each generation the settings snapshot that exists when the core creates it. Remove the temporary constants in `main.rs`.
 - [ ] Build the chat client one time. Build the step list of each snapshot from the selected prompt and model.
 - [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
-- [ ] Persist the existing "Correct with Mistral" toggle. Add "Open config.toml…", "Open dictionary…", and "Open prompts folder…".
+- [ ] Persist the existing "Correct text" toggle. Add "Open config.toml…", "Open dictionary…", and "Open prompts folder…".
 - [ ] Add the "Prompt" and "Model" submenus when alternatives from the Phase 3 evaluation justify them.
   The second default prompt and model choices do not block the first settings delivery.
+- [ ] Select the speech provider and the chat provider in `config.toml`. Add a menu choice when a second adapter exists.
 - [ ] Show the status lines: missing permissions, missing or refused API key, and invalid settings, prompt, or dictionary.
 - [ ] When a provider refuses the API key (401 or 403) in a request, show it in the menu.
 - [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.

@@ -1,7 +1,8 @@
 # Bloop
 
 Bloop is a macOS app for French dictation.
-The app uses Rust, native AppKit, and Mistral Voxtral. Phase 3 adds an optional correction with a Mistral chat model.
+The app uses Rust and native AppKit. Bloop does not depend on one AI provider: Mistral is the default, with Voxtral for speech.
+Phase 3 adds an optional correction with a chat model.
 
 Hold Right Command to speak. A small orb shows that Bloop listens.
 Bloop streams the audio to the speech provider while you speak.
@@ -34,7 +35,8 @@ To use a different identity, set `BLOOP_SIGN_IDENTITY`.
 
 ## API key
 
-Store the Mistral API key in Keychain. After the first build, run this command from the repository root:
+Store the API key of each provider in Keychain. The account is the provider name.
+For Mistral, the default provider, run this command from the repository root after the first build:
 
 ```sh
 security add-generic-password -s bloop -a mistral -T "$PWD/target/release/Bloop.app" -U -w
