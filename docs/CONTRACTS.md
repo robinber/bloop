@@ -494,8 +494,11 @@ pub enum AppError {
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
-`tungstenite` writes the handshake request with the API key to the `log` crate at trace level. Bloop installs no `log` bridge.
-A future bridge must turn off the `tungstenite` target.
+`tungstenite` writes the handshake request with the API key to the `log` crate at trace level.
+Bloop installs no `log` bridge. A future bridge must turn off the `tungstenite` target.
+`hyper` writes no log, because its `tracing` feature is off. `hyper-util` and the HTTP/2 crate `h2` send `tracing` events.
+Most of these events are at debug and trace levels. Some warnings report a problem with a socket option, the protocol, or a stream limit.
+These events contain no header value and no body. The Bloop log records only the info level and higher.
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 An invalid settings file of the user, for example the dictionary, is `AppError::InvalidSettings`.
 Bloop reads the dictionary at start. If it is invalid, each capture fails with the error view, as for a missing API key.

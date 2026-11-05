@@ -217,7 +217,7 @@ Long dictation checks measure memory use and completion time. They do not set a 
 
 This section describes the Mistral adapters, the default providers. Another provider implements the same ports with its own protocol.
 
-A WebSocket connection serves each transcription session. A reused HTTP client (`reqwest`) serves correction requests.
+A WebSocket connection serves each transcription session. A reused HTTP client (`hyper`) serves correction requests.
 The API key comes from Keychain (service `bloop`, account `mistral`).
 The user stores the key with the `security add-generic-password` command.
 
@@ -232,10 +232,17 @@ The worker applies the transcription limits. Each chat adapter applies the corre
 
 The correction HTTP client:
 
-- One `reqwest` client serves all correction requests. Bloop builds it at start.
-- It uses `native-tls`, HTTP/2, and keep-alive. Since `reqwest` 0.13, the default TLS is `rustls`. Thus Bloop turns off the default features.
-- Connection warm-up with `GET /v1/models` is an optional experiment after the first trial.
-  It is not part of the initial path and does not guarantee that a connection stays open until correction.
+- One `hyper-util` legacy client serves all correction requests. `build_chat_model` builds it one time, with the chat model.
+- It uses `hyper-tls` with `native-tls`. The TLS handshake offers `h2` and `http/1.1` through ALPN.
+  The client uses HTTP/2 when the server selects `h2`, and HTTP/1.1 otherwise.
+- The TCP connection limit is 5 s. If the host has more than one address, each address gets an equal part of this limit.
+- The request limit is the correction limit that `bloop-app` gives.
+  It applies from the connection start to the end of the response body. Thus it also limits DNS and TLS.
+- The response body limit is 1 MiB. A larger body is `ProviderError::InvalidResponse`.
+- The client keeps the default connection pool of `hyper-util`. At the next request, the pool closes a connection that it did not use for more than 90 s.
+  Bloop does not change the keep-alive settings.
+- Bloop sends no warm-up request. A warm-up with `GET /v1/models` is an optional measurement after the first trial.
+  It does not guarantee that a connection stays open until correction.
 - Measured on 2026-11-05 without an API key: `api.mistral.ai` negotiated HTTP/2 and TLS 1.3.
   The TCP connection took 10–16 ms, and the TLS handshake 26–30 ms.
 
@@ -527,7 +534,7 @@ Phase 6 adds learning from fixes:
 | Main queue | `dispatch2` |
 | Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
 | Microphone permission | `objc2-av-foundation`, `block2`. The authorization methods are `unsafe`; the owner approved them on 2026-11-02 |
-| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; `reqwest` with `native-tls`, `http2`, and `json`, without default features, for correction. Both connections then use one TLS stack through `security-framework` |
+| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; for correction, `hyper` and `hyper-util` with the HTTP/1.1 and HTTP/2 client, `hyper-tls` with `alpn`, and `http-body-util`. Both connections then use one TLS stack through `security-framework` |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml`, `toml_edit` |
 | Prompt hash | `sha2` |

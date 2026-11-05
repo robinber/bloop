@@ -258,10 +258,11 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
   The target read the text 3 to 10 ms after the paste command. `InsertDone` came 315 to 318 ms after the read.
 - [x] Add the text step contracts to `bloop-core`: `ChatModel`, `ChatReply`, `TextStep`, `StepOutcome`, `StepError`, and the step report.
 - [x] Add the `LlmRefine`, `Typography`, and `Trim` steps. Test them with a fake chat model.
-- [ ] Add the shared HTTP client and the Mistral chat adapter.
+- [x] Add the shared HTTP client and the Mistral chat adapter.
   Test them with a fake HTTP server: reply, truncated reply, 401, 403, other errors, and timeout.
-- [ ] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.
+- [x] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.
   `bloop-app` builds the providers from typed settings and names no provider. Phase 4 reads these settings from the file.
+  `bloop-app` builds the transcriber now. It builds the chat model when the pipeline runs the correction steps.
 - [ ] Write `natural-light` in `prompts/`.
 - [x] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
 - [x] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
