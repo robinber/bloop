@@ -27,7 +27,7 @@ bloop/
 │   ├── bloop-providers/       AI providers: one module for each vendor
 │   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
-│   └── bloop-app/             Executable: settings (Phase 2), construction, driver
+│   └── bloop-app/             Executable: settings (Phase 3), construction, driver
 ├── prompts/
 │   └── natural-clean-v1.md    Correction prompt under version control (Phase 3)
 ├── bundle/
@@ -100,7 +100,7 @@ src/
 
 ```text
 src/
-├── lib.rs             TranscriberConfig and build_transcriber (Phase 2), ChatConfig and build_chat_model (Phase 3)
+├── lib.rs             TranscriberConfig, ChatConfig, build_transcriber, build_chat_model (Phase 3)
 ├── http.rs            Reused correction client, time limits, HTTP error conversion to ProviderError (Phase 3)
 └── mistral/
     ├── mod.rs         Mistral settings and Keychain account ("mistral"); bloop-app supplies the API key
@@ -149,7 +149,7 @@ src/
 ```text
 src/
 ├── main.rs            Reads the API key, starts Tokio, builds objects, starts the AppKit run loop
-├── config.rs          TOML settings with default values (Phase 2)
+├── config.rs          TOML settings with default values (Phase 3)
 ├── driver.rs          Driver: events to the core, commands to the ports
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, result event
 └── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
@@ -188,7 +188,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 ## Settings and provider selection
 
-Phase 2 adds these settings with `config.rs`. Phase 3 adds the `[chat]` and `[refine]` tables.
+Phase 3 adds these settings with `config.rs`.
 
 ```toml
 [dictation]
@@ -231,9 +231,9 @@ If the provider name is unknown, Bloop stops at start with a clear error.
 
 1. Add a module in `bloop-providers/src/` with its own Cargo feature.
 2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel` (Phase 3).
-3. Add a variant to `TranscriberConfig` (Phase 2) or `ChatConfig` (Phase 3). Add one match arm in the build function.
+3. Add a variant to `TranscriberConfig` or `ChatConfig` (Phase 3). Add one match arm in the build function.
 4. Store the API key in Keychain. Use the vendor name as the account.
-5. Set `provider` in `config.toml` (Phase 2).
+5. Set `provider` in `config.toml` (Phase 3).
 
 The other crates do not change.
 Every STT adapter sends audio during capture. It must not collect a complete recording before sending it.
@@ -300,8 +300,8 @@ Thus the application operates at the end of each phase.
 | Phase | Crates and files |
 | --- | --- |
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
-| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, `config.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
-| 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `prompts/natural-clean-v1.md`. |
+| 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
+| 3: Correction | `bloop-core`: `ChatModel` and `TextStep` in `ports/ai.rs`, `steps/refine.rs`, `steps/trim.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`. `bloop-app`: `config.rs`. `prompts/natural-clean-v1.md`. |
 
 Until `config.rs` exists, `bloop-app` keeps these temporary constants in `main.rs`:
 
@@ -309,7 +309,7 @@ Until `config.rs` exists, `bloop-app` keeps these temporary constants in `main.r
 - The transcription settings: model `voxtral-mini-transcribe-realtime-3-0`, `target_streaming_delay_ms` 480,
   language `fr`, and an empty word list.
 
-Phase 2 replaces these constants with `config.rs`.
+Phase 3 replaces these constants with `config.rs`.
 
 ## Work method
 

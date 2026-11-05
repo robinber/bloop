@@ -86,7 +86,8 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [x] For a short or silent capture, paste nothing. Voxtral returns an empty transcript, and the pipeline sends `NothingHeard`.
   On 2026-11-05, the owner decided to apply no duration or level threshold.
 - [x] Let a new capture start while a job runs. Paste the texts in session order.
-- [ ] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
+- [x] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
+  Fake provider tests cover each case. On 2026-11-05, the owner decided to do no manual network test.
 - [ ] Select queue capacities and connection, inactivity, and completion time limits from measurements.
 - [ ] Select `target_streaming_delay_ms` from accuracy and completion time measurements.
 - [ ] Record the provider behavior that its documentation does not give: sample rates, session length, inactivity limit, silent session.
@@ -101,7 +102,6 @@ Acceptance:
 - Key release stops capture and finalizes transcription once. A repeated key release creates no second job.
 - Partial or failed transcripts cause no insertion. A failure during capture does not leave a job waiting in the queue.
 - A failure after capture removes its job and releases the next job for insertion.
-- A settings change does not change an active capture. Invalid values prevent capture with a clear error.
 - Without the API key, the menu asks to add it. If the user denies access, the menu asks to allow it.
 - After the documented `security` command, Bloop reads the key without an access dialog, also after a new build.
 - The log never contains the API key.
@@ -177,6 +177,8 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 - [ ] Apply the raw fallback rules.
 - [ ] Compare raw and final text on a fixed set of French dictations.
 - [ ] Check correction completeness and request time limits with long dictations.
+- [ ] Read `config.toml` at start, with the streaming delay and the word list. Remove the temporary constants in `main.rs`.
+- [ ] When the provider refuses the API key (401 or 403), show it in the menu.
 - [ ] Use Bloop for one working day on the reference Mac.
 
 Include questions, negations, numbers, names, technical terms, and spoken corrections in the test set.
@@ -186,6 +188,7 @@ Acceptance:
 - Record the median time from key release to paste. The target is 1.5 seconds or less for ten-second dictations.
 - The reviewed samples keep the original meaning. Record every meaning error and fix its cause.
 - No paste goes to the wrong application during the test day.
+- A settings change does not change an active capture. Invalid values prevent capture with a clear error.
 - Record the model identifiers and the prompt version with the results.
 
 If latency exceeds the target, identify the slow stage and measure each adjustment. Record quality and failures with the latency results.
