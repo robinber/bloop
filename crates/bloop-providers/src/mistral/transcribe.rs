@@ -245,10 +245,12 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
     match item {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
             Ok(ServerEvent::Other) => {
-                let kind =
-                    serde_json::from_str::<Value>(&text).map(|event| event["type"].to_string());
+                let event = serde_json::from_str::<Value>(&text);
+                let kind = event
+                    .as_ref()
+                    .map_or("?", |event| event["type"].as_str().unwrap_or("?"));
                 tracing::info!(
-                    kind = kind.as_deref().unwrap_or("?"),
+                    kind,
                     "the provider sent an event that the adapter does not use"
                 );
                 Ok(None)
