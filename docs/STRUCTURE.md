@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 15 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 is complete. Phase 2 is in progress.
+Status: Revision 15 (2026-11-05). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.

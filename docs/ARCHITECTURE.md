@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 7 (2026-11-05). Phase 1 is complete. Phase 2 is in progress. The [roadmap](ROADMAP.md) shows the completed tasks.
+Status: Proposed design, revision 7 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) shows the completed tasks.
 
 ## Principles
 
@@ -113,6 +113,8 @@ Job:     Processing -> Ready -> Inserting -> end
 - Secure input stops key events to the tap. In this condition, the dictation key has no effect. This is a known limit.
 - Measured on the reference Mac (macOS 27, 2026-11-01): macOS refuses the tap when Accessibility is missing,
   also with Input Monitoring. The capture starts 228–231 ms after the key press. The target is 220 ms.
+- The capture starts at the hold threshold, not at key press. Thus Bloop can lose a word that the user says at key press.
+  On 2026-11-05, the owner accepted this limit. The [roadmap](ROADMAP.md) gives the measured microphone start.
 
 ## Orb
 

@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 3 (2026-11-01). Phase 1 is complete. Phase 2 is in progress.
+Status: Design draft, revision 4 (2026-11-05). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -75,7 +75,7 @@ Phase 2 measures transcription completion time after key release. Phase 3 measur
 
 | Area | Decision |
 | --- | --- |
-| Dictation key | Hold Right Command for 220 ms. A combination or a short press does nothing. |
+| Dictation key | Hold Right Command for 220 ms. The capture starts at this threshold. A combination or a short press does nothing. |
 | Cancel | Escape during a session. Bloop blocks this Escape event. |
 | Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
 | Audio | System default microphone; bounded queues in memory; no maximum capture duration |
@@ -128,6 +128,4 @@ ASD-STE100 applies to repository documents. It does not change the French text p
 
 ## Open decisions
 
-- Select audio queue capacities and connection, inactivity, and completion time limits from Phase 2 tests.
 - Confirm the French typography rules of Natural Clean.
-- Confirm the capture start: at the hold threshold or at key press. Phase 2 checks for a lost first word.

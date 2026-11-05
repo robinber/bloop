@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 7. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
+Status: Design revision 7. Phase 1 and Phase 2 are complete. Phase 3 is planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -118,6 +118,25 @@ Acceptance:
 - Before the first answer, macOS shows the microphone request at start, and the menu shows Ready.
   After a denial, the menu shows the microphone permission at the next start. After a new build, macOS keeps the permission.
 - Measure ten live dictations. Record the median from key release to complete transcript beside the Tabi reference of 512 ms.
+
+Results on the reference Mac (macOS 27, 2026-11-05): all acceptance checks passed, except the first word.
+The owner accepted the lost first word. The owner also accepted the menu tests for the denied key access and microphone.
+
+- First word: the owner lost the first word in some dictations. The microphone records 272 ms (AirPods, median of 21)
+  and 292 ms (built-in microphone, median of 26) after the key press: the 220 ms hold, then the microphone start.
+  The owner kept the capture start at the hold threshold. Tabi also has a minimum hold of 220 ms.
+- Audio before key release: the session opened in 282 to 1,001 ms, before each key release.
+  The transcript of an 8.58 s capture was complete 376 ms after the capture ended. A worker test also covers this case.
+- Slow connection: a session that opened in 1,001 ms gave a complete text. Tests cover a full queue.
+- Interruption, key release, partial or failed transcripts, and failure after capture: core, driver, and worker tests
+  cover these cases. The owner checked Escape on the real app. The log shows one `StopCaptureAndProcess` for each dictation.
+- API key: on 2026-11-02, the menu asked for the missing key. After that, Bloop read the key at each start,
+  also after new builds, with no access dialog. A menu test covers the denied access.
+- The complete log contains no API key, no `Bearer` value, and no authorization field.
+- Microphone: macOS showed the request on 2026-11-02. The permission stayed after each new build.
+  A menu test covers the denial.
+- 31 live dictations at 16 kHz: the median from key release to complete transcript is 847 ms (416 to 1,622 ms).
+  The Tabi reference is 512 ms. Bloop posts Command-V when the transcript is complete.
 
 Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the hold threshold and the fixed test text:
 

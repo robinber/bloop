@@ -11,7 +11,8 @@ The behavior follows the dictation feature of Tabi. Bloop does only this one tas
 
 ## Status
 
-Phase 1 is complete. Phase 2 is in progress. The [roadmap](docs/ROADMAP.md) shows the completed tasks.
+Phase 1 and Phase 2 are complete. Bloop transcribes the dictation with Voxtral and pastes the raw transcript.
+Phase 3 adds the correction and the settings file. The [roadmap](docs/ROADMAP.md) shows the completed tasks.
 The first version is for personal use on one Mac.
 
 ## Build
