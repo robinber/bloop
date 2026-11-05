@@ -103,7 +103,6 @@ impl AudioInput for Microphone {
             ErrorKind::Xrun => {
                 error_counters.overruns.fetch_add(1, Ordering::Relaxed);
             }
-            ErrorKind::DeviceChanged => {}
             _ => events.send(Event::CaptureFailed(generation, AppError::Microphone)),
         };
         let stream = device
