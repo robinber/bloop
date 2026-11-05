@@ -368,17 +368,15 @@ fn capture_failure_after_release_ends_the_job() {
     let mut core = Core::new();
     let failed = start_job(&mut core);
     let next = start_job(&mut core);
+    assert_eq!(core.handle(Event::TextReady(next, text("suite"))), vec![]);
 
     assert_eq!(
         core.handle(Event::CaptureFailed(failed, AppError::Microphone)),
         vec![
             Command::CancelWork(failed),
-            Command::ShowOrb(OrbView::Error)
+            Command::ShowOrb(OrbView::Error),
+            Command::Insert(next, text("suite"))
         ]
-    );
-    assert_eq!(
-        core.handle(Event::TextReady(next, text("suite"))),
-        vec![Command::Insert(next, text("suite"))]
     );
 }
 
