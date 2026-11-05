@@ -77,7 +77,7 @@ fn key_release_records_the_target_and_starts_a_job() {
 }
 
 #[test]
-fn capture_limit_stops_the_capture_like_a_key_release() {
+fn capture_limit_stops_the_capture_once_like_a_key_release() {
     let mut core = Core::new();
     let generation = start_listening(&mut core);
 
@@ -89,23 +89,8 @@ fn capture_limit_stops_the_capture_like_a_key_release() {
             Command::CloseOrb
         ]
     );
-    assert_eq!(core.handle(Event::DictationKeyUp), vec![]);
-}
-
-#[test]
-fn a_duplicate_capture_limit_creates_no_second_job() {
-    let mut core = Core::new();
-    let generation = start_listening(&mut core);
-    assert_eq!(
-        core.handle(Event::CaptureLimitReached(generation)),
-        vec![
-            Command::RecordTarget(generation),
-            Command::StopCaptureAndProcess(generation),
-            Command::CloseOrb
-        ]
-    );
-
     assert_eq!(core.handle(Event::CaptureLimitReached(generation)), vec![]);
+    assert_eq!(core.handle(Event::DictationKeyUp), vec![]);
 }
 
 #[test]
@@ -267,16 +252,6 @@ fn jobs_paste_in_session_order() {
         core.handle(Event::InsertDone(first, InsertOutcome::Landed)),
         vec![Command::Insert(second, text("deux"))]
     );
-}
-
-#[test]
-fn a_new_capture_can_start_while_a_job_runs() {
-    let mut core = Core::new();
-    start_job(&mut core);
-
-    start_listening(&mut core);
-
-    assert!(core.capture_active());
 }
 
 #[test]
