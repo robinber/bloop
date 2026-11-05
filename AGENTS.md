@@ -62,9 +62,10 @@ These are explicit owner decisions, not hypothetical reuse:
 - Scope: the crate `bloop-macos` only.
 - Approved surfaces:
   - AppKit and Foundation through `objc2`: application setup, `NSPanel`, status item and menu,
-    `NSPasteboard` and its data provider, `NSWorkspace`, and `NSRunningApplication`.
+    `NSPasteboard` and its data provider, `NSWorkspace` and the sleep notification observer
+    on its `NSNotificationCenter`, and `NSRunningApplication`.
   - Core Animation layers and animations.
-  - Core Graphics event taps and posted events: `CGEventTapCreate`, `CGEventPost`, and
+  - Core Graphics event taps and posted events: `CGEventTapCreate`, `CGEventTapEnable`, `CGEventPost`, and
     `CGEventSourceCounterForEventType`.
   - `IsSecureEventInputEnabled`, Accessibility and Input Monitoring permission checks, Keychain access,
     and the main dispatch queue.
