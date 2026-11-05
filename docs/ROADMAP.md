@@ -200,6 +200,14 @@ Measured on the reference Mac (macOS 27) with Voxtral at 16 kHz, on 2026-11-05, 
 - The microphone started 245 to 333 ms after the key press with both microphones: the 220 ms hold, then the device start.
 - Decision: the capture uses the built-in microphone when the default input is a Bluetooth device.
   The [architecture](ARCHITECTURE.md#audio) gives the rule.
+- Owner report on 2026-11-05, after two hours of use with the rule: no lost first word, and faster starts.
+  This report is not a measurement. Check the first-word loss again before Phase 5 starts.
+- Known limits of the rule. Keep them in view for Phase 5 and Phase 7:
+  - A Bluetooth device with a good microphone, for example a conference speaker, also gives way to the built-in microphone.
+  - With a USB microphone and a Bluetooth default input, the rule selects the built-in microphone, not the USB microphone.
+  - Away from the Mac, the AirPods microphone is not available until the Phase 7 submenu adds the choice.
+  - The device reads at capture start cost 135 ms for the first capture after the application start, then 58 ms: no measurable change.
+  - Only the selection logic has unit tests. The Core Audio reads and the name match of cpal have manual checks only.
 
 Measured on the reference Mac (macOS 27) with Voxtral and the built-in microphone at 48 kHz, on 2026-11-05.
 Four chained dictations: each capture started while the job of the previous capture waited for its transcript or its paste.
@@ -345,6 +353,7 @@ Acceptance:
 
 Priority: next if first-word loss still interrupts daily use. It does not depend on the Phase 4 settings.
 On 2026-11-05, the owner reopened the capture start at the hold threshold, because some dictations lost their first word.
+Later that day, after the built-in microphone rule, the owner reported no lost words. Check the loss again before this phase starts.
 
 - [ ] On the reference Mac, check the effect of a short microphone start at each Right Command press.
   Check the microphone indicator in the menu bar and the audio of AirPods.
