@@ -276,12 +276,13 @@ pub trait SecretStore {
 - A converter error is a bug. The worker logs it one time, without audio, and sends `CaptureFailed` with `AppError::Internal`.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
-- The audio library calls an error callback outside the audio callback. The previous rule applies only to the audio callback.
+- The audio library calls an error callback outside the audio callback, except for a rare host time error on the audio thread.
+  The previous rule applies only to the audio callback.
   For a device loss, the error callback sends `CaptureFailed` with `AppError::Microphone`. It writes no log.
 - The audio library can report a device overrun on the real-time audio thread.
   Thus, for an overrun, the error callback only adds one to an atomic counter. `AudioInput::stop` writes the count to the log.
 - When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
-- The worker reads the queue every 10 to 20 ms. The callback does not wake it.
+- After each queue read and its sends, the worker waits 20 ms. The callback does not wake it.
   The worker converts the samples incrementally to 16 kHz and calls `send_audio` for each chunk.
 - During the capture, the worker sends only complete chunks of 100 ms at 16 kHz. It keeps the remaining samples for the next read.
   At the end of the capture, the worker flushes the converter and sends all remaining samples immediately.

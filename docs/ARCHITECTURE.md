@@ -56,7 +56,7 @@ Unit tests drive the core with event sequences, without macOS.
 - The audio callback does not allocate memory, lock, access files, or wait for the network.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
 - The worker tasks run on a Tokio runtime with one worker thread, `bloop-worker`.
-- The worker reads the audio queue every 10 to 20 ms. The callback does not wake it.
+- After each audio queue read and its sends, the worker waits 20 ms. The callback does not wake it.
 - The audio level is an atomic value. The orb reads it on the main thread.
 - The worker sends each result to the main queue with its generation.
 - The core ignores a result for an unknown generation, for example a cancelled job.
@@ -226,7 +226,7 @@ The connection limit covers setup. The inactivity limit detects a stalled transp
 The completion limit applies after capture ends.
 The worker counts it from the `finish` call, after the backlog drained, because provider messages stay inside the adapter.
 Thus a backlog after a slow connection can still drain. No short request timeout covers the full capture duration.
-The queue capacity is a number of seconds of audio at the native rate. The connection limit is shorter than this capacity.
+The queue capacity is 960,000 samples: 20 s at 48 kHz, and 10 s at 96 kHz. At these rates, the connection limit is shorter than this capacity.
 Thus a slow connection fails with a timeout before the queue is full.
 During capture, each audio send has the inactivity limit.
 
