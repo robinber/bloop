@@ -1,6 +1,6 @@
 //! Mistral provider.
 
-pub mod transcribe;
+pub(crate) mod transcribe;
 
 /// The `SecretStore` account of the Mistral API key.
 pub const ACCOUNT: &str = "mistral";
@@ -12,4 +12,13 @@ pub struct TranscribeConfig {
     pub model: String,
     /// The balance between delay and accuracy, in milliseconds. The provider checks the value.
     pub target_streaming_delay_ms: u32,
+}
+
+impl Default for TranscribeConfig {
+    fn default() -> Self {
+        Self {
+            model: "voxtral-mini-transcribe-realtime-3-0".to_owned(),
+            target_streaming_delay_ms: 480,
+        }
+    }
 }

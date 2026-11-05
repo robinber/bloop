@@ -209,8 +209,9 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 ## Settings and provider selection
 
-Phase 4 adds these settings. Until then, `main.rs` keeps temporary constants except for the correction toggle.
-In Phase 3, `bloop-app` owns that toggle and captures its value for each generation. It is off at application start.
+Phase 4 adds these settings. Until then, `main.rs` keeps the hold threshold and the language as temporary constants.
+The provider settings come from the default configs in `bloop-providers`.
+In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation. It is off at application start.
 
 ```toml
 schema = 1
@@ -356,12 +357,12 @@ The application operates at the end of each selected phase.
 Until Phase 4 adds the settings, `bloop-app` keeps these temporary constants in `main.rs`:
 
 - The hold threshold: `HOLD`, 220 ms.
-- The transcription settings: model `voxtral-mini-transcribe-realtime-3-0`, `target_streaming_delay_ms` 480,
-  and language `fr`. The word list comes from the dictionary file.
-- The correction model and prompt (Phase 3): `mistral-small-2603` and `natural-light`.
+- The language: `LANGUAGE`, `fr`. The word list comes from the dictionary file.
+- The correction prompt (Phase 3): `natural-light`.
 
 From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
-Thus `main.rs` names no provider. The hold threshold and the language stay constants until Phase 4.
+The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.
+Thus `main.rs` names no provider.
 Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.
 Phase 4 replaces the constants with the settings hub and persists the toggle.
 

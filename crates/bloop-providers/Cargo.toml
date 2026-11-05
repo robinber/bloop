@@ -10,7 +10,6 @@ default = ["mistral"]
 mistral = [
     "dep:base64",
     "dep:futures-util",
-    "dep:secrecy",
     "dep:serde",
     "dep:serde_json",
     "dep:tokio",
@@ -22,7 +21,7 @@ mistral = [
 base64 = { workspace = true, optional = true }
 bloop-core.workspace = true
 futures-util = { workspace = true, optional = true }
-secrecy = { workspace = true, optional = true }
+secrecy.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["net"], optional = true }

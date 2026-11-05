@@ -27,15 +27,13 @@ use bloop_macos::paste::Paster;
 use bloop_macos::permissions;
 use bloop_macos::scheduler::MainScheduler;
 use bloop_macos::sleep::SleepObserver;
-use bloop_providers::mistral::{self, TranscribeConfig};
+use bloop_providers::{TranscriberConfig, build_transcriber};
 use tokio::runtime::Builder;
 
 use crate::driver::Driver;
 use crate::worker::{Limits, Spawner, Speech};
 
 const HOLD: Duration = Duration::from_millis(220);
-const MODEL: &str = "voxtral-mini-transcribe-realtime-3-0";
-const STREAMING_DELAY_MS: u32 = 480;
 const LANGUAGE: &str = "fr";
 
 fn main() -> ExitCode {
@@ -67,17 +65,12 @@ fn main() -> ExitCode {
         tracing::warn!(?missing, "permissions are missing");
     }
     let vocabulary = dictionary::load().map(|dictionary| dictionary.written_forms());
-    let key = Keychain.get(mistral::ACCOUNT);
+    let transcriber = TranscriberConfig::default();
+    let key = Keychain.get(transcriber.account());
     let key_error = key.as_ref().err().copied();
     let speech = match (key, vocabulary) {
         (Ok(key), Ok(vocabulary)) => Ok(Arc::new(Speech {
-            transcriber: Box::new(mistral::transcribe::Transcriber::new(
-                key,
-                TranscribeConfig {
-                    model: MODEL.to_owned(),
-                    target_streaming_delay_ms: STREAMING_DELAY_MS,
-                },
-            )),
+            transcriber: build_transcriber(transcriber, key),
             pipeline: Pipeline::new(Vec::new()),
             language: LANGUAGE.to_owned(),
             vocabulary,

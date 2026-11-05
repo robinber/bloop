@@ -33,7 +33,7 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// The Voxtral realtime transcriber. Each session opens its own connection.
 #[derive(Debug)]
-pub struct Transcriber {
+pub(crate) struct Transcriber {
     url: String,
     key: SecretString,
     config: TranscribeConfig,
@@ -42,7 +42,7 @@ pub struct Transcriber {
 impl Transcriber {
     /// Creates a transcriber for the Mistral API.
     #[must_use]
-    pub fn new(key: SecretString, config: TranscribeConfig) -> Self {
+    pub(crate) fn new(key: SecretString, config: TranscribeConfig) -> Self {
         Self {
             url: URL.to_owned(),
             key,
