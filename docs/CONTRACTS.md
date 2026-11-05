@@ -495,6 +495,7 @@ pub enum AppError {
 Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
 For an HTTP error, the chat adapter reads at most 16 KiB of the body within the request time limit.
 It logs only the `type` and `code` fields, because the message and the other fields can contain text from the request.
+A value that is not a short ASCII token is left out.
 If the body is missing, too large, or not JSON, the log contains only the status. The body does not change the `ProviderError`.
 A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
 The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.

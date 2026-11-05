@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use bloop_core::error::ProviderError;
 use http_body_util::{BodyExt as _, Full, LengthLimitError, Limited};
-use hyper::body::{Bytes, Incoming};
+use hyper::body::{Body, Bytes};
 use hyper::{Request, StatusCode, Version};
 use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::{self, connect::HttpConnector};
@@ -134,7 +134,11 @@ struct ErrorDetail {
 }
 
 /// Reads an error body. A failed read, or a body larger than `ERROR_BODY_LIMIT`, gives no field.
-async fn read_error(body: Incoming) -> ErrorDetail {
+async fn read_error<B>(body: B) -> ErrorDetail
+where
+    B: Body,
+    B::Error: Into<Box<dyn Error + Send + Sync>>,
+{
     match Limited::new(body, ERROR_BODY_LIMIT).collect().await {
         Ok(body) => error_detail(&body.to_bytes()),
         Err(_) => ErrorDetail::default(),
@@ -212,7 +216,10 @@ mod tests {
     use std::fmt;
     use std::io;
 
-    use super::{ErrorDetail, error_detail, timed_out};
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+
+    use super::{ERROR_BODY_LIMIT, ErrorDetail, error_detail, read_error, timed_out};
 
     const MISTRAL_429: &str = r#"{"object":"error","message":"Rate limit exceeded","type":"rate_limited","param":null,"code":"1300","raw_status_code":429}"#;
 
@@ -319,6 +326,34 @@ mod tests {
         assert_eq!(
             error_detail(format!(r#"{{"type":"{longest}","code":"a.b-c_1"}}"#).as_bytes()),
             detail(Some(&longest), Some("a.b-c_1"))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_error_reader_gets_the_fields_of_a_mistral_body() {
+        let body = Full::new(Bytes::from_static(
+            br#"{"object":"error","message":"Rate limit exceeded","type":"rate_limited","param":null,"code":"1300","raw_status_code":429}"#,
+        ));
+
+        assert_eq!(
+            read_error(body).await,
+            ErrorDetail {
+                kind: Some("rate_limited".to_owned()),
+                code: Some("1300".to_owned()),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn the_error_reader_gives_no_field_for_a_body_over_the_limit() {
+        let start = br#"{"type":"rate_limited","code":"1300","message":""#;
+        let mut json = start.to_vec();
+        json.resize(ERROR_BODY_LIMIT, b'a');
+        json.extend_from_slice(br#""}"#);
+
+        assert_eq!(
+            read_error(Full::new(Bytes::from(json))).await,
+            ErrorDetail::default()
         );
     }
 }
