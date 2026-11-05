@@ -541,7 +541,7 @@ The correction toggle is the status menu item "Correct text". It is off at each 
 Thus a change affects only subsequent generations. It never changes an active capture or a running job.
 When the value is off, the task runs a pipeline without steps. When it is on, the task runs the correction step list with the `natural-light` prompt.
 `bloop-app` builds the chat model one time at start, with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
-If the chat model is not available, for example without an API key, a job with the correction on logs a warning and runs the pipeline without steps.
+The chat model can be unavailable, for example without an API key. Then a job with the correction on logs a warning and runs the pipeline without steps.
 Phase 4 builds the list from the full settings snapshot. The steps share the chat client through `Arc`.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.

@@ -304,7 +304,8 @@ There is no upload fallback.
 Raw fallback rules apply only after a complete transcript is available:
 
 - The skip below 4 words is a candidate rule. Phase 3 checks short spoken corrections before enabling it.
-- If the correction fails, times out, returns an incomplete reply, or returns empty text, Bloop uses the raw transcript.
+- If the correction fails, times out, returns an incomplete reply, or returns empty text, Bloop keeps the raw transcript.
+  `Typography` and `Trim` still apply to it.
 - The 50% to 160% character ratio is a candidate rule, not a required limit or a meaning check.
   The example "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
   Phase 3 selects or removes these heuristics before daily use. They must not reject expected corrections in the test set.

@@ -642,7 +642,7 @@ mod tests {
             let (mut driver, fake) = driver();
             driver.spawner.correction_on.set(true);
             fake.chat.answer(Answer {
-                reply: Reply::After(Duration::from_secs(1)),
+                reply: Reply::Never,
                 ..Answer::default()
             });
             let generation = release(&mut driver);

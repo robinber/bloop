@@ -543,7 +543,9 @@ mod tests {
             drop(stream);
         });
 
-        let result = chat.complete(request(None)).await;
+        let result = tokio::time::timeout(Duration::from_secs(5), chat.complete(request(None)))
+            .await
+            .expect("the request limit ends a stalled body");
 
         server.abort();
         assert_eq!(result.err(), Some(ProviderError::Timeout));
