@@ -61,7 +61,6 @@ impl Default for Limits {
 /// The report task converts a panic of the work task into `CaptureFailed` with
 /// `AppError::Internal`, because the core applies `CaptureFailed` to a listening capture
 /// and to a processing job.
-#[derive(Debug)]
 #[must_use = "dropping a Task cancels its transcription"]
 pub(crate) struct Task {
     work: AbortHandle,
@@ -86,7 +85,6 @@ impl Drop for Task {
 
 /// Starts the transcription task of each capture.
 pub(crate) struct Spawner {
-    /// The runtime of the tasks.
     pub(crate) runtime: Handle,
     /// The speech provider, or `None` without an API key.
     pub(crate) speech: Option<Arc<Speech>>,
