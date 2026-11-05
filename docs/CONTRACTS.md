@@ -316,6 +316,8 @@ pub trait SecretStore {
 
 - Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
 - `AudioInput::start` starts capture without waiting for the provider connection.
+- `AudioInput::start` captures the system default input device. If that device is a Bluetooth device and a built-in microphone exists,
+  it captures the built-in microphone. The log records this choice. If a Core Audio read fails, the capture keeps the default input.
 - Without the microphone permission, macOS can supply silent samples instead of an error.
   Thus, before each capture, the audio adapter checks the permission.
   If the permission is missing, `AudioInput::start` returns `AppError::PermissionMissing(Permission::Microphone)`.

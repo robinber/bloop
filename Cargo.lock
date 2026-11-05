@@ -118,6 +118,7 @@ name = "bloop-audio"
 version = "0.1.0"
 dependencies = [
  "bloop-core",
+ "coreaudio-rs",
  "cpal",
  "rtrb",
  "rubato",

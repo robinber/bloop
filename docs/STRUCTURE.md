@@ -74,6 +74,7 @@ The other crates add `#![forbid(unsafe_code)]` at their root.
 | Capabilities separate from text steps | A provider implements capabilities. A text feature uses capabilities. Thus a new provider does not change the features, and a new feature does not change the providers. | One trait for each combination of feature and vendor. |
 | `BoxFuture` in the AI ports | The traits are dyn-compatible. Thus the settings select the provider at run time. | `impl Future` in traits: not dyn-compatible. The `async-trait` macro: same result, with an additional macro. |
 | One streaming STT contract | Audio reaches the provider during capture. All speech adapters use the same lifecycle. | File transcription before streaming, or a permanent upload fallback. |
+| Built-in microphone over a Bluetooth default input | A Bluetooth microphone uses the hands-free profile: a low rate, a switch of the headset audio at each capture start, and no text for short dictations. | The default input only. A microphone submenu stays a Phase 7 option. |
 | Tagged enums for provider settings | Each vendor declares its own typed settings. An unknown provider name makes the settings invalid. | An untyped map of keys and values. |
 | One provider crate with one Cargo feature for each vendor | Little repeated configuration. A vendor that is not selected does not compile. | One crate for each vendor. Use it later if one vendor module becomes large. |
 | Main-thread ports without a `Send` bound | AppKit objects stay on the main thread. `EventSink` and `AudioSink` cross thread boundaries. | `Send` bounds that need wrappers around AppKit objects. |
@@ -128,12 +129,15 @@ Each vendor module has its own Cargo feature. The `mistral` feature is the defau
 src/
 ├── lib.rs
 ├── capture.rs         cpal stream, mono mix, LevelMeter update: impl AudioInput
+├── device.rs          Input device choice: the built-in microphone replaces a Bluetooth default input
 ├── buffer.rs          Preallocated bounded sample queue with end and overflow marks: impl AudioSink
 └── convert.rs         Converter: incremental resampling to 16 kHz mono; flush at capture end
 ```
 
 `convert.rs` uses the FFT resampler of `rubato`. This resampler filters the audio before it lowers the rate. Thus it prevents aliasing.
 On 2026-11-05, the owner selected 16 kHz for all microphones, because Voxtral returned no text for AirPods audio at 24 kHz.
+`device.rs` reads the transport of each device through the safe helpers of `coreaudio-rs`, the Core Audio crate behind `cpal`.
+On 2026-11-05, the owner selected the built-in microphone over a Bluetooth default input, because Voxtral returned no text for short AirPods captures at 16 kHz.
 
 ### bloop-macos
 

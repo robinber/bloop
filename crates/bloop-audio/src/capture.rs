@@ -1,4 +1,6 @@
-//! `Microphone`: captures the default input device with cpal and sends mono samples to the sink.
+//! `Microphone`: captures the input device with cpal and sends mono samples to the sink.
+//!
+//! The capture uses the default input, except when `device::preferred_input` names another one.
 
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
@@ -12,10 +14,14 @@ use bloop_core::session::Event;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, InputCallbackInfo, Stream};
 
+use crate::device;
+
 /// The number of frames that the data callback mixes and pushes at a time.
 const SCRATCH_FRAMES: usize = 4096;
 
-/// Captures the default input device. It operates on the main thread.
+/// Captures the default input device, or the device that `device::preferred_input` names.
+///
+/// It operates on the main thread.
 pub struct Microphone {
     meter: LevelMeter,
     events: Arc<dyn EventSink>,
@@ -68,9 +74,12 @@ impl AudioInput for Microphone {
         if !(self.allowed)() {
             return Err(AppError::PermissionMissing(Permission::Microphone));
         }
-        let device = cpal::default_host()
-            .default_input_device()
-            .ok_or(AppError::Microphone)?;
+        let host = cpal::default_host();
+        let device = match device::preferred_input() {
+            Some(name) => input_named(&host, &name),
+            None => host.default_input_device(),
+        }
+        .ok_or(AppError::Microphone)?;
         let config = device
             .default_input_config()
             .map_err(|error| unavailable(&error))?;
@@ -153,6 +162,25 @@ impl AudioInput for Microphone {
             self.meter.set(0.0);
         }
     }
+}
+
+/// Finds the input device of `host` with this name. Without it, the default input applies.
+fn input_named(host: &cpal::Host, name: &str) -> Option<cpal::Device> {
+    let found = match host.input_devices() {
+        Ok(mut devices) => devices.find(|device| {
+            device
+                .description()
+                .is_ok_and(|description| description.name() == name)
+        }),
+        Err(error) => {
+            tracing::warn!(%error, "cpal did not list the input devices");
+            None
+        }
+    };
+    found.or_else(|| {
+        tracing::warn!("the preferred input is not available, the capture uses the default input");
+        host.default_input_device()
+    })
 }
 
 /// Logs the reason of a failed start on the main thread.

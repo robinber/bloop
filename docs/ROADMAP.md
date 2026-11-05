@@ -189,6 +189,18 @@ Measured on the reference Mac (macOS 27) with Voxtral, with the 16 kHz conversio
 - The session opened in 324 ms for the built-in microphone.
 - The sample count at 16 kHz matched the capture duration: 47,446 samples for 2.965 s.
 
+Measured on the reference Mac (macOS 27) with Voxtral at 16 kHz, on 2026-11-05, after the AirPods became the default input:
+
+| Microphone | Captures | Peak | Transcript |
+| --- | --- | --- | --- |
+| AirPods, 24 kHz | 1.72 s, 2.26 s, and 2.62 s | 0.67 to 0.73 | empty, three times |
+| AirPods, 24 kHz | 3.58 s to 19.58 s, four captures | 0.71 to 0.77 | 33 to 272 characters |
+| Built-in microphone, 48 kHz | 1.25 s to 2.93 s, five captures | 0.09 to 0.11 | 21 to 71 characters |
+
+- The microphone started 245 to 333 ms after the key press with both microphones: the 220 ms hold, then the device start.
+- Decision: the capture uses the built-in microphone when the default input is a Bluetooth device.
+  The [architecture](ARCHITECTURE.md#audio) gives the rule.
+
 Measured on the reference Mac (macOS 27) with Voxtral and the built-in microphone at 48 kHz, on 2026-11-05.
 Four chained dictations: each capture started while the job of the previous capture waited for its transcript or its paste.
 The owner confirmed that the texts landed complete, in session order, in the correct field.
@@ -379,7 +391,7 @@ Priority: later. Select one feature for a specific daily-use problem; do not tre
 
 - [ ] Add start and stop sounds, with a menu toggle.
 - [ ] Pause or lower other audio during the capture, with a menu toggle.
-- [ ] Add a "Microphone" submenu with the input devices.
+- [ ] Add a "Microphone" submenu with the input devices. A selected device replaces the built-in microphone rule.
 - [ ] Add a "Language" submenu. The language goes to the transcription session and to the text steps.
 - [ ] Get the owner approval for each new `unsafe` surface, for example `NSSound` or Core Audio.
 

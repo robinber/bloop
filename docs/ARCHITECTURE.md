@@ -191,6 +191,9 @@ Bloop does not use Tabi code or assets.
 ## Audio
 
 - The capture uses the system default input device in its native format.
+  If that device is a Bluetooth device and the Mac has a built-in microphone, the capture uses the built-in microphone.
+  A Bluetooth microphone goes through the hands-free profile: a low sample rate and a switch of the headset audio at each capture start.
+  On 2026-11-05, Voxtral returned no text for three AirPods captures of 1.7 to 2.6 s at 16 kHz, and text for five built-in captures of 1.2 to 2.9 s.
 - Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 - Before capture, Bloop allocates bounded queues. Their capacity does not grow with the capture duration.
 - Capture starts while the provider connection opens. A queue keeps the initial samples until the connection is ready.

@@ -6,6 +6,7 @@ Phase 3 adds an optional correction with a chat model.
 
 Hold Right Command to speak. A small orb shows that Bloop listens.
 Bloop streams the audio to the speech provider while you speak.
+Bloop records with the built-in microphone of the Mac, also when a Bluetooth headset is the default input.
 Release the key to finish transcription. Bloop pastes the text into the focused field.
 When the correction is on, Bloop corrects the text before the paste.
 

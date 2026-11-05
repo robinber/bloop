@@ -97,7 +97,7 @@ Phase 2 measured the transcription completion time after key release. Phase 3 me
 | Dictation key | Hold Right Command for 220 ms. The capture starts at this threshold. A combination or a short press does nothing. Phase 5 starts the capture at key press. |
 | Cancel | Escape during a session. Bloop blocks this Escape event. |
 | Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
-| Audio | System default microphone; bounded queues in memory; no maximum capture duration |
+| Audio | System default microphone, or the built-in microphone when the default input is a Bluetooth device; bounded queues in memory; no maximum capture duration |
 | Network | One transcription stream during capture; one correction request after the complete transcript, when the correction is on |
 | Correction | Off by default; one prompt file that the menu selects; raw transcript if the correction fails |
 | Dictionary | One file. The written forms go to the transcription. The pairs go to the correction prompt. Bloop asks before each new entry (Phase 6). |
