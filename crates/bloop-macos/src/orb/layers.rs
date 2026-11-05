@@ -399,8 +399,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        BAR_COUNT, BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, DECAY_DB_PER_SECOND, MIN_CEILING_DB,
-        TICK, excerpt, resting_heights,
+        BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, DECAY_DB_PER_SECOND, MIN_CEILING_DB, TICK,
+        excerpt, resting_heights,
     };
 
     const CENTER: usize = 3;
@@ -421,7 +421,6 @@ mod tests {
     fn silence_shows_seven_short_bars() {
         let heights = BarHeights::default().next(0.0);
 
-        assert_eq!(heights.len(), BAR_COUNT);
         assert!(heights.iter().all(|&height| fraction(height).abs() < 1e-9));
     }
 

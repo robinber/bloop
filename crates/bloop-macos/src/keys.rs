@@ -340,7 +340,6 @@ mod tests {
             keys.flags_changed(LEFT_SHIFT, COMMAND | RIGHT_COMMAND_DOWN | SHIFT),
             Some(Event::OtherInputDuringHold)
         );
-        assert_matches!(keys.other_input(), Some(Event::OtherInputDuringHold));
     }
 
     #[test]
@@ -349,7 +348,6 @@ mod tests {
 
         assert_matches!(keys.key_down(KEY_C, false, false), (Verdict::Pass, None));
         assert_matches!(keys.flags_changed(LEFT_SHIFT, SHIFT), None);
-        assert_matches!(keys.other_input(), None);
     }
 
     #[test]

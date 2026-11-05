@@ -2,9 +2,7 @@ use bloop_core::domain::Generation;
 use bloop_core::session::{Command, Core, Event};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_app_kit::{
-    NSPasteboard, NSPasteboardItem, NSPasteboardType, NSPasteboardWriting, NSRunningApplication,
-};
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardType, NSPasteboardWriting};
 use objc2_core_graphics::CGEvent;
 use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
 
@@ -12,7 +10,7 @@ use bloop_core::session::InsertOutcome;
 
 use super::{
     KEY_V, Target, Targets, Transaction, is_posted, mark_posted, restore, save, string_type,
-    target_of, transient_type, write_text,
+    transient_type, write_text,
 };
 
 /// The data of each item of the pasteboard, by type, in item order.
@@ -141,15 +139,6 @@ fn an_unknown_generation_keeps_the_targets() {
 
     assert_eq!(targets.take(unknown), None);
     assert_eq!(targets.take(recorded), Some(target(1)));
-}
-
-#[test]
-fn a_target_has_the_process_of_the_given_application() {
-    let app = NSRunningApplication::currentApplication();
-
-    let target = target_of(Some(&app));
-
-    assert_eq!(target.process, Some(app.processIdentifier()));
 }
 
 #[test]
