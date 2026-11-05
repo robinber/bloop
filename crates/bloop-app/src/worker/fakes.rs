@@ -5,6 +5,7 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bloop_audio::convert;
 use bloop_core::domain::{AudioChunk, Transcript};
 use bloop_core::error::ProviderError;
 use bloop_core::ports::ai::{BoxFuture, Transcriber, TranscriptionOptions, TranscriptionSession};
@@ -16,7 +17,8 @@ use tokio::time::sleep;
 use super::{Limits, Spawner, Speech};
 
 pub(crate) const TEXT: &str = "Bonjour à tous.";
-pub(crate) const RATE: NonZeroU32 = NonZeroU32::new(16_000).unwrap();
+/// The rate of the test microphone: the rate of the provider, so that the worker sends the samples unchanged.
+pub(crate) const RATE: NonZeroU32 = convert::RATE;
 const HOUR: Duration = Duration::from_secs(3_600);
 /// Limits that no test reaches, so that `Reply::Never` means no event within `settle`.
 pub(crate) const LONG: Limits = Limits {
@@ -179,6 +181,16 @@ pub(crate) fn samples(count: u16) -> Vec<f32> {
 pub(crate) fn pcm(samples: &[f32]) -> Vec<u8> {
     AudioChunk::split(samples, RATE)
         .flat_map(|chunk| chunk.as_bytes().to_vec())
+        .collect()
+}
+
+pub(crate) fn chunk_lengths(calls: &[Call]) -> Vec<usize> {
+    calls
+        .iter()
+        .filter_map(|call| match call {
+            Call::Audio(pcm) => Some(pcm.len()),
+            Call::Finish | Call::Drop => None,
+        })
         .collect()
 }
 

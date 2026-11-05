@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bloop_audio::buffer::{EndMark, Reader, Status};
+use bloop_audio::convert::{self, ConvertError, Converter};
 use bloop_core::domain::{AudioChunk, Generation};
 use bloop_core::error::{AppError, AudioQueueError, ProviderError};
 use bloop_core::pipeline;
@@ -158,8 +159,9 @@ async fn transcribe(
 
 /// Streams the samples of `reader`, at `rate` in Hz, until the end of the capture.
 ///
+/// It converts the samples to `convert::RATE` and sends them at that rate.
 /// During the capture, it sends only complete chunks and keeps the remaining samples for the next drain.
-/// At the end of the capture, it also sends the last, shorter chunk.
+/// At the end of the capture, it flushes the converter and also sends the last, shorter chunk.
 async fn stream(
     generation: Generation,
     rate: NonZeroU32,
@@ -167,48 +169,76 @@ async fn stream(
     speech: &Speech,
 ) -> Result<Box<dyn TranscriptionSession>, AppError> {
     let started = Instant::now();
+    let failed = move |error| conversion_failed(generation, &error);
+    let mut converter = Converter::new(rate).map_err(failed)?;
     let options = TranscriptionOptions {
         language: &speech.language,
         vocabulary: &speech.vocabulary,
-        sample_rate: rate,
+        sample_rate: convert::RATE,
     };
     let start = speech.transcriber.start(options);
     let mut session = watch(reader, speech.limits.connection, start).await?;
-    let mut samples = Vec::new();
-    let mut status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
+    let mut captured = Vec::new();
+    let mut status = reader.drain(&mut captured).map_err(AppError::AudioQueue)?;
     tracing::info!(
         ?generation,
         millis = started.elapsed().as_millis(),
-        backlog_samples = samples.len(),
+        backlog_samples = captured.len(),
+        backlog_hz = rate.get(),
         "the provider session opened"
     );
-    let length = AudioChunk::length(rate).get();
+    let length = AudioChunk::length(convert::RATE).get();
+    let limit = speech.limits.inactivity;
+    let mut samples = Vec::new();
     let mut chunks = 0_usize;
     let mut sent = 0_usize;
     loop {
-        let ready = match status {
-            Status::Open => samples.len() / length * length,
-            Status::Ended => samples.len(),
-        };
-        for chunk in AudioChunk::split(&samples[..ready], rate) {
-            watch(reader, speech.limits.inactivity, session.send_audio(&chunk)).await?;
-            chunks += 1;
+        converter.push(&captured, &mut samples).map_err(failed)?;
+        captured.clear();
+        if status == Status::Ended {
+            break;
         }
+        let ready = samples.len() / length * length;
+        chunks += send(&mut *session, reader, limit, &samples[..ready]).await?;
         sent += ready;
         samples.drain(..ready);
-        if status == Status::Ended {
-            tracing::info!(
-                ?generation,
-                chunks,
-                samples = sent,
-                millis = started.elapsed().as_millis(),
-                "the capture audio drained"
-            );
-            return Ok(session);
-        }
         tokio::time::sleep(POLL).await;
-        status = reader.drain(&mut samples).map_err(AppError::AudioQueue)?;
+        status = reader.drain(&mut captured).map_err(AppError::AudioQueue)?;
     }
+    converter.flush(&mut samples).map_err(failed)?;
+    chunks += send(&mut *session, reader, limit, &samples).await?;
+    sent += samples.len();
+    tracing::info!(
+        ?generation,
+        chunks,
+        samples = sent,
+        samples_hz = convert::RATE.get(),
+        millis = started.elapsed().as_millis(),
+        "the capture audio drained"
+    );
+    Ok(session)
+}
+
+/// Sends `samples`, at `convert::RATE`, in chunks, and returns the number of chunks.
+async fn send(
+    session: &mut dyn TranscriptionSession,
+    reader: &mut Reader,
+    limit: Duration,
+    samples: &[f32],
+) -> Result<usize, AppError> {
+    let mut chunks = 0;
+    for chunk in AudioChunk::split(samples, convert::RATE) {
+        watch(reader, limit, session.send_audio(&chunk)).await?;
+        chunks += 1;
+    }
+    Ok(chunks)
+}
+
+/// Logs a conversion failure, without audio, and fails the capture with `Internal`:
+/// the converter fails only through a bug.
+fn conversion_failed(generation: Generation, error: &ConvertError) -> AppError {
+    tracing::warn!(?generation, ?error, "the audio conversion failed");
+    AppError::Internal
 }
 
 /// Runs a provider operation within `limit` and fails as soon as the queue fails,
@@ -253,6 +283,7 @@ mod tests {
     use std::time::Duration;
 
     use bloop_audio::buffer::{self, Writer};
+    use bloop_audio::convert;
     use bloop_core::domain::Generation;
     use bloop_core::error::{AppError, AudioQueueError, ProviderError};
     use bloop_core::ports::platform::AudioSink;
@@ -260,7 +291,8 @@ mod tests {
     use tokio::time::sleep;
 
     use super::fakes::{
-        Call, Fake, LONG, RATE, Recorder, Reply, Script, TEXT, pcm, samples, sent_audio, settle,
+        Call, Fake, LONG, RATE, Recorder, Reply, Script, TEXT, chunk_lengths, pcm, samples,
+        sent_audio, settle,
     };
     use super::{Limits, Task};
 
@@ -362,31 +394,28 @@ mod tests {
         settle().await;
 
         let calls = run.log.take();
-        let lengths: Vec<usize> = calls
-            .iter()
-            .filter_map(|call| match call {
-                Call::Audio(pcm) => Some(pcm.len()),
-                Call::Finish | Call::Drop => None,
-            })
-            .collect();
-        assert_eq!(lengths, [3_200, 3_200, 3_200, 200]);
+        assert_eq!(chunk_lengths(&calls), [3_200, 3_200, 3_200, 200]);
         assert_eq!(sent_audio(&calls), pcm(&audio));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn the_session_and_the_chunks_use_the_rate_of_the_microphone() {
-        let rate = NonZeroU32::new(48_000).unwrap();
-        let mut run = Run::start_at(rate, Script::default(), CAPACITY, LONG);
+    async fn a_48_khz_capture_reaches_the_session_at_16_khz_in_chunks_of_100_ms() {
+        let microphone = NonZeroU32::new(48_000).unwrap();
+        let mut run = Run::start_at(microphone, Script::default(), 48_000, LONG);
 
-        run.push(&samples(4_800)).unwrap();
+        run.push(&vec![0.1; 24_000]).unwrap();
+        settle().await;
+        let during = chunk_lengths(&run.log.take());
         run.end_capture();
         settle().await;
+        let after = chunk_lengths(&run.log.take());
 
-        assert_eq!(run.rates.take(), [rate]);
-        assert_matches!(
-            run.log.take().as_slice(),
-            [Call::Audio(pcm), Call::Finish, Call::Drop] if pcm.len() == 9_600
+        assert_eq!(run.rates.take(), [convert::RATE]);
+        assert!(
+            !during.is_empty() && during.iter().all(|&bytes| bytes == 3_200),
+            "{during:?}"
         );
+        assert_eq!([during, after].concat(), [3_200; 5]);
     }
 
     #[tokio::test(start_paused = true)]

@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 6. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
+Status: Design revision 7. Phase 1 is complete. Phase 2 is in progress. Phase 3 is planned.
 
 Complete the acceptance checks for each phase before the next phase.
 Record actual results separately from proposed targets.
@@ -71,9 +71,11 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
   It does not. The owner approved the `unsafe` calls.
 - [x] Start the capture at the hold threshold. Send the audio level to the orb, and remove the test level.
 - [x] Open the provider session while capture starts. Buffer initial samples in a bounded queue.
-- [x] Convert audio incrementally in the worker, from f32 to 16-bit PCM at the native rate of the microphone.
-  Keep network work outside the audio callback. The resampler waits for the live test.
-- [ ] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.
+- [x] Convert audio incrementally in the worker, from f32 at the native rate of the microphone to 16-bit PCM at 16 kHz.
+  Resample with the FFT resampler. Keep the conversion and network work outside the audio callback.
+- [x] Try the realtime API at the native sample rate. If it accepts that rate, the owner decides if Bloop keeps the resampler.
+  Voxtral accepted 24 kHz without an error, but it returned no text for AirPods audio. It transcribed 48 kHz.
+  On 2026-11-05, the owner decided to convert all captures to 16 kHz, the default rate of the API.
 - [x] Send audio chunks to Voxtral during capture, with French and the word list configured at session start.
 - [x] Test the Mistral adapter with a fake WebSocket server: setup, audio, end, deltas, done, errors, and a refused handshake.
 - [x] At capture end, drain queued audio, flush the converter, and request the complete transcript.
@@ -121,6 +123,14 @@ Measured on the reference Mac (macOS 27, 2026-11-03), with the capture at the ho
 - The capture started 228 to 230 ms after the key press. The target is the 220 ms hold threshold.
 - Escape released the microphone. The log showed no overrun and no queue failure.
 - With the automatic gain of the orb, the bars follow both microphones. They react too slowly: a later task tunes them.
+
+Measured on the reference Mac (macOS 27) with Voxtral, before the 16 kHz conversion:
+
+- AirPods at 24 kHz, 2026-11-04, four dictations of 1.1 to 2.7 s: Voxtral echoed `sample_rate` 24000 and sent no delta.
+  It returned an empty transcript without an error. The session opened in 315 to 932 ms.
+- Built-in microphone at 48 kHz, 2026-11-05, one dictation of 4.6 s: 14 deltas whose text matched the final transcript (61 characters).
+  The session opened in 330 ms. The transcript was complete 578 ms after the capture ended.
+  The paste landed 912 ms after the capture ended. For comparison, the Tabi log shows 1,143 ms from key up to keystroke for a recent dictation.
 
 ## Phase 3: Correction and daily use
 

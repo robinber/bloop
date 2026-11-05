@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 15 (2026-11-04). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
+Status: revision 16 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
 the transcription ports, the platform ports, and the Phase 2 pipeline.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step signatures are Phase 3 proposals.
@@ -129,7 +129,8 @@ pub struct Transcript(String);
 pub struct FinalText(String);
 ```
 
-`AudioChunk` contains mono signed 16-bit little-endian PCM at the native sample rate of the microphone, without a file header.
+`AudioChunk` contains mono signed 16-bit little-endian PCM at the sample rate of the transcription session, without a file header.
+The worker creates the chunks at 16 kHz. Thus one chunk of 100 ms contains 1,600 samples.
 `AudioChunk::length(NonZeroU32)` returns the number of samples in 100 ms at the given rate. Below 10 Hz, it returns 1.
 It is the only source of the chunk length.
 `AudioChunk::split(&[f32], NonZeroU32)` encodes samples at the given rate as consecutive chunks of this length, in order.
@@ -200,7 +201,7 @@ Vendor options, for example `reasoning_effort`, stay in the provider settings. T
 ### Transcription lifecycle
 
 - `start` opens a connection and applies the options before the first audio chunk.
-- `sample_rate` is the native rate of the microphone, in Hz. The adapter sends it to the provider without a change.
+- `sample_rate` is the rate of the audio chunks, in Hz. The worker sets 16 kHz. The adapter sends it to the provider without a change.
 - The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
 - One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
 - The adapter reads the pending provider messages before each send and during `finish`. Its buffers belong to the session.
@@ -265,8 +266,14 @@ pub trait SecretStore {
   Thus, before each capture, the audio adapter checks the permission.
   If the permission is missing, `AudioInput::start` returns `AppError::PermissionMissing(Permission::Microphone)`.
 - `AudioInput::start` returns the native sample rate of the device, in Hz. The rate is not zero and stays fixed during the capture.
-  The driver gives this rate to the worker. The worker sets it in `TranscriptionOptions` and encodes the chunks at this rate.
+  The driver gives this rate to the worker.
+  The worker converts the samples from this rate to 16 kHz mono PCM. It sets 16 kHz in `TranscriptionOptions`.
 - `AudioSink` receives mono samples at the native sample rate.
+- The worker creates the converter of `bloop-audio` before `start`. The audio callback does not convert.
+  The converter removes the delay of its resampler. Thus the 16 kHz audio stays in time with the capture.
+  For `n` samples at the native rate `r`, the converted capture contains `ceil(n × 16000 / r)` samples.
+  At 16 kHz, the converter copies the samples without a change.
+- A converter error is a bug. The worker logs it one time, without audio, and sends `CaptureFailed` with `AppError::Internal`.
 - `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
 - The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
 - The audio library calls an error callback outside the audio callback. The previous rule applies only to the audio callback.
@@ -275,9 +282,10 @@ pub trait SecretStore {
   Thus, for an overrun, the error callback only adds one to an atomic counter. `AudioInput::stop` writes the count to the log.
 - When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
 - The worker reads the queue every 10 to 20 ms. The callback does not wake it.
-  The worker converts the samples incrementally and calls `send_audio` for each chunk.
-- During the capture, the worker sends only complete chunks of 100 ms. It keeps the remaining samples for the next read.
-  At the end of the capture, the worker sends all remaining samples immediately. Thus the chunk length adds no delay after key release.
+  The worker converts the samples incrementally to 16 kHz and calls `send_audio` for each chunk.
+- During the capture, the worker sends only complete chunks of 100 ms at 16 kHz. It keeps the remaining samples for the next read.
+  At the end of the capture, the worker flushes the converter and sends all remaining samples immediately.
+  Thus the chunk length adds no delay after key release.
 - During a provider operation, the worker checks the queue state at the same interval.
   A full queue or a lost microphone fails the capture without waiting for the provider.
 - The worker reports the overflow mark as `AudioQueueError::Full`. Thus a full queue fails the capture.

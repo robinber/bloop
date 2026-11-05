@@ -73,7 +73,7 @@ fn redacted_text(f: &mut fmt::Formatter<'_>, name: &str, text: &str) -> fmt::Res
         .finish()
 }
 
-/// Audio for the speech provider: mono signed 16-bit little-endian PCM at the sample rate of the capture,
+/// Audio for the speech provider: mono signed 16-bit little-endian PCM at the sample rate of the session,
 /// without a file header. A chunk is never empty.
 ///
 /// `Debug` shows only the number of bytes, never the audio.

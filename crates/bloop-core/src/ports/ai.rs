@@ -17,7 +17,7 @@ pub struct TranscriptionOptions<'a> {
     pub language: &'a str,
     /// Words that the provider recognizes in preference to similar words.
     pub vocabulary: &'a [String],
-    /// The sample rate of the audio chunks, in Hz: the native rate of the microphone.
+    /// The sample rate of the audio chunks, in Hz.
     pub sample_rate: NonZeroU32,
 }
 
