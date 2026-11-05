@@ -387,8 +387,8 @@ pub struct Pipeline {
 Phase 2 has no text steps and no `Pipeline` type. The function `pipeline::run(generation, transcript) -> Event` does steps 1 and 3.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
-For short or silent captures, the driver cancels the stream and sends `NothingHeard` after job creation (Phase 2).
-The checks for short or silent captures use `CaptureSummary`. They are not provider options.
+The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
+and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
 
 1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard`.
 2. `run` applies the steps in order. If a step fails, the text before that step continues to the next step.

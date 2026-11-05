@@ -83,7 +83,8 @@ Results on the reference Mac (macOS 27, 2026-11-01): all acceptance checks passe
 - [ ] Cancel capture and its stream on Escape, other input, or microphone loss.
 - [x] Cancel all work on system sleep. Observe `NSWorkspaceWillSleepNotification`.
   When it arrives, send `SystemSleep` to the core.
-- [ ] For a short or silent capture, cancel transcription and paste nothing. A network session can already be open.
+- [x] For a short or silent capture, paste nothing. Voxtral returns an empty transcript, and the pipeline sends `NothingHeard`.
+  On 2026-11-05, the owner decided to apply no duration or level threshold.
 - [x] Let a new capture start while a job runs. Paste the texts in session order.
 - [ ] Handle a full queue, connection loss, and timeouts without incomplete insertion or automatic replay.
 - [ ] Select queue capacities and connection, inactivity, and completion time limits from measurements.
@@ -154,6 +155,20 @@ The owner confirmed that the texts landed complete, in session order, in the cor
   The transcript was complete 451, 966, and 791 ms after the capture ended. The paste landed after 782, 1,283, and 1,141 ms.
 - The session opened in 282 to 372 ms, and one time in 1,001 ms.
 - The time from capture end to complete transcript changes from 451 to 1,612 ms. These values do not show a relation to the capture duration.
+
+Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-11-05:
+
+| Microphone | Capture | Peak | Deltas | Transcript | Capture end to complete transcript |
+| --- | --- | --- | --- | --- | --- |
+| AirPods, 24 kHz | 1.34 s | 0.0046 | 0 | empty | 748 ms |
+| AirPods, 24 kHz | 2.80 s | 0.0000 | 0 | empty | 861 ms |
+| Built-in microphone, 48 kHz | 0.37 s | 0.0024 | 0 | empty | 605 ms |
+
+- For each silent capture, the pipeline sent `NothingHeard`, and Bloop pasted nothing.
+- A short "oui" with the built-in microphone: 0.89 s of capture, peak 0.131, and a 4-character transcript that Bloop pasted.
+- On 2026-11-05, the peak of speech was 0.05 to 0.15 with the built-in microphone, and 0.46 to 0.94 with the AirPods.
+  On 2026-11-04, four AirPods captures for dictation had peaks from 0.013 to 0.148.
+  Their speech is not known, because Voxtral returned no text at 24 kHz.
 
 ## Phase 3: Correction and daily use
 

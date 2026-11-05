@@ -195,8 +195,9 @@ Bloop does not use Tabi code or assets.
 - During capture, the worker sends only complete chunks of 100 ms. It keeps the remaining samples for the next queue read.
   At capture end, the worker sends the remaining samples immediately. Thus the chunk length adds no delay after key release.
 - At capture end, the worker drains accepted samples and flushes the converter before it ends the stream.
-- If the capture is shorter than 300 ms, or its level stays below a threshold, Bloop cancels transcription and pastes nothing.
-  Audio can already have reached the provider. The bars already showed the silence during capture.
+- Bloop sends each capture to the provider, also a short or silent capture. It applies no duration or level threshold.
+  For silence, Voxtral returns an empty transcript. Then the pipeline sends `NothingHeard`, and Bloop pastes nothing.
+  A level threshold can remove a quiet dictation: the peak of quiet speech can be near the peak of silence.
 - Bloop releases each audio chunk after sending it. Cancellation discards remaining chunks.
 - Bloop keeps no complete recording and writes no audio to disk.
 
@@ -247,7 +248,7 @@ For the built-in microphone at 48 kHz, it transcribed the speech. The [roadmap](
 
 On 2026-11-05, the owner decided to convert each capture to 16 kHz mono before the provider, for all microphones.
 The documentation does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
-Phase 2 records them.
+Phase 2 records them. For a silent session, Voxtral sent no delta and returned an empty transcript without an error.
 
 On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
 It does not insert a partial transcript or retry the stream automatically. The user can dictate again.
