@@ -11,6 +11,7 @@ bloop-audio.workspace = true
 bloop-core.workspace = true
 bloop-macos.workspace = true
 bloop-providers.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 toml.workspace = true

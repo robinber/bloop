@@ -46,6 +46,12 @@ security add-generic-password -s bloop -a mistral -T "$PWD/target/release/Bloop.
 The command asks for the key. Thus the key is not in the shell history.
 With `-T`, Bloop reads the key without an access dialog. Then open Bloop again.
 
+## Correction
+
+Select "Correct text" in the status menu to correct the next dictations. The item is off at each start of Bloop.
+The correction uses the Mistral chat model with the same Keychain key as the transcription.
+If the correction fails or takes more than 8 seconds, Bloop pastes the raw transcript.
+
 ## Dictionary
 
 The dictionary gives the written form of names and technical terms.

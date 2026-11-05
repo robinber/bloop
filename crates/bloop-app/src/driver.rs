@@ -149,16 +149,19 @@ mod tests {
     use std::assert_matches;
     use std::cell::RefCell;
     use std::num::NonZeroU32;
+    use std::rc::Rc;
     use std::time::Duration;
 
     use bloop_core::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
     use bloop_core::error::{AppError, ProviderError};
     use bloop_core::ports::platform::{AudioInput, AudioSink, Overlay, Scheduler, TextOutput};
     use bloop_core::session::{Event, InsertOutcome, OrbView};
+    use tokio::time::sleep;
 
     use super::Driver;
     use crate::worker::fakes::{
-        Call, Fake, LONG, RATE, Reply, Script, TEXT, pcm, samples, sent_audio, settle,
+        Answer, CORRECTED, Call, Fake, LONG, RATE, Reply, Script, TEXT, pcm, samples, sent_audio,
+        settle,
     };
 
     const HOLD: Duration = Duration::from_millis(220);
@@ -304,12 +307,27 @@ mod tests {
         }
     }
 
-    async fn dictate(driver: &mut TestDriver, fake: &Fake) -> Generation {
+    /// Holds the dictation key past the threshold and releases it. Returns the generation of the new job.
+    fn release(driver: &mut TestDriver) -> Generation {
         driver.handle(Event::DictationKeyDown);
         fire_only_timer(driver);
         driver.handle(Event::DictationKeyUp);
-        deliver(driver, fake).await;
         *driver.output.targets.last().expect("a recorded target")
+    }
+
+    async fn dictate(driver: &mut TestDriver, fake: &Fake) -> Generation {
+        let generation = release(driver);
+        deliver(driver, fake).await;
+        generation
+    }
+
+    /// Runs the tasks until the correction request of the job waits for its answer.
+    async fn until_the_correction_waits() {
+        sleep(Duration::from_millis(10)).await;
+    }
+
+    fn text(text: &str) -> FinalText {
+        FinalText::new(text.to_owned())
     }
 
     #[tokio::test(start_paused = true)]
@@ -575,6 +593,107 @@ mod tests {
         assert_eq!(driver.output.cancelled, [generation]);
         driver.handle(Event::InsertDone(generation, InsertOutcome::Landed));
         assert_eq!(driver.output.inserted.len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_toggle_change_after_the_capture_starts_applies_only_to_later_generations() {
+        let (mut driver, fake) = driver();
+        let toggle = Rc::clone(&driver.spawner.correction_on);
+
+        driver.handle(Event::DictationKeyDown);
+        fire_only_timer(&mut driver);
+        toggle.set(true);
+        driver.handle(Event::DictationKeyUp);
+        deliver(&mut driver, &fake).await;
+        let first = driver.output.targets[0];
+        driver.handle(Event::InsertDone(first, InsertOutcome::Landed));
+
+        fake.chat.answer(Answer {
+            reply: Reply::After(Duration::from_secs(1)),
+            ..Answer::default()
+        });
+        let second = release(&mut driver);
+        until_the_correction_waits().await;
+        assert_eq!(fake.chat.open(), 1);
+        toggle.set(false);
+        deliver(&mut driver, &fake).await;
+        driver.handle(Event::InsertDone(second, InsertOutcome::Landed));
+
+        let third = dictate(&mut driver, &fake).await;
+
+        assert_eq!(
+            driver.output.inserted,
+            [
+                (first, transcript()),
+                (second, text(CORRECTED)),
+                (third, transcript())
+            ]
+        );
+        assert_eq!(fake.chat.sent().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_job_during_its_correction_gives_no_late_text_and_no_paste() {
+        let cancels: [fn(Generation) -> Event; 2] = [
+            |generation| Event::CaptureFailed(generation, AppError::Microphone),
+            |_| Event::SystemSleep,
+        ];
+        for cancel in cancels {
+            let (mut driver, fake) = driver();
+            driver.spawner.correction_on.set(true);
+            fake.chat.answer(Answer {
+                reply: Reply::After(Duration::from_secs(1)),
+                ..Answer::default()
+            });
+            let generation = release(&mut driver);
+            until_the_correction_waits().await;
+            assert_eq!(fake.chat.open(), 1);
+
+            driver.handle(cancel(generation));
+            settle().await;
+
+            assert_eq!(fake.chat.open(), 0);
+            assert!(fake.events.take().is_empty());
+            assert_eq!(driver.output.cancelled, [generation]);
+            assert_eq!(driver.output.inserted, []);
+            assert!(driver.jobs.is_empty());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn corrections_that_end_in_reverse_order_paste_once_each_in_session_order() {
+        let (mut driver, fake) = driver();
+        driver.spawner.correction_on.set(true);
+        for (delay, reply) in [(2, "Premier."), (1, "Second.")] {
+            fake.chat.answer(Answer {
+                reply: Reply::After(Duration::from_secs(delay)),
+                text: reply,
+                ..Answer::default()
+            });
+        }
+
+        let first = release(&mut driver);
+        until_the_correction_waits().await;
+        let second = release(&mut driver);
+        settle().await;
+        let events = fake.events.take();
+        assert_matches!(
+            events.as_slice(),
+            [Event::TextReady(early, _), Event::TextReady(late, _)]
+                if *early == second && *late == first
+        );
+        for event in events {
+            driver.handle(event);
+        }
+
+        assert_eq!(driver.output.inserted, [(first, text("Premier."))]);
+        driver.handle(Event::InsertDone(first, InsertOutcome::Landed));
+        driver.handle(Event::InsertDone(second, InsertOutcome::Landed));
+        assert_eq!(
+            driver.output.inserted,
+            [(first, text("Premier.")), (second, text("Second."))]
+        );
+        assert!(driver.jobs.is_empty());
     }
 
     #[tokio::test(start_paused = true)]

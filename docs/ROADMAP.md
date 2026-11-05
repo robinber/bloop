@@ -263,7 +263,7 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
 - [x] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.
   `bloop-app` builds the providers from typed settings and names no provider. Phase 4 reads these settings from the file.
   `bloop-app` builds the transcriber now. It builds the chat model when the pipeline runs the correction steps.
-- [ ] Write `natural-light` in `prompts/`.
+- [x] Write `natural-light` in `prompts/`.
 - [x] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
 - [x] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
   Remove the empty word list constant.
@@ -279,12 +279,12 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
   These rules detect some abnormal replies. They do not verify meaning.
 - [ ] Select the correction timeout from short and long dictations. Compare the delay with an immediate raw result.
   Check `max_tokens`. Never insert a truncated reply. Long captures do not require correction in separate parts.
-- [ ] Run the pipeline in the existing worker after `finish`.
-- [ ] Add one correction toggle to the existing status menu. Do not add the general menu model or settings hub yet.
+- [x] Run the pipeline in the existing worker after `finish`.
+- [x] Add one correction toggle to the existing status menu. Do not add the general menu model or settings hub yet.
   Capture its value for each generation. A toggle change must not affect an active capture or a running job.
-- [ ] Test correction failure and timeout, sleep during correction, and two corrections that finish in reverse order.
+- [x] Test correction failure and timeout, sleep during correction, and two corrections that finish in reverse order.
   Verify raw fallback, no late insertion after cancellation, and one ordered insertion for each job.
-- [ ] Log the step report of each job: step name, result, and fallback reason.
+- [x] Log the step report of each job: step name, result, and fallback reason.
   The chat adapter logs the request duration, the token counts, and the finish reason.
 - [x] Check if the terminal of the reference Mac protects a paste that contains line breaks (bracketed paste).
   If it does not, define the insertion protection before testing corrected text there.

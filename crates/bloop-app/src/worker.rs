@@ -1,7 +1,9 @@
 //! Transcription task of one generation: reads the audio queue, streams it to the provider,
-//! and sends the result event.
+//! applies the text steps, and sends the result event.
 
+use std::cell::Cell;
 use std::num::NonZeroU32;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,12 +12,17 @@ use bloop_audio::convert::{self, ConvertError, Converter};
 use bloop_core::domain::{AudioChunk, Generation};
 use bloop_core::error::{AppError, AudioQueueError, ProviderError};
 use bloop_core::pipeline::Pipeline;
-use bloop_core::ports::ai::{StepContext, Transcriber, TranscriptionOptions, TranscriptionSession};
+use bloop_core::ports::ai::{
+    ChatModel, StepContext, Transcriber, TranscriptionOptions, TranscriptionSession,
+};
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
+use bloop_core::steps::{LlmRefine, Trim, Typography};
 use tokio::runtime::Handle;
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::Instant;
+
+use crate::prompts::Prompt;
 
 #[cfg(test)]
 pub(crate) mod fakes;
@@ -25,10 +32,54 @@ const POLL: Duration = Duration::from_millis(20);
 /// The speech provider, the options of its sessions, and the text steps of its transcripts.
 pub(crate) struct Speech {
     pub(crate) transcriber: Box<dyn Transcriber>,
-    pub(crate) pipeline: Pipeline,
+    /// The correction steps, or `None` when the chat model is not available.
+    /// A job with the correction on then keeps the raw transcript.
+    pub(crate) correction: Option<Correction>,
     pub(crate) language: String,
     pub(crate) vocabulary: Vec<String>,
     pub(crate) limits: Limits,
+}
+
+impl Speech {
+    /// Returns the correction steps when `on` and when the chat model is available.
+    /// Logs the choice of the job, without text.
+    fn text_steps(&self, generation: Generation, on: bool) -> Option<&Pipeline> {
+        let correction = self.correction.as_ref().filter(|_| on);
+        tracing::info!(
+            ?generation,
+            correction = on,
+            prompt = correction.map(|correction| correction.prompt),
+            "the text steps start"
+        );
+        if on && correction.is_none() {
+            tracing::warn!(
+                ?generation,
+                "the chat model is not available, the job keeps the raw transcript"
+            );
+        }
+        correction.map(|correction| &correction.pipeline)
+    }
+}
+
+/// The text steps of a job with the correction on, and the name of their prompt.
+pub(crate) struct Correction {
+    prompt: &'static str,
+    pipeline: Pipeline,
+}
+
+impl Correction {
+    /// `LlmRefine` with `prompt`, then `Typography` and `Trim`.
+    /// The minimum word count and the character ratio of `LlmRefine` stay off.
+    pub(crate) fn new(model: Arc<dyn ChatModel>, prompt: &Prompt) -> Self {
+        Self {
+            prompt: prompt.name,
+            pipeline: Pipeline::new(vec![
+                Arc::new(LlmRefine::new(model, prompt.text.to_owned())),
+                Arc::new(Typography),
+                Arc::new(Trim),
+            ]),
+        }
+    }
 }
 
 /// The time limits of the provider operations. The worker applies each limit to one operation.
@@ -91,10 +142,14 @@ pub(crate) struct Spawner {
     pub(crate) speech: Result<Arc<Speech>, AppError>,
     /// Receives the result event of each task.
     pub(crate) events: Arc<dyn EventSink>,
+    /// The state of the correction toggle in the status menu.
+    /// Each task reads it one time, when it starts. Thus a change affects only later generations.
+    pub(crate) correction_on: Rc<Cell<bool>>,
 }
 
 impl Spawner {
     /// Opens a provider session and streams the samples of `reader`, at `rate` in Hz, to it.
+    /// The task applies the correction to its transcript when the toggle is on at this call.
     ///
     /// # Errors
     ///
@@ -107,11 +162,12 @@ impl Spawner {
         reader: Reader,
     ) -> Result<Task, AppError> {
         let speech = self.speech.clone()?;
+        let correction = self.correction_on.get();
         let events = Arc::clone(&self.events);
         let end = reader.end_mark();
         let work = self
             .runtime
-            .spawn(transcribe(generation, rate, reader, speech));
+            .spawn(transcribe(generation, rate, reader, speech, correction));
         let abort = work.abort_handle();
         let report = self.runtime.spawn(async move {
             let event = match work.await {
@@ -137,6 +193,7 @@ async fn transcribe(
     rate: NonZeroU32,
     mut reader: Reader,
     speech: Arc<Speech>,
+    correction: bool,
 ) -> Event {
     let session = match stream(generation, rate, &mut reader, &speech).await {
         Ok(session) => session,
@@ -154,7 +211,9 @@ async fn transcribe(
             let context = StepContext {
                 language: speech.language.clone(),
             };
-            let output = speech.pipeline.run(generation, transcript, &context).await;
+            let raw = Pipeline::new(Vec::new());
+            let pipeline = speech.text_steps(generation, correction).unwrap_or(&raw);
+            let output = pipeline.run(generation, transcript, &context).await;
             for report in &output.report {
                 tracing::info!(
                     ?generation,
@@ -298,15 +357,17 @@ mod tests {
     use bloop_audio::convert;
     use bloop_core::domain::Generation;
     use bloop_core::error::{AppError, AudioQueueError, ProviderError};
+    use bloop_core::ports::ai::Finish;
     use bloop_core::ports::platform::AudioSink;
     use bloop_core::session::{Command, Core, Event};
     use tokio::time::sleep;
 
     use super::fakes::{
-        Call, Fake, LONG, RATE, Recorder, Reply, Script, TEXT, chunk_lengths, pcm, samples,
-        sent_audio, settle,
+        Answer, CORRECTED, Call, Fake, LONG, RATE, Recorder, Reply, Script, Sent, TEXT, TYPESET,
+        chunk_lengths, pcm, samples, sent_audio, settle,
     };
-    use super::{Limits, Task};
+    use super::{Limits, Spawner, Task};
+    use crate::prompts::NATURAL_LIGHT;
 
     const CAPACITY: usize = 16_000;
 
@@ -332,7 +393,9 @@ mod tests {
                 .spawner(script, limits)
                 .spawn(generation, rate, reader)
                 .unwrap();
-            let Fake { log, rates, events } = fake;
+            let Fake {
+                log, rates, events, ..
+            } = fake;
             Self {
                 generation,
                 task: Some(task),
@@ -364,6 +427,99 @@ mod tests {
             panic!("{commands:?}");
         };
         *generation
+    }
+
+    /// Runs one capture without samples through `spawner` and returns its only event.
+    async fn job(fake: &Fake, spawner: &Spawner) -> Event {
+        let (writer, reader) = buffer::new(CAPACITY);
+        let task = spawner.spawn(generation(), RATE, reader).unwrap();
+        task.end_capture();
+        drop(writer);
+        settle().await;
+        let [event] = <[_; 1]>::try_from(fake.events.take()).expect("one event");
+        event
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_the_correction_off_the_job_keeps_the_raw_transcript_without_a_chat_request() {
+        let fake = Fake::default();
+        let spawner = fake.spawner(Script::default(), LONG);
+
+        let event = job(&fake, &spawner).await;
+
+        assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
+        assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_the_correction_on_the_job_gives_the_corrected_text_after_typography_and_trim() {
+        let fake = Fake::default();
+        let spawner = fake.spawner(Script::default(), LONG);
+        spawner.correction_on.set(true);
+        fake.chat.answer(Answer {
+            text: "\nBonjour à toutes\u{a0}!\n",
+            ..Answer::default()
+        });
+
+        let event = job(&fake, &spawner).await;
+
+        assert_matches!(event, Event::TextReady(_, text) if text.as_str() == CORRECTED);
+        assert_eq!(
+            fake.chat.sent(),
+            [Sent {
+                system: NATURAL_LIGHT.text.to_owned(),
+                user: format!("<transcript>\n{TEXT}\n</transcript>"),
+            }]
+        );
+        assert_eq!(fake.chat.open(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_correction_keeps_the_raw_transcript() {
+        let failures = [
+            Answer {
+                reply: Reply::Fail(ProviderError::Timeout),
+                ..Answer::default()
+            },
+            Answer {
+                reply: Reply::Fail(ProviderError::Unauthorized),
+                ..Answer::default()
+            },
+            Answer {
+                text: "Bonjour",
+                finish: Finish::Truncated,
+                ..Answer::default()
+            },
+        ];
+        for answer in failures {
+            let fake = Fake::default();
+            let spawner = fake.spawner(Script::default(), LONG);
+            spawner.correction_on.set(true);
+            fake.chat.answer(answer);
+
+            let event = job(&fake, &spawner).await;
+
+            assert_matches!(
+                event,
+                Event::TextReady(_, text) if text.as_str() == TYPESET,
+                "{answer:?}"
+            );
+            assert_eq!(fake.chat.sent().len(), 1, "{answer:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_a_chat_model_a_job_with_the_correction_on_keeps_the_raw_transcript() {
+        let fake = Fake::default();
+        let mut speech = fake.speech(Script::default(), LONG);
+        speech.correction = None;
+        let spawner = fake.spawner_for(speech);
+        spawner.correction_on.set(true);
+
+        let event = job(&fake, &spawner).await;
+
+        assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
+        assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
     }
 
     #[tokio::test(start_paused = true)]

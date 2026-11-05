@@ -170,6 +170,7 @@ src/
 ├── hub.rs             Settings hub: current snapshot, objects built from it, menu status (Phase 4)
 ├── menu.rs            Menu model and menu actions (Phase 4)
 ├── dictionary.rs      Dictionary file: read (Phase 3), save and ignore a pair (Phase 6)
+├── prompts.rs         Default correction prompt in the binary, from prompts/natural-light.md (Phase 3)
 ├── driver.rs          Driver: events to the core, commands to the ports
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, pipeline, result event
 ├── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
@@ -209,9 +210,9 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 ## Settings and provider selection
 
-Phase 4 adds these settings. Until then, `main.rs` keeps the hold threshold and the language as temporary constants.
+Phase 4 adds these settings. Until then, `main.rs` keeps the hold threshold, the language, and the correction time limit as temporary constants.
 The provider settings come from the default configs in `bloop-providers`.
-In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation. It is off at application start.
+In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation at `StartCapture`. It is off at application start.
 
 ```toml
 schema = 1
@@ -358,7 +359,9 @@ Until Phase 4 adds the settings, `bloop-app` keeps these temporary constants in 
 
 - The hold threshold: `HOLD`, 220 ms.
 - The language: `LANGUAGE`, `fr`. The word list comes from the dictionary file.
-- The correction prompt (Phase 3): `natural-light`.
+- The correction time limit (Phase 3): `CORRECTION_LIMIT`, 8 s. This is an initial value, not measured.
+
+The correction prompt (Phase 3) is `natural-light`. `prompts.rs` puts the file in the binary with `include_str!`.
 
 From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
 The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.

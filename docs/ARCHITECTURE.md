@@ -224,7 +224,7 @@ The user stores the key with the `security add-generic-password` command.
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
 | Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection 5 s, inactivity 5 s, completion 15 s: initial values, not measured |
-| Correction | `mistral-small-2603` initially; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | Select in Phase 3; 8 s was the initial proposal |
+| Correction | `mistral-small-2603` initially; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
 
 Phase 3 selects the correction timeout from the delay acceptable in daily use, including long dictations.
 An earlier job that waits for correction also delays later insertions. On timeout, use the raw transcript.
@@ -308,6 +308,8 @@ Raw fallback rules apply only after a complete transcript is available:
 - The 50% to 160% character ratio is a candidate rule, not a required limit or a meaning check.
   The example "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
   Phase 3 selects or removes these heuristics before daily use. They must not reject expected corrections in the test set.
+- If `bloop-app` cannot build the chat model at start, for example without an API key, the correction is not available.
+  A job with the correction on then logs a warning and uses the raw transcript. The dictation continues to operate.
 - The worker logs the reason for each fallback from the step report.
 
 Latency targets, as medians for 10 seconds of speech:
@@ -405,8 +407,10 @@ Known limits:
 
 ## Settings and status menu
 
-Phase 3 adds one correction toggle to the existing menu. It is off at each application start.
-`bloop-app` captures its value when a generation starts. A change affects only subsequent generations.
+Phase 3 adds one correction toggle to the existing menu: the item "Correct text" with a checkmark,
+between the status lines and "Copy last result". It is off at each application start. Bloop does not keep its state.
+`bloop-app` captures its value when the transcription task of a generation starts (`StartCapture`).
+A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
 Phase 4 adds the design below. Prompt and model submenus depend on useful alternatives from the evaluation.
 
 - `bloop-app` owns the settings. The core does not know them.
@@ -497,7 +501,7 @@ Phase 6 adds learning from fixes:
 - Bloop keeps no history on disk.
 - The log file is `~/Library/Logs/Bloop/bloop.log`.
 - The log records state changes, step durations, fallback reasons, error categories, and panics.
-- For each correction, the log records the model identifier, the prompt name, and the prompt hash.
+- For each correction, the log records the model identifier and the prompt name. The evaluation tool also records the prompt hash.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
 - The settings file contains nonsecret settings only: key, hold threshold, language, streaming delay, models, correction state, and prompt name.

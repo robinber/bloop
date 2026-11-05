@@ -535,13 +535,18 @@ pub struct PipelineOutput {
 
 `Pipeline::new(steps)` keeps the steps in the given order.
 `Pipeline::run(&self, generation: Generation, transcript: Transcript, context: &StepContext) -> PipelineOutput` is an `async fn`.
-Until the correction toggle exists, the worker runs a pipeline without steps.
-In Phase 3, `bloop-app` captures the correction toggle for each generation and selects its step list.
-The toggle is off at application start. Changes affect only subsequent generations.
+The correction toggle is the status menu item "Correct text". It is off at each application start, and Bloop does not keep its state.
+`bloop-app` keeps the toggle state on the main thread, not in the core.
+`Spawner::spawn` reads the state when the transcription task of a generation starts (`StartCapture`), and gives the value to the task.
+Thus a change affects only subsequent generations. It never changes an active capture or a running job.
+When the value is off, the task runs a pipeline without steps. When it is on, the task runs the correction step list with the `natural-light` prompt.
+`bloop-app` builds the chat model one time at start, with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
+If the chat model is not available, for example without an API key, a job with the correction on logs a warning and runs the pipeline without steps.
 Phase 4 builds the list from the full settings snapshot. The steps share the chat client through `Arc`.
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
 The worker builds the `StepContext` from the language of the dictation.
+Before the steps, the worker logs one `info` line for each job: the correction value and, when it is on, the prompt name.
 The worker logs each `StepReport` at the `info` level: the step name and the `Debug` output of the result.
 From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu status.
 The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
@@ -596,7 +601,7 @@ Tests must cover timeout to raw fallback, cancellation during correction, and co
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
-| Settings | Phase 3 captures the correction toggle when the core creates a generation. Phase 4 captures the full settings snapshot. Changes never affect an active capture or a running job. |
+| Settings | Phase 3 captures the correction toggle when the transcription task of a generation starts (`StartCapture`). Phase 4 captures the full settings snapshot. Changes never affect an active capture or a running job. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.

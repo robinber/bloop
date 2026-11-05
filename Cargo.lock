@@ -114,6 +114,7 @@ dependencies = [
  "bloop-core",
  "bloop-macos",
  "bloop-providers",
+ "secrecy",
  "serde",
  "tokio",
  "toml",
