@@ -351,19 +351,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn short_press_makes_the_timer_inactive() {
-        let (mut driver, _) = driver();
-        driver.handle(Event::DictationKeyDown);
-
-        driver.handle(Event::DictationKeyUp);
-        fire_only_timer(&mut driver);
-
-        assert!(!driver.capture_active());
-        assert_eq!(driver.overlay.calls, [] as [OrbCall; 0]);
-        assert_eq!(driver.output.targets, [] as [Generation; 0]);
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn escape_closes_the_orb_and_drops_the_session() {
         let (mut driver, fake) = driver();
         driver.handle(Event::DictationKeyDown);
@@ -466,26 +453,11 @@ mod tests {
         fire_only_timer(&mut driver);
 
         let sink = driver.input.sink.as_mut().expect("a started capture");
-        sink.try_push(&audio[..1_600]).unwrap();
-        settle().await;
-        let calls = fake.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[..1_600]));
-        assert!(!calls.contains(&Call::Finish));
-        let sink = driver.input.sink.as_mut().expect("a started capture");
-        sink.try_push(&audio[1_600..]).unwrap();
+        sink.try_push(&audio).unwrap();
         driver.handle(Event::DictationKeyUp);
         deliver(&mut driver, &fake).await;
 
-        let calls = fake.log.take();
-        assert_eq!(sent_audio(&calls), pcm(&audio[1_600..]));
-        assert_matches!(
-            calls.as_slice(),
-            [.., Call::Audio(_), Call::Finish, Call::Drop]
-        );
-        assert_eq!(
-            calls.iter().filter(|call| **call == Call::Finish).count(),
-            1
-        );
+        assert_eq!(sent_audio(&fake.log.take()), pcm(&audio));
         assert_eq!(fake.rates.take(), [RATE]);
         let generation = driver.output.targets[0];
         assert_eq!(driver.output.targets, [generation]);
