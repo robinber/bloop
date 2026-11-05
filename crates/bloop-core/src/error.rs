@@ -55,6 +55,8 @@ pub enum AppError {
     AudioQueue(AudioQueueError),
     /// An AI provider request failed.
     Provider(ProviderError),
+    /// A settings file of the user, for example the dictionary, is invalid.
+    InvalidSettings,
     /// A bug stopped the transcription task.
     Internal,
 }

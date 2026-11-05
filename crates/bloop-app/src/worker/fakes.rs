@@ -113,7 +113,7 @@ impl Fake {
         };
         Spawner {
             runtime: Handle::current(),
-            speech: Some(Arc::new(speech)),
+            speech: Ok(Arc::new(speech)),
             events: Arc::clone(&self.events) as Arc<dyn EventSink>,
         }
     }

@@ -86,8 +86,8 @@ impl Drop for Task {
 /// Starts the transcription task of each capture.
 pub(crate) struct Spawner {
     pub(crate) runtime: Handle,
-    /// The speech provider, or `None` without an API key.
-    pub(crate) speech: Option<Arc<Speech>>,
+    /// The speech provider, or the error of each capture when speech is not available.
+    pub(crate) speech: Result<Arc<Speech>, AppError>,
     /// Receives the result event of each task.
     pub(crate) events: Arc<dyn EventSink>,
 }
@@ -97,14 +97,15 @@ impl Spawner {
     ///
     /// # Errors
     ///
-    /// `Unauthorized` without an API key.
+    /// The error of `speech` when speech is not available: for example,
+    /// `Provider(Unauthorized)` without an API key, or `InvalidSettings` with an invalid dictionary.
     pub(crate) fn spawn(
         &self,
         generation: Generation,
         rate: NonZeroU32,
         reader: Reader,
-    ) -> Result<Task, ProviderError> {
-        let speech = self.speech.clone().ok_or(ProviderError::Unauthorized)?;
+    ) -> Result<Task, AppError> {
+        let speech = self.speech.clone()?;
         let events = Arc::clone(&self.events);
         let end = reader.end_mark();
         let work = self

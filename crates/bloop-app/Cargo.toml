@@ -11,7 +11,9 @@ bloop-audio.workspace = true
 bloop-core.workspace = true
 bloop-macos.workspace = true
 bloop-providers.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

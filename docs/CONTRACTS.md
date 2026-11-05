@@ -1,9 +1,9 @@
 # Rust contracts
 
 Status: revision 20 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums except `StepError`,
-the transcription ports, the platform ports, and the Phase 2 pipeline.
+the transcription ports, the platform ports, the Phase 2 pipeline, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. The dictionary types are a Phase 3 proposal. The menu model is a Phase 4 proposal.
+The text step and pipeline signatures are Phase 3 proposals, revised on 2026-11-05. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -144,7 +144,7 @@ A sample from -1 to 1 uses the full 16-bit range. Values outside that range satu
 `FinalText::from(transcript)` keeps the raw transcript as the final text, without a copy.
 Audio and text types use a redacting `Debug` implementation.
 
-The dictionary types are a Phase 3 proposal:
+`bloop-core` implements the dictionary types, `Dictionary::new`, and `Dictionary::written_forms`:
 
 ```rust
 pub struct DictionaryEntry {
@@ -157,10 +157,12 @@ pub struct Dictionary {
 }
 ```
 
-`Dictionary::written_forms` gives the written forms for `TranscriptionOptions::vocabulary`.
-`Dictionary::pairs` gives the entries that have a heard form, for `LlmRefine`.
+`Dictionary::new` keeps the entries in the given order. `bloop-app` gives them in file order.
+`Dictionary::written_forms` gives the written forms for `TranscriptionOptions::vocabulary`, in entry order. Each form occurs one time.
+`Dictionary::pairs` gives the entries that have a heard form, for `LlmRefine`. It comes with the correction.
 `Dictionary` uses a redacting `Debug` that shows only the number of entries.
 `bloop-app` reads and writes the file. `bloop-core` contains the types only.
+`bloop-core` does not examine the entries. `bloop-app` rejects a written form that is empty or contains only whitespace.
 
 ## AI ports
 
@@ -480,6 +482,7 @@ pub enum AppError {
     Microphone,
     AudioQueue(AudioQueueError),
     Provider(ProviderError),
+    InvalidSettings,
     Internal,
 }
 ```
@@ -491,6 +494,8 @@ The adapter can log the code and message of a provider `error` event, because th
 `tungstenite` writes the handshake request with the API key to the `log` crate at trace level. Bloop installs no `log` bridge.
 A future bridge must turn off the `tungstenite` target.
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
+An invalid settings file of the user, for example the dictionary, is `AppError::InvalidSettings`.
+Bloop reads the dictionary at start. If it is invalid, each capture fails with the error view, as for a missing API key.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
 If the transcription task panics, the worker sends `CaptureFailed` with `AppError::Internal`.

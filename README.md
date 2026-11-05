@@ -46,6 +46,26 @@ security add-generic-password -s bloop -a mistral -T "$PWD/target/release/Bloop.
 The command asks for the key. Thus the key is not in the shell history.
 With `-T`, Bloop reads the key without an access dialog. Then open Bloop again.
 
+## Dictionary
+
+The dictionary gives the written form of names and technical terms.
+Bloop sends these forms to the speech provider. This helps the raw transcript to spell them correctly.
+Write the entries in `~/Library/Application Support/Bloop/dictionary.toml`:
+
+```toml
+[[entry]]
+written = "objc2"
+
+[[entry]]
+heard = "comme Tabby"
+written = "comme Taby"
+```
+
+Each entry needs `written`. `heard` is optional: it is the form that Bloop writes now. The correction will use it.
+Bloop reads the file at start. After a change, open Bloop again. Without the file, the dictionary is empty.
+If the file is invalid, each dictation fails: the orb shows red bars.
+The log `~/Library/Logs/Bloop/bloop.log` gives the line of the error when it is known.
+
 ## Documents
 
 - [Scope and decisions](docs/SCOPE.md)

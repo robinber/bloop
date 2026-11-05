@@ -107,11 +107,7 @@ impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> 
         let task = self
             .input
             .start(generation, Box::new(writer))
-            .and_then(|rate| {
-                self.spawner
-                    .spawn(generation, rate, reader)
-                    .map_err(AppError::Provider)
-            });
+            .and_then(|rate| self.spawner.spawn(generation, rate, reader));
         match task {
             Ok(task) => {
                 self.active = Some(Active { generation, task });
@@ -402,7 +398,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_missing_key_fails_the_capture_and_cancels_the_microphone() {
         let (mut driver, _) = driver();
-        driver.spawner.speech = None;
+        driver.spawner.speech = Err(AppError::Provider(ProviderError::Unauthorized));
         driver.handle(Event::DictationKeyDown);
 
         fire_only_timer(&mut driver);
@@ -424,6 +420,36 @@ mod tests {
             driver.start_capture(generation),
             Some(Event::CaptureFailed(failed, AppError::Provider(ProviderError::Unauthorized)))
                 if failed == generation
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_invalid_dictionary_fails_the_capture_and_cancels_the_microphone() {
+        let (mut driver, fake) = driver();
+        driver.spawner.speech = Err(AppError::InvalidSettings);
+        driver.handle(Event::DictationKeyDown);
+
+        fire_only_timer(&mut driver);
+        driver.handle(Event::DictationKeyUp);
+        settle().await;
+
+        assert!(!driver.capture_active());
+        assert_eq!(
+            driver.overlay.calls,
+            [
+                OrbCall::Show(OrbView::Listening),
+                OrbCall::Show(OrbView::Error)
+            ]
+        );
+        let [InputCall::Start(generation), InputCall::Cancel] = driver.input.calls[..] else {
+            panic!("{:?}", driver.input.calls);
+        };
+        assert!(driver.active.is_none() && driver.jobs.is_empty());
+        assert_eq!(fake.log.take(), [] as [Call; 0]);
+        assert!(fake.events.take().is_empty());
+        assert_matches!(
+            driver.start_capture(generation),
+            Some(Event::CaptureFailed(failed, AppError::InvalidSettings)) if failed == generation
         );
     }
 

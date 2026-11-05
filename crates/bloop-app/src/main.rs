@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod dictionary;
 mod driver;
 mod logging;
 mod worker;
@@ -12,6 +13,7 @@ use std::time::Duration;
 
 use bloop_audio::capture::Microphone;
 use bloop_core::domain::LevelMeter;
+use bloop_core::error::{AppError, ProviderError};
 use bloop_core::ports::platform::{EventSink, SecretStore};
 use bloop_macos::MainThreadMarker;
 use bloop_macos::app::App;
@@ -34,7 +36,6 @@ const HOLD: Duration = Duration::from_millis(220);
 const MODEL: &str = "voxtral-mini-transcribe-realtime-3-0";
 const STREAMING_DELAY_MS: u32 = 480;
 const LANGUAGE: &str = "fr";
-const VOCABULARY: &[&str] = &[];
 
 fn main() -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
@@ -64,10 +65,11 @@ fn main() -> ExitCode {
     if !missing.is_empty() {
         tracing::warn!(?missing, "permissions are missing");
     }
+    let vocabulary = dictionary::load().map(|dictionary| dictionary.written_forms());
     let key = Keychain.get(mistral::ACCOUNT);
     let key_error = key.as_ref().err().copied();
-    let speech = match key {
-        Ok(key) => Some(Arc::new(Speech {
+    let speech = match (key, vocabulary) {
+        (Ok(key), Ok(vocabulary)) => Ok(Arc::new(Speech {
             transcriber: Box::new(mistral::transcribe::Transcriber::new(
                 key,
                 TranscribeConfig {
@@ -76,13 +78,14 @@ fn main() -> ExitCode {
                 },
             )),
             language: LANGUAGE.to_owned(),
-            vocabulary: VOCABULARY.iter().copied().map(str::to_owned).collect(),
+            vocabulary,
             limits: Limits::default(),
         })),
-        Err(error) => {
+        (Err(error), _) => {
             tracing::warn!(?error, "the API key is not available");
-            None
+            Err(AppError::Provider(ProviderError::Unauthorized))
         }
+        (Ok(_), Err(error)) => Err(error),
     };
     let _sleep = SleepObserver::new(mtm);
 

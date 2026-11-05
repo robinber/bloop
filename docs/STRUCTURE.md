@@ -357,7 +357,7 @@ Until Phase 4 adds the settings, `bloop-app` keeps these temporary constants in 
 
 - The hold threshold: `HOLD`, 220 ms.
 - The transcription settings: model `voxtral-mini-transcribe-realtime-3-0`, `target_streaming_delay_ms` 480,
-  language `fr`, and an empty word list. Phase 3 replaces the word list with the dictionary.
+  and language `fr`. The word list comes from the dictionary file.
 - The correction model and prompt (Phase 3): `mistral-small-2603` and `natural-light`.
 
 From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.

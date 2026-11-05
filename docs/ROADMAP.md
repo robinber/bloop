@@ -261,11 +261,11 @@ The dictionary gives the written form of names and terms. The [architecture](ARC
 - [ ] Add `TranscriberConfig`, `ChatConfig`, `build_transcriber`, and `build_chat_model` to `bloop-providers`.
   `bloop-app` builds the providers from typed settings and names no provider. Phase 4 reads these settings from the file.
 - [ ] Write `natural-light` in `prompts/`.
-- [ ] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
-- [ ] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
+- [x] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
+- [x] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
   Remove the empty word list constant.
 - [ ] Give the dictionary pairs to `LlmRefine`. The step adds them to the system message after the prompt.
-- [ ] If the dictionary file is invalid, log the error with its line. A capture then fails with the error view.
+- [x] If the dictionary file is invalid, log the error with its line. A capture then fails with the error view.
 - [ ] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
   Include questions, negations, numbers, names, technical terms, spoken corrections, hesitations, dictated instructions, and long dictations.
   Include dictionary pairs in a sentence that fits and in a sentence that does not fit.

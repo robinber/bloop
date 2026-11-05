@@ -447,13 +447,20 @@ heard = "comme Tabby"
 written = "comme Taby"
 ```
 
+- Each entry must have a `written` value that is not empty and does not contain only whitespace. `heard` is optional.
+  An unknown key makes the file invalid.
 - Phase 3 reads the dictionary at start. From Phase 4, the hub reads it again at the dictation key press if it changed.
-- The written forms go to the speech provider in `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
+- If the file does not exist, the dictionary is empty. This is not an error.
+- The written forms go to the speech provider in `TranscriptionOptions::vocabulary`, in file order and one time each.
+  The Mistral adapter sends them as `context_bias`.
   Thus the transcription spells them correctly, also when the correction is off. A provider without this feature ignores them.
 - When the correction is on, `LlmRefine` adds the pairs to the system message after the prompt.
   The model applies a pair only when the sentence fits.
 - Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
-- If the dictionary file is invalid, a capture fails with the error view. The log gives the line. From Phase 4, the menu also shows it.
+- If the dictionary file is invalid, each capture fails with the error view. From Phase 4, the menu also shows the error.
+- For an invalid file, the log gives the line of the error when it is known.
+  The log never contains the file content or the parser message, because the message can quote an entry.
+- For a valid file, the log gives only the number of entries.
 
 Phase 6 adds learning from fixes:
 

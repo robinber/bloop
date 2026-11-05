@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod dictionary;
 pub mod domain;
 pub mod error;
 pub mod pipeline;
