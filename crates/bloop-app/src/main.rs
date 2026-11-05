@@ -64,14 +64,8 @@ fn main() -> ExitCode {
     if !missing.is_empty() {
         tracing::warn!(?missing, "permissions are missing");
     }
-    let tap = KeyTap::install(mtm);
-    if tap.is_none() {
-        tracing::error!(
-            "macOS refused the event tap, enable Input Monitoring and Accessibility, then open Bloop again"
-        );
-    }
     let key = Keychain.get(mistral::ACCOUNT);
-    let _menu = StatusMenu::new(mtm, &missing, tap.is_some(), key.as_ref().err().copied());
+    let key_error = key.as_ref().err().copied();
     let speech = match key {
         Ok(key) => Some(Arc::new(Speech {
             transcriber: Box::new(mistral::transcribe::Transcriber::new(
@@ -109,6 +103,14 @@ fn main() -> ExitCode {
         spawner,
         HOLD,
     );
+    // Install the tap last: macOS disables a tap that gets events before the run loop runs.
+    let tap = KeyTap::install(mtm);
+    if tap.is_none() {
+        tracing::error!(
+            "macOS refused the event tap, enable Input Monitoring and Accessibility, then open Bloop again"
+        );
+    }
+    let _menu = StatusMenu::new(mtm, &missing, tap.is_some(), key_error);
     events::set_handler(mtm, move |event| {
         driver.handle(event);
         if let Some(tap) = &tap {
