@@ -280,6 +280,9 @@ The paste command came 1,529 ms after key release.
   Include dictionary pairs in a sentence that fits and in a sentence that does not fit.
 - [ ] Add a small evaluation tool for one prompt and one model through the real API.
   Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the provider, the model identifier, and the prompt hash.
+- [ ] Reduce the punctuation that the correction adds. On 2026-11-05, the owner found the corrected text too punctuated:
+  commas and periods inside spoken sentences make it sound robotic. Repetitions and hesitations were removed correctly.
+  The evaluation compares the punctuation of the raw and the corrected text for each sample.
 - [ ] Review the short-text skip and length ratio rules against the samples before enabling them.
   Include "à 2 heures, non, 3 heures" to "à 3 heures": the correct result has 40% of the input length.
   These rules detect some abnormal replies. They do not verify meaning.
