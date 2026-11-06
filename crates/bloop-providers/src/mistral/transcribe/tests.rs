@@ -17,7 +17,9 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
 
-use super::{LOG_EXCERPT, ServerEvent, Session, Text, TranscribeConfig, Transcriber, excerpt};
+use super::{
+    DRAIN_LIMIT, LOG_EXCERPT, ServerEvent, Session, Text, TranscribeConfig, Transcriber, excerpt,
+};
 
 const KEY: &str = "test-key";
 const MODEL: &str = "voxtral-test";
@@ -178,6 +180,18 @@ async fn arrived(session: &Session) {
     socket.readable().await.unwrap();
 }
 
+/// Waits until `len` bytes of provider messages wait in the client socket, so that the next
+/// `send_audio` can read all of them.
+async fn arrived_bytes(session: &Session, len: usize) {
+    let MaybeTlsStream::Plain(socket) = session.ws.get_ref() else {
+        panic!("the test connection does not use TLS");
+    };
+    let mut buffer = vec![0; len];
+    while socket.peek(&mut buffer).await.unwrap() < len {
+        tokio::task::yield_now().await;
+    }
+}
+
 fn created() -> Value {
     json!({ "type": "session.created", "session": { "language": null } })
 }
@@ -305,6 +319,41 @@ async fn deltas_with_a_null_text_are_counted_and_do_not_fail_the_session() {
     let transcript = Box::new(session).finish().await.unwrap();
 
     server.await.unwrap();
+    assert_eq!(transcript.as_str(), TEXT);
+}
+
+#[tokio::test]
+async fn send_audio_reads_at_most_the_drain_limit_and_the_next_call_reads_the_other_events() {
+    let chunks = chunks();
+    let flood = DRAIN_LIMIT + 10;
+    let (transcriber, server) = serve(move |mut provider| async move {
+        setup(&mut provider).await;
+        receive(&mut provider).await;
+        for _ in 0..flood {
+            let message = Message::text(delta().to_string());
+            provider.feed(message).await.unwrap();
+        }
+        provider.flush().await.unwrap();
+        let audio = receive_audio(&mut provider).await;
+        emit(&mut provider, &done()).await;
+        audio.len()
+    })
+    .await;
+    let payload = delta().to_string().len();
+    // A server frame with a payload under 126 bytes has a header of 2 bytes.
+    assert!(payload < 126);
+
+    let mut session = transcriber.open(options()).await.unwrap();
+    session.send_audio(&chunks[0]).await.unwrap();
+    arrived_bytes(&session, flood * (2 + payload)).await;
+    session.send_audio(&chunks[1]).await.unwrap();
+    assert_eq!(session.deltas, DRAIN_LIMIT);
+    session.send_audio(&chunks[2]).await.unwrap();
+    assert_eq!(session.deltas, flood);
+    let transcript = Box::new(session).finish().await.unwrap();
+
+    let (_, audio) = server.await.unwrap();
+    assert_eq!(audio, 2);
     assert_eq!(transcript.as_str(), TEXT);
 }
 

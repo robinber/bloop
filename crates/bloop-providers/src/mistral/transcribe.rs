@@ -32,6 +32,10 @@ const MAX_MESSAGE_SIZE: usize = 1 << 20;
 /// The largest part of a provider string that a log contains, in bytes.
 const LOG_EXCERPT: usize = 200;
 
+/// The largest number of provider messages that one `send_audio` reads before it sends the audio.
+/// Thus a flood of provider events cannot keep the send synchronous and block its time limit.
+const DRAIN_LIMIT: usize = 64;
+
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// The Voxtral realtime transcriber. Each session opens its own connection.
@@ -134,8 +138,12 @@ impl Session {
     }
 
     /// Reads the provider events that already arrived, without waiting for more.
+    /// It reads at most `DRAIN_LIMIT` messages. The next call or `finish` reads the others.
     fn drain(&mut self) -> Result<(), ProviderError> {
-        while let Some(item) = self.ws.next().now_or_never() {
+        for _ in 0..DRAIN_LIMIT {
+            let Some(item) = self.ws.next().now_or_never() else {
+                break;
+            };
             match decode(item)? {
                 None => {}
                 Some(ServerEvent::Delta { text }) => self.count(text.as_ref()),
