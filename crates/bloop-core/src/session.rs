@@ -284,11 +284,14 @@ impl Core {
             return Vec::new();
         };
         let mut commands = Vec::new();
-        if let InsertOutcome::Fallback(_) = outcome {
-            if self.capture == Capture::Idle {
-                commands.push(Command::ShowOrb(OrbView::Card(text)));
-            } else {
-                self.pending_card = Some(text);
+        match outcome {
+            InsertOutcome::Landed => {}
+            InsertOutcome::Fallback(_) => {
+                if self.capture == Capture::Idle {
+                    commands.push(Command::ShowOrb(OrbView::Card(text)));
+                } else {
+                    self.pending_card = Some(text);
+                }
             }
         }
         commands.extend(self.insert_next());
