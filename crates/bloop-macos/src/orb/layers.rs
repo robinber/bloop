@@ -7,6 +7,7 @@
     reason = "the layer contents, the gradient colors, the mask, and the text layer string and font take objects whose class the compiler cannot check, and the truncation mode reads the Core Animation constant kCATruncationEnd, an external static"
 )]
 
+use std::fmt;
 use std::time::Duration;
 
 use objc2::rc::Retained;
@@ -79,7 +80,8 @@ pub(super) enum Shape<'a> {
 }
 
 /// The layer tree of the orb. The pill starts closed.
-#[derive(Debug)]
+///
+/// `Debug` shows no layer, because the description of a text layer can show the card text.
 pub(super) struct Layers {
     root: Retained<CALayer>,
     pill: Retained<CALayer>,
@@ -90,6 +92,12 @@ pub(super) struct Layers {
     hint: Retained<CATextLayer>,
     voice: Retained<NSArray>,
     error: Retained<NSArray>,
+}
+
+impl fmt::Debug for Layers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Layers").finish_non_exhaustive()
+    }
 }
 
 impl Layers {
@@ -398,9 +406,11 @@ fn transaction(duration: Option<Duration>, changes: impl FnOnce()) {
 mod tests {
     use std::time::Duration;
 
+    use objc2_foundation::NSString;
+
     use super::{
-        BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, DECAY_DB_PER_SECOND, MIN_CEILING_DB, TICK,
-        excerpt, resting_heights,
+        BAR_MAX, BAR_MIN, BarHeights, CARD_CHARS, DECAY_DB_PER_SECOND, Layers, MIN_CEILING_DB,
+        Shape, TICK, excerpt, resting_heights,
     };
 
     const CENTER: usize = 3;
@@ -516,6 +526,15 @@ mod tests {
 
         assert!((heights[CENTER] - BAR_MAX).abs() < 1e-9);
         assert!(heights.iter().all(|&height| height <= heights[CENTER]));
+    }
+
+    #[test]
+    fn the_debug_output_of_the_layers_shows_no_card_text() {
+        let layers = Layers::new();
+        let text = NSString::from_str("Bonjour, ça va ?");
+        layers.set_shape(Shape::Card(&text), None);
+
+        assert!(!format!("{layers:?}").contains("Bonjour"));
     }
 
     #[test]
