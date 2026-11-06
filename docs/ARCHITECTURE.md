@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 13 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 14 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -473,8 +473,8 @@ written = "comme Taby"
 - The written forms go to the speech provider in `TranscriptionOptions::vocabulary`, in file order and one time each.
   The Mistral adapter sends them as `context_bias`.
   Thus the transcription spells them correctly, also when the correction is off. A provider without this feature ignores them.
-- When the correction is on, `LlmRefine` adds the pairs to the system message after the prompt.
-  The model applies a pair only when the sentence fits.
+- The pairs (entries with `heard`) have no effect for now. The owner parked this task on 2026-11-06.
+  Pairs in the correction prompt failed in the evaluation. The [roadmap](ROADMAP.md) gives the findings and a proposed design.
 - Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
 - If the dictionary file is invalid, each capture fails with the error view. From Phase 4, the menu also shows the error.
 - For an invalid file, the log gives the line of the error when it is known.

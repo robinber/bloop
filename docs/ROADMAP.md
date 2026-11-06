@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 13. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 14. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -310,7 +310,20 @@ Owner decisions on 2026-11-06:
 - [x] Add the dictionary types to `bloop-core`. Read `dictionary.toml` at start in `bloop-app`.
 - [x] Send the written forms of the dictionary as `TranscriptionOptions::vocabulary`. The Mistral adapter sends them as `context_bias`.
   Remove the empty word list constant.
-- [ ] Give the dictionary pairs to `LlmRefine`. The step adds them to the system message after the prompt.
+- [ ] Parked on 2026-11-06 (owner decision): give the dictionary pairs to the correction.
+  Since `mistral-medium-latest` does the correction, daily use shows no incorrect dictionary word.
+  The owner prefers to work on other parts of Bloop first.
+  Start again only when daily use shows a dictionary word that the speech model writes incorrectly again and again.
+  Findings of 2026-11-06 with `mistral-medium-latest`:
+  - Pairs in the correction prompt failed with three wordings. The model replaced forms in sentences that did not fit.
+    For example, it wrote "château de Vercel". It also wrote "toquio" for "tokio" and lost punctuation in other samples.
+  - A separate closed question was correct for 6 of 6 dictionary samples, median 372 ms.
+    The question asked which pairs the speaker meant, with numbers as the answer.
+  - Proposed design: a `DictionaryCheck` step after `Typography`.
+    It asks the question only when a heard form occurs in the text, as a whole word and without case.
+    Then the code writes the written form of each confirmed pair. A failed question keeps the corrected text.
+  - A review approved this design with four changes. The evaluation does not count a dictionary skip as a fallback.
+    The match compares one character at a time in the original text. The parser accepts a final period. `max_tokens` is 64.
 - [x] If the dictionary file is invalid, log the error with its line. A capture then fails with the error view.
 - [x] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
   Include questions, negations, numbers, names, technical terms, spoken corrections, hesitations, dictated instructions, and long dictations.
@@ -349,6 +362,7 @@ Owner decisions on 2026-11-06:
 - For each sample, compare the manual edits needed with and without correction: fewer, equal, or more.
   Record changes to names, numbers, negations, questions, and certainty separately.
 - The evaluation applies each dictionary pair in a sentence that fits, and keeps the text in a sentence that does not fit.
+  This check is parked with the dictionary pairs task.
 - For five dictionary words, record how many of ten raw dictations write each word correctly, with and without the dictionary.
 - Fix the test set and the maximum number of prompt revisions before evaluation. Keep the reserved validation samples separate.
   Do not continue prompt changes without a new decision when this limit is reached.

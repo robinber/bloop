@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 9 (2026-11-06). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 10 (2026-11-06). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -100,7 +100,7 @@ Phase 2 measured the transcription completion time after key release. Phase 3 me
 | Audio | System default microphone, or the built-in microphone when the default input is a Bluetooth device; bounded queues in memory; no maximum capture duration |
 | Network | One transcription stream during capture; one correction request after the complete transcript, when the correction is on |
 | Correction | Off by default; one prompt file that the menu selects; raw transcript if the correction fails |
-| Dictionary | One file. The written forms go to the transcription. The pairs go to the correction prompt. Bloop asks before each new entry (Phase 6). |
+| Dictionary | One file. The written forms go to the transcription. The pairs have no effect for now (parked on 2026-11-06). Bloop asks before each new entry (Phase 6). |
 | Target check | Same frontmost application and no new click or key press since capture ended |
 | Insertion | Command-V with a clipboard item that the target reads on demand |
 | Clipboard | Restore the previous content after the target reads the text |

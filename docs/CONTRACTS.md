@@ -1,11 +1,11 @@
 # Rust contracts
 
-Status: revision 21 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
+Status: revision 22 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
 and the transcription, chat, text step, and platform ports.
 It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step and pipeline signatures follow the Phase 3 design of 2026-11-05.
-`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
+`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -161,7 +161,7 @@ pub struct Dictionary {
 
 `Dictionary::new` keeps the entries in the given order. `bloop-app` gives them in file order.
 `Dictionary::written_forms` gives the written forms for `TranscriptionOptions::vocabulary`, in entry order. Each form occurs one time.
-`Dictionary::pairs` gives the entries that have a heard form, for `LlmRefine`. It comes with the correction.
+`Dictionary::pairs` would give the entries that have a heard form. The [roadmap](ROADMAP.md) parks this task and gives the findings.
 `Dictionary` uses a redacting `Debug` that shows only the number of entries.
 `bloop-app` reads and writes the file. `bloop-core` contains the types only.
 `bloop-core` does not examine the entries. `bloop-app` rejects a written form that is empty or contains only whitespace.
@@ -577,7 +577,7 @@ Phase 2 returns the complete raw transcript. Phase 3 adds the optional correctio
 
 | Step | Behavior |
 | --- | --- |
-| `LlmRefine` | Sends one request to a `ChatModel`. The system message is the prompt. The user message is the text between a `<transcript>` line and a `</transcript>` line. The request has no prediction. Rejects an incomplete reply (`Incomplete`) and an empty reply (`Empty`). The short-text skip and the character ratio check are optional and off by default. A later change adds the dictionary pairs to the system message, after the prompt. |
+| `LlmRefine` | Sends one request to a `ChatModel`. The system message is the prompt. The user message is the text between a `<transcript>` line and a `</transcript>` line. The request has no prediction. Rejects an incomplete reply (`Incomplete`) and an empty reply (`Empty`). The short-text skip and the character ratio check are optional and off by default. |
 | `Typography` | Replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) with a normal space immediately before `?`, `!`, `:`, `;`, and `»`, and immediately after `«`. Replaces `’` with `'`. Does not add a space. Does not change line breaks or other characters. |
 | `Trim` | Removes `\n` and `\r` at the start and at the end. Does not remove spaces. |
 
