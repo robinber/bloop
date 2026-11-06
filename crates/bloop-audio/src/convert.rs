@@ -210,12 +210,18 @@ mod tests {
 
     #[test]
     fn a_tone_keeps_its_time_frequency_and_amplitude_at_16_khz() {
-        for rate in [48_000, 24_000] {
+        // 750 ms and one sample: ceil(36_001 / 3) at 48 kHz, ceil(33_076 × 160 / 441) at 44.1 kHz,
+        // ceil(18_001 × 2 / 3) at 24 kHz, and 6_001 × 2 at 8 kHz.
+        for (rate, length) in [
+            (48_000, 12_001),
+            (44_100, 12_001),
+            (24_000, 12_001),
+            (8_000, 12_002),
+        ] {
             let input = silence_then_tone(rate, usize::from(rate) * 3 / 4 + 1);
             let output = convert(rate, &input, &IRREGULAR);
 
-            // 750 ms and one sample: ceil(36_001 / 3) at 48 kHz, ceil(18_001 × 2 / 3) at 24 kHz.
-            assert_eq!(output.len(), 12_001, "{rate}");
+            assert_eq!(output.len(), length, "{rate}");
             let onset = 4_000;
             let first = output
                 .iter()
@@ -234,7 +240,7 @@ mod tests {
 
     #[test]
     fn the_output_does_not_depend_on_how_the_pushes_divide_the_input() {
-        for rate in [48_000, 24_000] {
+        for rate in [48_000, 44_100, 24_000, 8_000] {
             let input = silence_then_tone(rate, usize::from(rate) / 2 + 7);
             let whole = convert(rate, &input, &[input.len()]);
 
