@@ -136,7 +136,8 @@ pub struct CaptureSummary {
     pub peak: f32,
 }
 
-/// The application that receives the text. The text steps can adapt the text to it.
+/// The application that had the focus at key release, as the platform read it.
+/// It is for the log and for diagnostics.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TargetInfo {
     /// The bundle identifier, for example `com.apple.TextEdit`.
