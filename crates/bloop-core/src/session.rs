@@ -2,10 +2,21 @@
 
 use std::collections::VecDeque;
 
-use crate::domain::{FinalText, Generation};
+use crate::domain::{AudioChunk, FinalText, Generation};
 use crate::error::AppError;
 
 const MAX_JOBS: usize = 3;
+
+// These types cross threads. A payload that is not `Send` fails to compile here, not in an adapter crate.
+// `send_audio` borrows an `AudioChunk` inside a `Send` future, so the chunk also needs `Sync`.
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    const fn assert_sync<T: Sync>() {}
+    assert_send::<Event>();
+    assert_send::<FinalText>();
+    assert_send::<AudioChunk>();
+    assert_sync::<AudioChunk>();
+};
 
 /// An input to the state machine.
 #[derive(Debug)]
