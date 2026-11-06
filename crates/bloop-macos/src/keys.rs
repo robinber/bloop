@@ -65,7 +65,7 @@ pub struct KeyTap {
 impl KeyTap {
     /// Installs the tap on the main run loop.
     ///
-    /// Returns `None` if macOS refuses the tap, for example because Input Monitoring is missing.
+    /// Returns `None` if macOS refuses the tap, for example because Accessibility is missing.
     #[must_use]
     pub fn install(_mtm: MainThreadMarker) -> Option<Self> {
         let state = Rc::new(TapState::default());
