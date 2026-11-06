@@ -17,7 +17,7 @@ use bloop_core::ports::ai::{
 };
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
-use bloop_core::steps::{LlmRefine, Trim, Typography};
+use bloop_core::steps;
 use tokio::runtime::Handle;
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::Instant;
@@ -68,16 +68,11 @@ pub(crate) struct Correction {
 }
 
 impl Correction {
-    /// `LlmRefine` with `prompt`, then `Typography` and `Trim`.
-    /// The minimum word count and the character ratio of `LlmRefine` stay off.
+    /// The correction steps of `bloop_core::steps::correction` with `prompt`.
     pub(crate) fn new(model: Arc<dyn ChatModel>, prompt: &Prompt) -> Self {
         Self {
             prompt: prompt.name,
-            pipeline: Pipeline::new(vec![
-                Arc::new(LlmRefine::new(model, prompt.text.to_owned())),
-                Arc::new(Typography),
-                Arc::new(Trim),
-            ]),
+            pipeline: Pipeline::new(steps::correction(model, prompt.text.to_owned())),
         }
     }
 }

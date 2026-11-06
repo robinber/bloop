@@ -81,6 +81,23 @@ The optional `heard` field stores the form that Bloop writes now. It does not af
 Bloop reads the dictionary at start. After editing the file, quit and open Bloop again.
 Without the file, the dictionary is empty.
 
+## Evaluate the correction
+
+The `eval` tool runs the correction steps of Bloop on the French test set `prompts/test-set-fr.toml`, with the real API.
+It writes each sample, its final text, and a summary to the terminal.
+
+```sh
+cargo run --bin eval -- --prompt prompts/natural-light.md
+```
+
+- Without `--validation`, the tool runs the samples that are not reserved. With `--validation`, it runs only the reserved samples.
+- `--model` selects another model of the same provider. `--limit-ms` sets the time limit of each request: 30,000 ms by default.
+- `cargo run --bin eval -- --help` shows all options.
+
+The tool reads the API key from Keychain. Each build of `eval` is a new program for Keychain, so macOS asks for access to the key.
+Select **Always Allow** to stop the request until the next build, or **Allow** to give access for this run only.
+The tool sends each sample to the provider. The samples are invented and contain no private data.
+
 ## Troubleshooting
 
 - **No recording:** check the menu for missing permissions, then quit and open Bloop again.

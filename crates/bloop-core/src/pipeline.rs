@@ -32,6 +32,15 @@ pub enum StepResult {
     Failed(StepError),
 }
 
+/// The final text of a transcript and the report of each step that ran.
+#[derive(Debug)]
+pub struct Processed {
+    /// The text after the last step, or `None` when the transcript contains only whitespace.
+    pub text: Option<FinalText>,
+    /// One report for each step, in step order. It is empty when `text` is `None`.
+    pub report: Vec<StepReport>,
+}
+
 /// The result event of a job and the report of each step that ran.
 #[derive(Debug)]
 pub struct PipelineOutput {
@@ -48,21 +57,34 @@ impl Pipeline {
         Self { steps }
     }
 
-    /// Applies the steps to the complete transcript of `generation`.
+    /// Applies the steps to the complete transcript of `generation`, and gives the result event.
     ///
-    /// A transcript that contains only whitespace gives `NothingHeard` and an empty report.
-    /// Otherwise each step gets the current text, and an applied step replaces it.
-    /// After a skip or a failure, the text from before that step continues to the next step.
-    /// The result is `TextReady` with the text after the last step.
+    /// The steps run as [`process`](Self::process) describes.
+    /// The event is `TextReady` with the final text, or `NothingHeard` when the transcript contains only whitespace.
     pub async fn run(
         &self,
         generation: Generation,
         transcript: Transcript,
         context: &StepContext,
     ) -> PipelineOutput {
+        let Processed { text, report } = self.process(transcript, context).await;
+        let event = match text {
+            Some(text) => Event::TextReady(generation, text),
+            None => Event::NothingHeard(generation),
+        };
+        PipelineOutput { event, report }
+    }
+
+    /// Applies the steps to a complete transcript, without a generation.
+    ///
+    /// A transcript that contains only whitespace gives no text and an empty report.
+    /// Otherwise each step gets the current text, and an applied step replaces it.
+    /// After a skip or a failure, the text from before that step continues to the next step.
+    /// The final text is the text after the last step.
+    pub async fn process(&self, transcript: Transcript, context: &StepContext) -> Processed {
         if transcript.as_str().trim().is_empty() {
-            return PipelineOutput {
-                event: Event::NothingHeard(generation),
+            return Processed {
+                text: None,
                 report: Vec::new(),
             };
         }
@@ -83,8 +105,8 @@ impl Pipeline {
                 result,
             });
         }
-        PipelineOutput {
-            event: Event::TextReady(generation, text),
+        Processed {
+            text: Some(text),
             report,
         }
     }
@@ -95,9 +117,9 @@ mod tests {
     use std::assert_matches;
     use std::sync::Arc;
 
-    use super::{Pipeline, PipelineOutput, StepReport, StepResult};
+    use super::{Pipeline, PipelineOutput, Processed, StepReport, StepResult};
     use crate::domain::{Generation, Transcript};
-    use crate::error::ProviderError;
+    use crate::error::{ProviderError, StepError};
     use crate::fakes::{FakeChat, Sent, context, resolve};
     use crate::ports::ai::{ChatModel, Finish, SkipReason, TextStep};
     use crate::session::Event;
@@ -120,6 +142,11 @@ mod tests {
     fn run(pipeline: &Pipeline, transcript: &str) -> PipelineOutput {
         let transcript = Transcript::new(transcript.to_owned());
         resolve(pipeline.run(Generation(1), transcript, &context()))
+    }
+
+    fn process(pipeline: &Pipeline, transcript: &str) -> Processed {
+        let transcript = Transcript::new(transcript.to_owned());
+        resolve(pipeline.process(transcript, &context()))
     }
 
     fn final_text(output: &PipelineOutput) -> &str {
@@ -296,6 +323,72 @@ mod tests {
             [
                 ("llm_refine", "Failed(Provider(Network))".to_owned()),
                 ("llm_refine", "Applied".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn process_gives_no_text_for_a_transcript_without_words_and_no_step_runs() {
+        let model = FakeChat::replying(REPLY, Finish::Complete);
+        let pipeline = correction(refine(&model));
+
+        for text in ["", " ", "\n\t ", "\u{a0}\n"] {
+            let processed = process(&pipeline, text);
+
+            assert!(processed.text.is_none(), "{text:?}");
+            assert!(processed.report.is_empty(), "{text:?}");
+        }
+        assert_eq!(model.sent(), [] as [Sent; 0]);
+    }
+
+    #[test]
+    fn process_gives_the_text_after_the_last_step_and_one_report_for_each_step() {
+        let model = FakeChat::replying(REPLY, Finish::Complete);
+
+        let processed = process(&correction(refine(&model)), RAW);
+
+        assert_eq!(processed.text.unwrap().as_str(), REPLY_FINAL);
+        assert_matches!(
+            processed.report.as_slice(),
+            [
+                StepReport {
+                    step: "llm_refine",
+                    result: StepResult::Applied
+                },
+                StepReport {
+                    step: "typography",
+                    result: StepResult::Applied
+                },
+                StepReport {
+                    step: "trim",
+                    result: StepResult::Applied
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn process_keeps_the_text_from_before_a_failed_step() {
+        let model = FakeChat::failing(ProviderError::Timeout);
+
+        let processed = process(&correction(refine(&model)), RAW);
+
+        assert_eq!(processed.text.unwrap().as_str(), RAW_FINAL);
+        assert_matches!(
+            processed.report.as_slice(),
+            [
+                StepReport {
+                    step: "llm_refine",
+                    result: StepResult::Failed(StepError::Provider(ProviderError::Timeout))
+                },
+                StepReport {
+                    step: "typography",
+                    result: StepResult::Applied
+                },
+                StepReport {
+                    step: "trim",
+                    result: StepResult::Applied
+                },
             ]
         );
     }

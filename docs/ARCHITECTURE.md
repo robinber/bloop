@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 11 (2026-11-05). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 12 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -507,6 +507,7 @@ Phase 6 adds learning from fixes:
 - The log file is `~/Library/Logs/Bloop/bloop.log`.
 - The log records state changes, step durations, fallback reasons, error categories, and panics.
 - For each correction, the log records the model identifier and the prompt name. The evaluation tool also records the prompt hash.
+  The hash is FNV-1a with 64 bits over the prompt text as sent. It identifies a prompt revision. It is not a security function.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
 - The settings file contains nonsecret settings only: key, hold threshold, language, streaming delay, models, correction state, and prompt name.
@@ -547,7 +548,7 @@ Phase 6 adds learning from fixes:
 | Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; for correction, `hyper` and `hyper-util` with the HTTP/1.1 and HTTP/2 client, `hyper-tls` with `alpn`, and `http-body-util`. Both connections then use one TLS stack through `security-framework` |
 | Keychain | `security-framework` |
 | Settings | `serde`, `toml`, `toml_edit` |
-| Prompt hash | `sha2` |
+| Prompt hash | None: FNV-1a, 64 bits, in a few lines of the evaluation tool |
 | Accessibility read | `objc2-application-services` (Phase 6; check the API coverage) |
 | Errors | `anyhow` (application start only) |
 | Logs | `tracing`, `tracing-subscriber`, `tracing-appender` |

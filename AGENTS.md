@@ -21,6 +21,7 @@ The workspace manifests are the source of truth. When they change, update this s
 
 - Layout: virtual workspace with `resolver = "3"`. Members in `crates/`: `bloop-core`, `bloop-providers`,
   `bloop-audio`, `bloop-macos`, `bloop-app`.
+  `bloop-app` has two binaries: `bloop-app` (`default-run`) and the correction evaluation tool `eval`.
 - Edition: 2024.
 - MSRV (`rust-version`): 1.99, the stable release on the reference Mac (rustc 1.99.1).
 - Toolchain: stable. No `rust-toolchain.toml` and no nightly unless a documented need appears.

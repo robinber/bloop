@@ -1,10 +1,11 @@
 # Rust contracts
 
-Status: revision 20 (2026-11-05). `bloop-core` implements the session state machine, the domain data, the error enums,
+Status: revision 21 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
 and the transcription, chat, text step, and platform ports.
-It also implements the pipeline with its step report, the text steps, and the dictionary types without `Dictionary::pairs`.
+It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step and pipeline signatures follow the Phase 3 design of 2026-11-05. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
+The text step and pipeline signatures follow the Phase 3 design of 2026-11-05.
+`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is a Phase 3 proposal. The menu model is a Phase 4 proposal.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -536,10 +537,18 @@ pub struct PipelineOutput {
     pub event: Event,
     pub report: Vec<StepReport>,
 }
+
+pub struct Processed {
+    pub text: Option<FinalText>,
+    pub report: Vec<StepReport>,
+}
 ```
 
 `Pipeline::new(steps)` keeps the steps in the given order.
 `Pipeline::run(&self, generation: Generation, transcript: Transcript, context: &StepContext) -> PipelineOutput` is an `async fn`.
+`Pipeline::process(&self, transcript: Transcript, context: &StepContext) -> Processed` is an `async fn`. It applies the steps without a generation.
+`run` calls `process` and converts its result to the event. Thus the steps and the raw fallback exist one time.
+The evaluation tool calls `process`, because only the core creates a `Generation`.
 The correction toggle is the status menu item "Correct text". It is off at each application start, and Bloop does not keep its state.
 `bloop-app` keeps the toggle state on the main thread, not in the core.
 `Spawner::spawn` reads the state when the transcription task of a generation starts (`StartCapture`), and gives the value to the task.
@@ -557,10 +566,11 @@ From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu sta
 The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
 and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
 
-1. If the complete transcript is empty or contains only whitespace, `run` returns `NothingHeard` and an empty report. No step runs.
-2. `run` applies the steps in order. Each step gets the current text, and `Applied` replaces it.
+1. If the complete transcript is empty or contains only whitespace, `process` returns no text and an empty report. No step runs.
+   Then `run` returns `NothingHeard`.
+2. `process` applies the steps in order. Each step gets the current text, and `Applied` replaces it.
    If a step skips or fails, the text before that step continues to the next step. Each step adds one `StepReport`.
-3. `run` returns `TextReady` with the final text.
+3. `process` returns the final text, and `run` returns `TextReady` with it.
 
 Without steps, the final text is the raw transcript, without a copy. This is the path when the correction is off.
 Phase 2 returns the complete raw transcript. Phase 3 adds the optional correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
@@ -571,7 +581,10 @@ Phase 2 returns the complete raw transcript. Phase 3 adds the optional correctio
 | `Typography` | Replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) with a normal space immediately before `?`, `!`, `:`, `;`, and `»`, and immediately after `«`. Replaces `’` with `'`. Does not add a space. Does not change line breaks or other characters. |
 | `Trim` | Removes `\n` and `\r` at the start and at the end. Does not remove spaces. |
 
-When the correction is on, the step list is `LlmRefine`, `Typography`, `Trim`. When it is off, the list is empty.
+When the correction is on, the step list is `steps::correction(model, prompt)`: `LlmRefine`, `Typography`, `Trim`. When it is off, the list is empty.
+`steps::correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Arc<dyn TextStep>>` is a pure function in `steps/mod.rs`.
+The minimum word count and the character ratio of `LlmRefine` stay off.
+The application and the evaluation tool both use this function. Thus a measured result is the result of the application.
 The step names in the report are `llm_refine`, `typography`, and `trim`.
 
 `LlmRefine` calculates `max_tokens` in a private function of `steps/refine.rs`: ceil(characters / 2.5 × 1.6) + 32, from 64 to 2,048.

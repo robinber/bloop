@@ -60,6 +60,32 @@ impl ChatConfig {
             Self::Mistral(_) => mistral::ACCOUNT,
         }
     }
+
+    /// The model identifier.
+    #[must_use]
+    pub fn model(&self) -> &str {
+        match *self {
+            #[cfg(feature = "mistral")]
+            Self::Mistral(ref config) => &config.model,
+        }
+    }
+
+    /// Replaces the model identifier and keeps the other settings. The provider API rejects an unknown model at the first request.
+    #[must_use]
+    #[cfg_attr(
+        not(feature = "mistral"),
+        expect(
+            unused_variables,
+            clippy::needless_pass_by_value,
+            reason = "without a provider feature, no config exists"
+        )
+    )]
+    pub fn with_model(self, model: String) -> Self {
+        match self {
+            #[cfg(feature = "mistral")]
+            Self::Mistral(config) => Self::Mistral(mistral::ChatConfig { model, ..config }),
+        }
+    }
 }
 
 #[cfg(feature = "mistral")]
@@ -143,6 +169,20 @@ mod tests {
         assert_eq!(config.account(), "mistral");
         let ChatConfig::Mistral(mistral) = &config;
         assert_eq!(mistral.model, "mistral-small-latest");
+        assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
+        assert_eq!(mistral.temperature, 0.0);
+    }
+
+    #[test]
+    fn with_model_replaces_the_model_and_keeps_the_other_chat_settings() {
+        let config = ChatConfig::default();
+        assert_eq!(config.model(), "mistral-small-latest");
+
+        let config = config.with_model("ministral-8b-2512".to_owned());
+
+        assert_eq!(config.model(), "ministral-8b-2512");
+        assert_eq!(config.account(), "mistral");
+        let ChatConfig::Mistral(mistral) = &config;
         assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
         assert_eq!(mistral.temperature, 0.0);
     }

@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 11. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 12. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -275,11 +275,15 @@ The paste command came 1,529 ms after key release.
   Remove the empty word list constant.
 - [ ] Give the dictionary pairs to `LlmRefine`. The step adds them to the system message after the prompt.
 - [x] If the dictionary file is invalid, log the error with its line. A capture then fails with the error view.
-- [ ] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
+- [x] Write about 30 French samples in `prompts/test-set-fr.toml`. Reserve some samples for validation after prompt changes.
   Include questions, negations, numbers, names, technical terms, spoken corrections, hesitations, dictated instructions, and long dictations.
   Include dictionary pairs in a sentence that fits and in a sentence that does not fit.
-- [ ] Add a small evaluation tool for one prompt and one model through the real API.
+  The set has 34 invented samples in 12 categories, with 9 reserved for validation, and 3 dictionary pairs.
+  It has 5 punctuation samples for the punctuation task below.
+- [x] Add a small evaluation tool for one prompt and one model through the real API.
   Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the provider, the model identifier, and the prompt hash.
+  The `eval` binary of `bloop-app` runs the text steps of the application on the samples. The [setup guide](SETUP.md#evaluate-the-correction) gives the command.
+  For each sample, it also compares the punctuation of the raw and the final text.
 - [ ] Reduce the punctuation that the correction adds. On 2026-11-05, the owner found the corrected text too punctuated:
   commas and periods inside spoken sentences make it sound robotic. Repetitions and hesitations were removed correctly.
   The evaluation compares the punctuation of the raw and the corrected text for each sample.

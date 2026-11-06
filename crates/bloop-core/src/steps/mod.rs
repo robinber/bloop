@@ -4,6 +4,67 @@ mod refine;
 mod trim;
 mod typography;
 
+use std::sync::Arc;
+
 pub use refine::LlmRefine;
 pub use trim::Trim;
 pub use typography::Typography;
+
+use crate::ports::ai::{ChatModel, TextStep};
+
+/// Returns the steps of the correction, in order: `LlmRefine` with `model` and `prompt`, `Typography`, and `Trim`.
+///
+/// The minimum word count and the character ratio of `LlmRefine` stay off.
+/// The application and the evaluation tool both use this list. Thus a measured result is the result of the application.
+#[must_use]
+pub fn correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Arc<dyn TextStep>> {
+    vec![
+        Arc::new(LlmRefine::new(model, prompt)),
+        Arc::new(Typography),
+        Arc::new(Trim),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use std::assert_matches;
+    use std::sync::Arc;
+
+    use super::correction;
+    use crate::fakes::{FakeChat, context, resolve};
+    use crate::ports::ai::{ChatModel, Finish, StepOutcome, TextStep};
+
+    const PROMPT: &str = "Corrige la ponctuation.";
+
+    fn steps(model: &Arc<FakeChat>) -> Vec<Arc<dyn TextStep>> {
+        correction(Arc::clone(model) as Arc<dyn ChatModel>, PROMPT.to_owned())
+    }
+
+    #[test]
+    fn the_correction_is_llm_refine_then_typography_then_trim() {
+        let model = FakeChat::replying("", Finish::Complete);
+
+        let names: Vec<_> = steps(&model).iter().map(|step| step.name()).collect();
+
+        assert_eq!(names, ["llm_refine", "typography", "trim"]);
+    }
+
+    #[test]
+    fn the_correction_sends_the_prompt_and_keeps_the_word_count_and_the_ratio_off() {
+        let model = FakeChat::replying("À 3 heures.", Finish::Complete);
+        let steps = steps(&model);
+
+        for text in ["oui", "à 2 heures, non, 3 heures"] {
+            let outcome = resolve(steps[0].apply(text, &context()));
+
+            assert_matches!(
+                outcome,
+                Ok(StepOutcome::Applied(applied)) if applied == "À 3 heures.",
+                "{text:?}"
+            );
+        }
+        let sent = model.sent();
+        assert_eq!(sent.len(), 2);
+        assert!(sent.iter().all(|request| request.system == PROMPT));
+    }
+}
