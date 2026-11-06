@@ -1,83 +1,71 @@
+<img src="assets/branding/logo.svg" alt="Bloop logo" width="96" height="96">
+
 # Bloop
 
-Bloop is a macOS app for French dictation.
-The app uses Rust and native AppKit. Bloop does not depend on one AI provider: Mistral is the default, with Voxtral for speech.
-Phase 3 adds an optional correction with a chat model.
+Bloop is a macOS menu bar app for French dictation, built with Rust and native AppKit.
 
-Hold Right Command to speak. A small orb shows that Bloop listens.
-Bloop streams the audio to the speech provider while you speak.
-Bloop records with the built-in microphone of the Mac, also when a Bluetooth headset is the default input.
-Release the key to finish transcription. Bloop pastes the text into the focused field.
-When the correction is on, Bloop corrects the text before the paste.
+Hold **Right Command**, speak, then release the key to insert your words into the focused text field.
 
-The behavior follows the dictation feature of Tabi. Bloop does only this one task.
+## Features
 
-## Status
+- Streaming transcription with Mistral Voxtral.
+- Optional text correction with a Mistral chat model.
+- A custom dictionary for names and technical terms.
+- A small recording indicator that follows your voice level.
+- Clipboard restoration after a successful paste, with manual text recovery from the menu.
 
-Phase 1 and Phase 2 are complete. Bloop transcribes the dictation with Voxtral and pastes the raw transcript.
-Phase 3 adds optional correction, one menu toggle, the dictionary, and a daily-use trial.
-Phase 4 adds persistent settings and more menu choices when needed.
-The [roadmap](docs/ROADMAP.md#priorities) gives the priorities.
-Bloop is for personal use on one Mac.
+Bloop is in active development for personal use. It has been tested on one Apple silicon Mac running macOS 27.
 
-## Build
+## Installation
 
-Bloop needs a stable code signing identity. With an ad hoc signature, macOS removes the permissions after each build.
+You need an Apple silicon Mac, Rust 1.99 or later, Xcode Command Line Tools, and a Mistral API key.
+Bloop requires an internet connection.
 
-1. Create the identity one time. In Keychain Access, select Keychain Access > Certificate Assistant > Create a Certificate.
-   - Name: `Bloop Dev`
-   - Identity Type: Self Signed Root
-   - Certificate Type: Code Signing
-   - Select "Let me override defaults" and set the validity period to 3650 days.
-2. Run `scripts/bundle.sh`. The script builds `target/release/Bloop.app` and signs it.
-   At the first signature, macOS asks for access to the key. Select "Always Allow".
-
-To use a different identity, set `BLOOP_SIGN_IDENTITY`.
-
-## API key
-
-Store the API key of each provider in Keychain. The account is the provider name.
-For Mistral, the default provider, run this command from the repository root after the first build:
+Clone the repository:
 
 ```sh
-security add-generic-password -s bloop -a mistral -T "$PWD/target/release/Bloop.app" -U -w
+git clone https://github.com/robinber/bloop.git
+cd bloop
 ```
 
-The command asks for the key. Thus the key is not in the shell history.
-With `-T`, Bloop reads the key without an access dialog. Then open Bloop again.
+Follow the [setup guide](docs/SETUP.md) to create a signing identity and store your API key in Keychain.
+The guide covers the build and macOS permissions.
 
-## Correction
+After setup, build and open Bloop with:
 
-Select "Correct text" in the status menu to correct the next dictations. The item is off at each start of Bloop.
-The correction uses the Mistral chat model with the same Keychain key as the transcription.
-If the correction fails or takes more than 8 seconds, Bloop pastes the raw transcript.
-
-## Dictionary
-
-The dictionary gives the written form of names and technical terms.
-Bloop sends these forms to the speech provider. This helps the raw transcript to spell them correctly.
-Write the entries in `~/Library/Application Support/Bloop/dictionary.toml`:
-
-```toml
-[[entry]]
-written = "objc2"
-
-[[entry]]
-heard = "comme Tabby"
-written = "comme Taby"
+```sh
+./scripts/bundle.sh
+open target/release/Bloop.app
 ```
 
-Each entry needs `written`. `heard` is optional: it is the form that Bloop writes now. The correction will use it.
-Bloop reads the file at start. After a change, open Bloop again. Without the file, the dictionary is empty.
-If the file is invalid, each dictation fails: the orb shows red bars.
-The log `~/Library/Logs/Bloop/bloop.log` gives the line of the error when it is known.
+## Usage
 
-## Documents
+1. Click a text field.
+2. Hold **Right Command**. Wait for the recording indicator, then speak.
+3. Release the key. Bloop completes the transcript and pastes the text.
 
-- [Scope and decisions](docs/SCOPE.md)
-- [Roadmap](docs/ROADMAP.md)
+Press **Escape** during recording to cancel. Bloop sets no maximum recording duration.
+
+In the menu bar, select **Correct text** to enable correction for subsequent dictations.
+Correction is off each time Bloop starts. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
+
+Select **Copy last result** to recover the most recent result for manual paste.
+See the [dictionary setup](docs/SETUP.md#dictionary) to add names and technical terms.
+
+## Data
+
+Audio and dictionary terms go directly to Mistral for transcription.
+When correction is enabled, the transcript also goes to the Mistral chat model.
+API keys stay in macOS Keychain.
+
+## Development
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
 - [Architecture](docs/ARCHITECTURE.md)
 - [Code structure](docs/STRUCTURE.md)
-- [Rust contracts](docs/CONTRACTS.md)
-- [Writing rules](docs/WRITING.md)
-- [Agent contract](AGENTS.md)
+- [Roadmap](docs/ROADMAP.md)
