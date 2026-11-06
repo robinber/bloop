@@ -1,6 +1,9 @@
-<img src="assets/branding/logo.svg" alt="Bloop logo" width="96" height="96">
-
-# Bloop
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/wordmark-dark.svg">
+    <img src="assets/branding/wordmark.svg" alt="Bloop" width="320">
+  </picture>
+</h1>
 
 Bloop is a macOS menu bar app for French dictation, built with Rust and native AppKit.
 
