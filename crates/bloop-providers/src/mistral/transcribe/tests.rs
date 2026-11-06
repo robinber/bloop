@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
 
-use super::{Session, TranscribeConfig, Transcriber};
+use super::{ServerEvent, Session, Text, TranscribeConfig, Transcriber};
 
 const KEY: &str = "test-key";
 const MODEL: &str = "voxtral-test";
@@ -413,4 +413,24 @@ async fn dropping_the_session_during_audio_closes_the_connection() {
     drop(session);
 
     assert!(server.await.unwrap().1);
+}
+
+#[test]
+fn the_debug_of_text_shows_the_number_of_characters_and_not_the_text() {
+    let input = "Été à Noël";
+
+    let output = format!("{:?}", Text(input.to_owned()));
+
+    assert_eq!(output, "Text { chars: 10 }");
+    assert!(!output.contains(input));
+}
+
+#[test]
+fn the_debug_of_a_delta_event_shows_no_text() {
+    let event: ServerEvent = serde_json::from_value(delta()).unwrap();
+
+    let output = format!("{event:?}");
+
+    assert!(output.starts_with("Delta"), "{output}");
+    assert!(!output.contains("Bonsoir"), "{output}");
 }
