@@ -39,31 +39,69 @@ struct Input {
     name: String,
 }
 
+/// The input device of a capture.
+#[derive(Debug, PartialEq, Eq)]
+enum Choice {
+    /// The default input.
+    Default,
+    /// The built-in microphone with this name, in place of a Bluetooth default input.
+    BuiltIn(String),
+    /// The default input is a Bluetooth device, and the Mac has no built-in microphone.
+    NoBuiltIn,
+}
+
 /// Returns the name of the input device that replaces the default input, when one applies.
 ///
 /// It returns the built-in microphone when the default input is a Bluetooth device.
 /// Otherwise, and when a Core Audio read fails, it returns `None`: the capture uses the default input.
 pub(crate) fn preferred_input() -> Option<String> {
-    let default = get_default_device_id(true)?;
+    let Some(default) = get_default_device_id(true) else {
+        tracing::warn!(
+            property = "default input",
+            "Core Audio did not answer, the capture uses the default input"
+        );
+        return None;
+    };
     let default = Transport::from_code(read(get_device_transport_type(default), "transport")?);
-    let ids = read(get_audio_device_ids(), "devices")?;
-    let name = choose(default, ids.into_iter().filter_map(input))?;
-    tracing::info!(
-        device = %name,
-        "the default input is a Bluetooth device, the capture uses the built-in microphone"
-    );
-    Some(name)
+    let inputs =
+        || read(get_audio_device_ids(), "devices").map(|ids| ids.into_iter().filter_map(input));
+    match choose(default, inputs) {
+        Choice::Default => None,
+        Choice::BuiltIn(name) => {
+            tracing::info!(
+                device = %name,
+                "the default input is a Bluetooth device, the capture uses the built-in microphone"
+            );
+            Some(name)
+        }
+        Choice::NoBuiltIn => {
+            tracing::warn!(
+                "the default input is a Bluetooth device and the Mac has no built-in microphone, \
+                 the capture uses the default input"
+            );
+            None
+        }
+    }
 }
 
-/// The built-in microphone when `default` is a Bluetooth device, else nothing.
-fn choose(default: Transport, inputs: impl IntoIterator<Item = Input>) -> Option<String> {
+/// Chooses the input device for a default input with the `default` transport.
+///
+/// It calls `inputs` only when `default` is a Bluetooth device. Without the list, the capture
+/// uses the default input.
+fn choose<I>(default: Transport, inputs: impl FnOnce() -> Option<I>) -> Choice
+where
+    I: IntoIterator<Item = Input>,
+{
     if default != Transport::Bluetooth {
-        return None;
+        return Choice::Default;
     }
+    let Some(inputs) = inputs() else {
+        return Choice::Default;
+    };
     inputs
         .into_iter()
         .find(|input| input.transport == Transport::BuiltIn)
-        .map(|input| input.name)
+        .map_or(Choice::NoBuiltIn, |input| Choice::BuiltIn(input.name))
 }
 
 /// Reads the transport and the name of a device that has input channels.
@@ -90,13 +128,17 @@ fn read<T>(result: Result<T, coreaudio::Error>, property: &'static str) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::{Input, Transport, choose};
+    use super::{Choice, Input, Transport, choose};
 
     fn input(transport: Transport, name: &str) -> Input {
         Input {
             transport,
             name: name.to_owned(),
         }
+    }
+
+    fn unread() -> Option<Vec<Input>> {
+        panic!("the device list is read only for a Bluetooth default input")
     }
 
     #[test]
@@ -116,8 +158,8 @@ mod tests {
         ];
 
         assert_eq!(
-            choose(Transport::Bluetooth, inputs).as_deref(),
-            Some("MacBook Pro Microphone")
+            choose(Transport::Bluetooth, || Some(inputs)),
+            Choice::BuiltIn("MacBook Pro Microphone".to_owned())
         );
     }
 
@@ -128,19 +170,23 @@ mod tests {
             input(Transport::Other, "USB Microphone"),
         ];
 
-        assert_eq!(choose(Transport::Bluetooth, inputs), None);
+        assert_eq!(
+            choose(Transport::Bluetooth, || Some(inputs)),
+            Choice::NoBuiltIn
+        );
+    }
+
+    #[test]
+    fn a_bluetooth_default_input_stays_without_the_device_list() {
+        assert_eq!(
+            choose(Transport::Bluetooth, || None::<Vec<Input>>),
+            Choice::Default
+        );
     }
 
     #[test]
     fn another_default_input_stays() {
-        let inputs = || {
-            [
-                input(Transport::BuiltIn, "MacBook Pro Microphone"),
-                input(Transport::Bluetooth, "AirPods"),
-            ]
-        };
-
-        assert_eq!(choose(Transport::BuiltIn, inputs()), None);
-        assert_eq!(choose(Transport::Other, inputs()), None);
+        assert_eq!(choose(Transport::BuiltIn, unread), Choice::Default);
+        assert_eq!(choose(Transport::Other, unread), Choice::Default);
     }
 }
