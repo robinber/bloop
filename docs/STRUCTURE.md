@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 20 (2026-11-06). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 21 (2026-11-06). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -242,7 +242,7 @@ target_streaming_delay_ms = 480
 
 [chat]
 provider = "mistral"
-model = "mistral-small-latest"
+model = "mistral-medium-latest"
 reasoning_effort = "none"
 
 [refine]
@@ -380,7 +380,7 @@ The correction prompt (Phase 3) is `natural-light`. `prompts.rs` puts the file i
 
 From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
 The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.
-The correction uses `mistral-small-latest` with `reasoning_effort` `none` and temperature 0.
+The correction uses `mistral-medium-latest` with `reasoning_effort` `none` and temperature 0.
 Thus `main.rs` names no provider.
 Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.
 Phase 4 replaces the constants with the settings hub and persists the toggle.

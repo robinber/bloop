@@ -27,7 +27,7 @@ impl Default for TranscribeConfig {
 /// The settings of the Mistral chat completions.
 #[derive(Debug)]
 pub struct ChatConfig {
-    /// The model identifier, for example `mistral-small-latest`.
+    /// The model identifier, for example `mistral-medium-latest`.
     pub model: String,
     /// The `reasoning_effort` value, for example `none`. `None` omits the field. The provider checks the value.
     pub reasoning_effort: Option<String>,
@@ -38,7 +38,7 @@ pub struct ChatConfig {
 impl Default for ChatConfig {
     fn default() -> Self {
         Self {
-            model: "mistral-small-latest".to_owned(),
+            model: "mistral-medium-latest".to_owned(),
             reasoning_effort: Some("none".to_owned()),
             temperature: 0.0,
         }

@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 8 (2026-11-05). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 9 (2026-11-06). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -54,7 +54,7 @@ Bloop uses Tabi as a behavior reference only. Bloop does not copy Tabi code, pro
 | Hands-free mode | Shift or Space during the hold, or a double press, locks the recording. One press stops it. | Not planned |
 | Status indicator | Web view "orb" at the bottom of the screen: dark pill, target application icon, seven orange bars that follow the current voice level; closes at key release; no indicator during processing | Native panel with the same layout and behavior; the icon goes directly into a layer |
 | Transcription | Two paths: a WebSocket relay during capture, and an upload of the complete recording after key release. In 45 of 49 dictations, the words came from the upload. | One streaming connection to the selected speech provider during capture; no upload |
-| Correction | `mistral-medium-2604`, an identifier that the Mistral documentation does not list; five styles, each with a list of applications; long dictations get a correction in parts during the capture | Optional; `mistral-small-latest` or the model that the menu selects; one prompt that the menu selects; no style for each application |
+| Correction | `mistral-medium-2604`, an alias of Mistral Medium 3.5 in the models API; five styles, each with a list of applications; long dictations get a correction in parts during the capture | Optional; `mistral-medium-latest` or the model that the menu selects; one prompt that the menu selects; no style for each application |
 | Dictionary | Pairs "tabi writes, should be", applied when the sentence fits. After a paste, Tabi watches the field and proposes the corrections of the user. | One dictionary file (Phase 3). Learning from fixes in Phase 6, with a question before each new entry. |
 | Insertion | Synthetic Command-V; Tabi detects when the target reads the clipboard | Same method |
 | Clipboard | Items marked as concealed and transient | Same markers; restore the previous content |
@@ -119,7 +119,7 @@ Thus browsers, Electron applications, and terminals use the same path as TextEdi
 The correction sends one prompt and the complete transcript to the selected chat model. The prompts do not depend on the provider.
 Phase 3 starts with `natural-light`. `natural-full` remains a candidate after the first daily-use trial:
 
-- `natural-light` corrects punctuation and capital letters. It removes hesitations and stutters, and applies spoken corrections.
+- `natural-light` corrects punctuation and capital letters, with few commas and no colons. It removes hesitations and stutters, and applies spoken corrections.
 - `natural-full` also corrects spelling, grammar, and unwanted repetition.
 
 Both prompt designs keep names, numbers, negations, questions, and the speaker's degree of certainty.

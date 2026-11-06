@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 12. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 13. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -244,7 +244,8 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 ## Phase 3: Optional correction and dictionary
 
 Priority: now. Deliver one correction that the owner can use in the usual applications.
-Start with the Mistral chat provider, `mistral-small-latest`, and `natural-light`. Keep `natural-full` as a later option.
+Start with the Mistral chat provider and `natural-light`. Keep `natural-full` as a later option.
+The first corrections used `mistral-small-latest`. From 2026-11-06, the correction uses `mistral-medium-latest` (owner decision after the evaluation below).
 The correction is off at each application start. One status menu toggle enables it for subsequent dictations.
 Phase 4 adds persistence and the other settings. It is not required for the daily-use trial.
 When the correction is off, the raw transcript path does not change.
@@ -255,6 +256,42 @@ Measured on 2026-11-05, on the free Mistral tier: each request to `mistral-small
 After the owner activated a paid tier, the first correction in Bloop used HTTP/2 and took 642 ms
 (556 prompt tokens, 66 completion tokens, finish reason `stop`). The transcript was complete 881 ms after key release.
 The paste command came 1,529 ms after key release.
+
+Measured on 2026-11-06 with the `eval` tool, on the 25 dev samples. The raw texts have 11 commas, 10 periods, and no colon.
+A word error is an added word, a replaced word, or an added "ne".
+A removed word is also an error, except a hesitation, a stutter, or the replaced part of a spoken correction.
+A number in another form, a technical term joined with a period or a hyphen, and "si il" to "s'il" are not word errors.
+The notes below the table record them.
+
+| Prompt (hash) | Model | Runs | Commas | Colons | Median / longest correction | Samples with a word error |
+| --- | --- | --- | --- | --- | --- | --- |
+| First version (`bf51838bdf5f9736`) | `mistral-small-latest` | 1 | 36 | 3 | 465 / 1,457 ms | 3 |
+| Revision 1 (`171853388bc2f202`) | `mistral-small-latest` | 1 | 19 | 2 | 476 / 1,439 ms | 2 |
+| Revision 2 (`3ee33f2c08f4acc4`) | `mistral-small-latest` | 2 | 13, 15 | 0 | 538, 428 / 991, 1,225 ms | 2, 4 |
+| Revision 3 (`1195ade82806826b`) | `mistral-small-latest` | 2 | 15, 16 | 1, 2 | 439, 488 / 1,395, 1,550 ms | 5, 4 |
+| Revision 2 (`3ee33f2c08f4acc4`) | `mistral-medium-latest` | 1 | 15 | 0 | 581 / 2,100 ms | 1 |
+| Revision 4 (`716b99c624b435c5`) | `mistral-medium-latest` | 2 | 14 | 0 | 504, 466 / 1,078, 1,352 ms | 0 |
+
+- No run had a fallback. Each reply ended with `stop`.
+- With the first version, the model copied words from a prompt example: "à 2 heures, non, 3 heures" became "On se retrouve à 3 heures."
+  The prompt then also contained this sample. The new examples contain no test sentence.
+- With `mistral-small-latest`, two runs of the same prompt gave different text for up to 4 samples, at temperature 0.
+  Its word errors included removed words ("Réponds-moi juste par") and replaced words ("je rentre" to "J'entre").
+  The two runs of revision 4 with `mistral-medium-latest` gave the same text.
+- A rule that wrote file names with their extension made both models add extensions, for example `structure.md`.
+  Revision 4 removes this rule. The dictionary gives written forms such as `Cargo.toml`.
+- Revision 4 with `mistral-medium-latest` still writes "deux" as "2" in one sample, and writes `Cargo.toml` and `rt-multi-thread` in another.
+  It omits one sentence break in a long sample.
+- On the 9 validation samples, revision 4 with `mistral-medium-latest` made no meaning error. It wrote "si il" as "s'il".
+  The median correction took 471 ms and the longest 844 ms.
+- With the fixed identifier `mistral-medium-3-5`, revision 4 gave the same text as the alias for 24 of 25 samples.
+- `mistral-large-latest` returned HTTP 429 `rate_limited` (code 1300) for each request on the owner's plan.
+
+Owner decisions on 2026-11-06:
+
+- The limit was 3 prompt revisions. After revision 3, the owner approved revision 4, which only removes the file name rule.
+- The correction uses `mistral-medium-latest`, because it made no word error in the samples.
+- No step compares the words of the corrected text with the transcript after the correction.
 
 ### Required work
 
@@ -284,9 +321,10 @@ The paste command came 1,529 ms after key release.
   Show sample differences for manual review. Record timing, fallback reasons, finish reasons, the provider, the model identifier, and the prompt hash.
   The `eval` binary of `bloop-app` runs the text steps of the application on the samples. The [setup guide](SETUP.md#evaluate-the-correction) gives the command.
   For each sample, it also compares the punctuation of the raw and the final text.
-- [ ] Reduce the punctuation that the correction adds. On 2026-11-05, the owner found the corrected text too punctuated:
+- [x] Reduce the punctuation that the correction adds. On 2026-11-05, the owner found the corrected text too punctuated:
   commas and periods inside spoken sentences make it sound robotic. Repetitions and hesitations were removed correctly.
   The evaluation compares the punctuation of the raw and the corrected text for each sample.
+  Revision 4 of `natural-light` gives rules for few commas and no colons. The measurements above give the result.
 - [ ] Review the short-text skip and length ratio rules against the samples before enabling them.
   Include "à 2 heures, non, 3 heures" to "à 3 heures": the correct result has 40% of the input length.
   These rules detect some abnormal replies. They do not verify meaning.
@@ -331,6 +369,8 @@ These items do not block Phase 3 completion. Start one only when the measurement
 - Compare correction with and without predicted outputs. Change one factor at a time.
 - Measure prompt caching or connection warm-up only if the affected stage contributes enough delay.
 - Evaluate `natural-full` or another model only if the first prompt leaves useful corrections undone.
+- Check the access to Mistral Large 4 on the owner's plan. If it answers, evaluate it with `eval`.
+  Do this before the retirement of Mistral Medium 3.5, which the Mistral documentation gives as 2027-04-30.
 - If transcription dominates the delay, evaluate streaming settings as a separate experiment. Keep the Phase 2 baseline.
   Candidates include `target_streaming_delay_ms` at 240, 320, and 480 ms.
   Establish the behavior of `input_audio.flush` before testing it with `input_audio.end`.

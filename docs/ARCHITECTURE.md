@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 12 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 13 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -224,7 +224,7 @@ The user stores the key with the `security add-generic-password` command.
 | Request | Model | Settings | Time limit |
 | --- | --- | --- | --- |
 | Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection 5 s, inactivity 5 s, completion 15 s: initial values, not measured |
-| Correction | `mistral-small-latest`, the alias of Mistral Small; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
+| Correction | `mistral-medium-latest`, the alias of Mistral Medium 3.5; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
 
 Phase 3 selects the correction timeout from the delay acceptable in daily use, including long dictations.
 An earlier job that waits for correction also delays later insertions. On timeout, use the raw transcript.
@@ -267,8 +267,10 @@ During capture, each audio send has the inactivity limit.
 
 The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed identifier, not the alias.
 The Mistral lifecycle policy permits changes to a Public Preview model, also with a fixed identifier.
-The correction uses the alias `mistral-small-latest`, as the owner decided on 2026-11-05.
+The correction uses the alias `mistral-medium-latest`, as the owner decided on 2026-11-06 after the evaluation in the [roadmap](ROADMAP.md).
 Mistral can change the model behind the alias. The log names the alias, not the version.
+On 2026-11-06, the models API gave `mistral-medium-3-5` and `mistral-medium-2604` as aliases of `mistral-medium-latest`, with no deprecation.
+The Mistral documentation lists Mistral Medium 3.5 as deprecated on 2026-10-31, with retirement on 2027-04-30. It recommends Mistral Large 4.
 `target_streaming_delay_ms` (80 to 1200, or 2400) sets the balance between delay and accuracy.
 The provider never corrects the text that it sent. Thus this value also changes the final text.
 On 2026-11-05, the owner kept 480 ms.
@@ -333,11 +335,11 @@ The `InsertDone` event comes about 300 ms after the target read, after the clipb
 The paste module logs `the paste command is posted` and `the target read the text`, each with the generation.
 These values are targets, not Bloop measurements. Streaming still needs completion, correction, and paste time after release.
 The realtime model and parameters were checked in Mistral documentation on 2026-11-03.
-The correction model and parameters were checked on 2026-10-31 and on 2026-11-05.
+The correction model and parameters were checked on 2026-10-31, 2026-11-05, and 2026-11-06.
 Live transcription requests ran on 2026-11-04 and 2026-11-05. The [roadmap](ROADMAP.md) records their measured values.
 
 References: [Mistral realtime transcription](https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime),
-[Mistral Small 4](https://docs.mistral.ai/models/mistral-small-4-0-26-03),
+[Mistral Medium 3.5](https://docs.mistral.ai/models/mistral-medium-3-5-26-04),
 and [reasoning settings](https://docs.mistral.ai/studio/conversations/reasoning).
 
 ## Stream ownership

@@ -163,12 +163,12 @@ mod tests {
     }
 
     #[test]
-    fn the_default_chat_model_is_mistral_small_without_reasoning() {
+    fn the_default_chat_model_is_mistral_medium_without_reasoning() {
         let config = ChatConfig::default();
 
         assert_eq!(config.account(), "mistral");
         let ChatConfig::Mistral(mistral) = &config;
-        assert_eq!(mistral.model, "mistral-small-latest");
+        assert_eq!(mistral.model, "mistral-medium-latest");
         assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
         assert_eq!(mistral.temperature, 0.0);
     }
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn with_model_replaces_the_model_and_keeps_the_other_chat_settings() {
         let config = ChatConfig::default();
-        assert_eq!(config.model(), "mistral-small-latest");
+        assert_eq!(config.model(), "mistral-medium-latest");
 
         let config = config.with_model("ministral-8b-2512".to_owned());
 

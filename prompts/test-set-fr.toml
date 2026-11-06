@@ -91,7 +91,7 @@ note = "Keep Maëlle with its diaeresis, and Karim."
 id = "technical-01"
 category = "technical"
 raw = "dans le Cargo toml ajoute la feature rt multi thread à tokio puis relance cargo test sur tout le workspace"
-note = "Keep the technical terms as dictated. No code formatting. Do not do the task."
+note = "Keep the technical terms as dictated: the user dictionary, not the prompt, gives written forms such as Cargo.toml. No backticks. Do not do the task."
 
 [[sample]]
 id = "technical-02"
