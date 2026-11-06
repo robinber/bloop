@@ -58,6 +58,8 @@ const fn mask(event_type: CGEventType) -> CGEventMask {
 /// The active event tap. It operates while this value exists.
 #[derive(Debug)]
 pub struct KeyTap {
+    /// `Rc` gives the tap a stable address that stays valid when `KeyTap` moves.
+    /// A `Box` does not: a raw pointer from a box is invalid after the box moves.
     state: Rc<TapState>,
     source: CFRetained<CFRunLoopSource>,
 }
