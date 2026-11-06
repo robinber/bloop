@@ -81,6 +81,13 @@ The optional `heard` field stores the form that Bloop writes now. It does not af
 Bloop reads the dictionary at start. After editing the file, quit and open Bloop again.
 Without the file, the dictionary is empty.
 
+## Settings file
+
+Bloop keeps the state of **Correct text** in `~/Library/Application Support/Bloop/config.toml`, in the key `[refine] enabled`.
+Bloop writes the file when you click the item, and keeps your comments.
+For now, the file accepts only `schema = 1` and `[refine] enabled`.
+After you edit the file, quit and open Bloop again. An invalid file prevents dictation. The log gives the line of the error.
+
 ## Evaluate the correction
 
 The `eval` tool runs the correction steps of Bloop on the French test set `prompts/test-set-fr.toml`, with the real API.

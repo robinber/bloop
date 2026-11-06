@@ -6,6 +6,7 @@ mod dictionary;
 mod driver;
 mod logging;
 mod prompts;
+mod settings;
 mod worker;
 
 use std::cell::Cell;
@@ -69,6 +70,7 @@ fn main() -> ExitCode {
     if !missing.is_empty() {
         tracing::warn!(?missing, "permissions are missing");
     }
+    let saved_correction = settings::load();
     let vocabulary = dictionary::load().map(|dictionary| dictionary.written_forms());
     let transcriber = TranscriberConfig::default();
     let chat = ChatConfig::default();
@@ -79,24 +81,25 @@ fn main() -> ExitCode {
         Keychain.get(chat.account())
     };
     let key_error = key.as_ref().err().copied();
-    let speech = match (key, vocabulary) {
-        (Ok(key), Ok(vocabulary)) => Ok(Arc::new(Speech {
+    let speech = match (key, saved_correction, vocabulary) {
+        (Ok(key), Ok(_), Ok(vocabulary)) => Ok(Arc::new(Speech {
             transcriber: build_transcriber(transcriber, key),
             correction: correction(chat, chat_key),
             language: LANGUAGE.to_owned(),
             vocabulary,
             limits: Limits::default(),
         })),
-        (Err(error), _) => {
+        (Err(error), _, _) => {
             tracing::warn!(?error, "the API key is not available");
             Err(AppError::Provider(ProviderError::Unauthorized))
         }
-        (Ok(_), Err(error)) => Err(error),
+        (Ok(_), Err(error), _) | (Ok(_), Ok(_), Err(error)) => Err(error),
     };
     let _sleep = SleepObserver::new(mtm);
 
     let sink: Arc<dyn EventSink> = Arc::new(MainSink);
-    let correction_on = Rc::new(Cell::new(false));
+    let correct_on = saved_correction.unwrap_or(false);
+    let correction_on = Rc::new(Cell::new(correct_on));
     let spawner = Spawner {
         runtime: runtime.handle().clone(),
         speech,
@@ -126,9 +129,11 @@ fn main() -> ExitCode {
         &missing,
         tap.is_some(),
         key_error,
+        correct_on,
         Box::new(move |on| {
             correction_on.set(on);
             tracing::info!(on, "the correction toggle changed");
+            settings::store(on);
         }),
     );
     events::set_handler(mtm, move |event| {

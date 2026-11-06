@@ -50,7 +50,7 @@ open target/release/Bloop.app
 Press **Escape** during recording to cancel. Bloop sets no maximum recording duration.
 
 In the menu bar, select **Correct text** to enable correction for subsequent dictations.
-Correction is off each time Bloop starts. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
+Bloop keeps this choice when it starts again. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
 
 Select **Copy last result** to recover the most recent result for manual paste.
 See the [dictionary setup](docs/SETUP.md#dictionary) to add names and technical terms.

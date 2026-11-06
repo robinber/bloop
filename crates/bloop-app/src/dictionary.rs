@@ -104,7 +104,7 @@ fn parse(text: &str) -> Result<Dictionary, Invalid> {
 }
 
 /// Returns the line, from 1, that contains the byte at `offset` of `text`.
-fn line(text: &str, offset: usize) -> Option<usize> {
+pub(crate) fn line(text: &str, offset: usize) -> Option<usize> {
     let before = text.as_bytes().get(..offset)?;
     Some(before.split(|&byte| byte == b'\n').count())
 }

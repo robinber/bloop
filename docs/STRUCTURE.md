@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 21 (2026-11-06). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 22 (2026-11-06). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -30,7 +30,7 @@ bloop/
 │   ├── bloop-providers/       AI providers: one module for each vendor
 │   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
-│   └── bloop-app/             Executable: settings (Phase 4), construction, driver
+│   └── bloop-app/             Executable: settings (correction state; the rest in Phase 4), construction, driver
 ├── prompts/
 │   ├── natural-light.md       Default correction prompt (Phase 3)
 │   ├── natural-full.md        Candidate prompt after the first daily-use trial
@@ -166,7 +166,8 @@ src/
 ```text
 src/
 ├── main.rs            Reads the API key, starts Tokio, builds objects, starts the AppKit run loop
-├── settings/          Settings schema, file read and write, template, prompt files (Phase 4)
+├── settings.rs        Settings file: read at start, write of the correction state with toml_edit
+│                      Phase 4 makes it settings/: full schema, template, prompt files
 ├── hub.rs             Settings hub: current snapshot, objects built from it, menu status (Phase 4)
 ├── menu.rs            Menu model and menu actions (Phase 4)
 ├── dictionary.rs      Dictionary file: read (Phase 3), save and ignore a pair (Phase 6)
@@ -225,7 +226,9 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 Phase 4 adds these settings. Until then, `main.rs` keeps the hold threshold, the language, and the correction time limit as temporary constants.
 The provider settings come from the default configs in `bloop-providers`.
-In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation at `StartCapture`. It is off at application start.
+In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation at `StartCapture`.
+`settings.rs` keeps the toggle state in `config.toml`, in the key `[refine] enabled`. It reads the key at start and writes it at each click.
+Until Phase 4, the file accepts only `schema` and `[refine] enabled`. The other keys below make the file invalid. The settings hub comes in Phase 4.
 
 ```toml
 schema = 1
@@ -340,7 +343,7 @@ There is no separate file transcription path or later migration.
 | `bloop-core` | State machine: event sequences, expected commands, and stale results. Pipeline and step report. Steps with a fake chat model (Phase 3). |
 | `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Chat replies, truncation, and HTTP errors with a fake HTTP server (Phase 3). Real API tests run manually. |
 | `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
-| `bloop-app` | Driver and worker with fake ports: slow connection, full queue, release, failure, and cancellation during capture, a send, or `finish`. Phase 3 adds correction timeout, cancellation, reverse completion order, and toggle isolation. A cancelled task sends no event. Phase 4 adds settings parse, template, `toml_edit` change, settings snapshot, and menu model. Tests of the evaluation tool: arguments, test set parse and split, punctuation counts, prompt hash, median, and report format. One sample runs with a fake chat model. |
+| `bloop-app` | Driver and worker with fake ports: slow connection, full queue, release, failure, and cancellation during capture, a send, or `finish`. Phase 3 adds correction timeout, cancellation, reverse completion order, and toggle isolation. A cancelled task sends no event. Settings tests cover the parse, the `toml_edit` change of the correction state, and file writes in a temporary folder. Phase 4 adds the template, the settings snapshot, and the menu model. Tests of the evaluation tool: arguments, test set parse and split, punctuation counts, prompt hash, median, and report format. One sample runs with a fake chat model. |
 | `bloop-macos` | Unit tests of the logic without macOS types: key state, target list, clipboard transaction, bar heights, and orb view changes. Tests of the clipboard save, restore, and text write on a private `NSPasteboard`. Rendering of a menu model (Phase 4). Manual acceptance checks from the [roadmap](ROADMAP.md) for the other macOS calls. |
 
 ## Shared rules
@@ -366,7 +369,7 @@ The application operates at the end of each selected phase.
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`, the provider configs and build functions in `lib.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval/`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
-| 4: Settings and status menu | `bloop-core`: the menu model in `ports/platform.rs`. `bloop-app`: `settings/`, `hub.rs`, `menu.rs`. `bloop-macos`: `menu.rs` renders the model. |
+| 4: Settings and status menu | `bloop-core`: the menu model in `ports/platform.rs`. `bloop-app`: `settings/` (it replaces `settings.rs`), `hub.rs`, `menu.rs`. `bloop-macos`: `menu.rs` renders the model. |
 | 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
 | 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 
@@ -382,8 +385,9 @@ From Phase 3, the default provider settings come from `TranscriberConfig::defaul
 The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.
 The correction uses `mistral-medium-latest` with `reasoning_effort` `none` and temperature 0.
 Thus `main.rs` names no provider.
-Phase 3 adds the correction toggle as runtime state, off at each application start. It does not require the settings hub.
-Phase 4 replaces the constants with the settings hub and persists the toggle.
+Phase 3 adds the correction toggle as runtime state. It does not require the settings hub.
+`settings.rs` keeps the toggle state in `config.toml` (`[refine] enabled`) before the hub exists.
+Phase 4 replaces the constants with the settings hub.
 
 ## Work method
 

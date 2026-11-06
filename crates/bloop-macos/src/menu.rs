@@ -36,7 +36,7 @@ impl StatusMenu {
     /// The menu shows the status at start: the missing permissions and API key, or if the event tap operates.
     /// macOS can keep the old permission result until Bloop starts again.
     ///
-    /// The item "Correct text" has a checkmark and is off at start.
+    /// The item "Correct text" has a checkmark and starts in the state `correction_on`.
     /// Each click changes it and gives the new state to `correct`, on the main thread.
     /// `correct` runs inside an `AppKit` callback, thus it must not panic.
     #[must_use]
@@ -45,9 +45,10 @@ impl StatusMenu {
         missing: &[Permission],
         keys_ready: bool,
         key: Option<SecretError>,
+        correction_on: bool,
         correct: Box<dyn Fn(bool)>,
     ) -> Self {
-        let target = MenuTarget::new(mtm, Toggle::new(correct));
+        let target = MenuTarget::new(mtm, Toggle::new(correction_on, correct));
         let menu = NSMenu::new(mtm);
         for line in status(missing, keys_ready, key) {
             let item = match line {
@@ -67,7 +68,7 @@ impl StatusMenu {
         }
         menu.addItem(&NSMenuItem::separatorItem(mtm));
         let correction = menu_item(mtm, "Correct text", Some(sel!(toggleCorrection:)), "");
-        correction.setState(check(false));
+        correction.setState(check(correction_on));
         set_target(&correction, &target);
         menu.addItem(&correction);
         menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -175,10 +176,10 @@ struct Toggle {
 }
 
 impl Toggle {
-    /// Starts off.
-    fn new(changed: Box<dyn Fn(bool)>) -> Self {
+    /// Starts in the state `on`.
+    fn new(on: bool, changed: Box<dyn Fn(bool)>) -> Self {
         Self {
-            on: Cell::new(false),
+            on: Cell::new(on),
             changed,
         }
     }
@@ -272,16 +273,18 @@ mod tests {
 
     #[test]
     fn each_flip_changes_the_toggle_and_gives_the_new_state() {
-        let states = Rc::new(RefCell::new(Vec::new()));
-        let received = Rc::clone(&states);
-        let toggle = Toggle::new(Box::new(move |on| received.borrow_mut().push(on)));
+        for start in [false, true] {
+            let states = Rc::new(RefCell::new(Vec::new()));
+            let received = Rc::clone(&states);
+            let toggle = Toggle::new(start, Box::new(move |on| received.borrow_mut().push(on)));
 
-        assert!(states.borrow().is_empty());
-        assert!(toggle.flip());
-        assert!(!toggle.flip());
-        assert!(toggle.flip());
+            assert!(states.borrow().is_empty());
+            assert_eq!(toggle.flip(), !start);
+            assert_eq!(toggle.flip(), start);
+            assert_eq!(toggle.flip(), !start);
 
-        assert_eq!(*states.borrow(), [true, false, true]);
+            assert_eq!(*states.borrow(), [!start, start, !start]);
+        }
     }
 
     #[test]

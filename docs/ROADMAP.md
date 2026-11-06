@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 14. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 15. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -246,8 +246,8 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 Priority: now. Deliver one correction that the owner can use in the usual applications.
 Start with the Mistral chat provider and `natural-light`. Keep `natural-full` as a later option.
 The first corrections used `mistral-small-latest`. From 2026-11-06, the correction uses `mistral-medium-latest` (owner decision after the evaluation below).
-The correction is off at each application start. One status menu toggle enables it for subsequent dictations.
-Phase 4 adds persistence and the other settings. It is not required for the daily-use trial.
+One status menu toggle turns the correction on or off for subsequent dictations. Bloop keeps the toggle state in `config.toml`.
+Phase 4 adds the other settings. They are not required for the daily-use trial.
 When the correction is off, the raw transcript path does not change.
 The dictionary gives the written form of names and terms. The [architecture](ARCHITECTURE.md#dictionary-and-learning-from-fixes) gives the design.
 
@@ -401,12 +401,14 @@ The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the design.
 - [ ] Add the settings schema to `bloop-app`, with default values, `schema = 1`, and errors that give the line.
 - [ ] At the first start, write a commented `config.toml` template, an empty dictionary, and the default prompt files.
 - [ ] Write a menu change with `toml_edit` to a temporary file. Then rename the file. Keep the comments and the other keys.
+  On 2026-11-06, the "Correct text" toggle uses this rule for `[refine] enabled`.
 - [ ] Add the settings hub. At the dictation key press and when the menu opens, read the changed files again:
   settings, prompts, and dictionary.
 - [ ] Give each generation the settings snapshot that exists when the core creates it. Remove the temporary constants in `main.rs`.
 - [ ] Build the chat client one time. Build the step list of each snapshot from the selected prompt and model.
 - [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
-- [ ] Persist the existing "Correct text" toggle. Add "Open config.toml…", "Open dictionary…", and "Open prompts folder…".
+- [x] Persist the existing "Correct text" toggle in `config.toml` (`[refine] enabled`).
+- [ ] Add "Open config.toml…", "Open dictionary…", and "Open prompts folder…".
 - [ ] Add the "Prompt" and "Model" submenus when alternatives from the Phase 3 evaluation justify them.
   The second default prompt and model choices do not block the first settings delivery.
 - [ ] Select the speech provider and the chat provider in `config.toml`. Add a menu choice when a second adapter exists.

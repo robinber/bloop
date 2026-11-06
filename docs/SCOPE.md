@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 10 (2026-11-06). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 11 (2026-11-06). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -22,7 +22,7 @@ A feature that is off does not change the dictation path. Low latency stays a pr
 - The user can edit the correction prompts and add other prompts.
 - Streaming is the only STT path. Audio goes to the provider while capture continues.
 - Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds the optional correction.
-- Phase 3 adds a correction toggle and validates daily use. The toggle is off at each application start.
+- Phase 3 adds a correction toggle and validates daily use. Bloop keeps the toggle state in `config.toml`.
 - Phase 4 adds persistent settings and more menu choices when needed.
 - A dictionary gives the written form of names and terms (Phase 3).
   After the user edits a pasted text, Bloop proposes new entries (Phase 6).

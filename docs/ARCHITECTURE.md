@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 14 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 15 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -415,7 +415,10 @@ Known limits:
 ## Settings and status menu
 
 Phase 3 adds one correction toggle to the existing menu: the item "Correct text" with a checkmark,
-between the status lines and "Copy last result". It is off at each application start. Bloop does not keep its state.
+between the status lines and "Copy last result".
+Bloop keeps its state in `config.toml`, in the key `[refine] enabled`. Bloop reads the key at start. Without the file, the toggle is off.
+Each click writes the key with the `toml_edit` rule below. If the file is invalid, Bloop does not change it.
+An invalid `config.toml` has the same effect as an invalid dictionary: each capture fails with the error view.
 `bloop-app` captures its value when the transcription task of a generation starts (`StartCapture`).
 A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
 Phase 4 adds the design below. Prompt and model submenus depend on useful alternatives from the evaluation.
@@ -424,6 +427,7 @@ Phase 4 adds the design below. Prompt and model submenus depend on useful altern
 - The settings file is `~/Library/Application Support/Bloop/config.toml`. The prompt files are in the `prompts` folder next to it.
 - The user and Bloop both edit `config.toml`. For a menu change, Bloop changes one key with `toml_edit`.
   Bloop writes a temporary file and renames it. Thus the comments and the other keys stay.
+  The "Correct text" toggle uses this rule now for `[refine] enabled`.
 - At the dictation key press and when the menu opens, Bloop reads a file again if its modification time changed.
   Bloop does not watch the files.
 - At the first start, Bloop writes a commented template, an empty dictionary, and the default prompts. If a default prompt file is missing, Bloop writes it again.

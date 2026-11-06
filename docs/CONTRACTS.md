@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 22 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
+Status: revision 23 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
 and the transcription, chat, text step, and platform ports.
 It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
@@ -549,7 +549,10 @@ pub struct Processed {
 `Pipeline::process(&self, transcript: Transcript, context: &StepContext) -> Processed` is an `async fn`. It applies the steps without a generation.
 `run` calls `process` and converts its result to the event. Thus the steps and the raw fallback exist one time.
 The evaluation tool calls `process`, because only the core creates a `Generation`.
-The correction toggle is the status menu item "Correct text". It is off at each application start, and Bloop does not keep its state.
+The correction toggle is the status menu item "Correct text". `bloop-app` keeps its state in `config.toml`, in the key `[refine] enabled`.
+At start, `bloop-app` reads the key and gives the state to `StatusMenu::new`. If the file or the key does not exist, the state is off.
+An invalid file is `AppError::InvalidSettings`, as for the dictionary. The toggle then starts off.
+Each click writes the key with `toml_edit`, on the main thread. If the current file is invalid, Bloop does not change it and logs a warning.
 `bloop-app` keeps the toggle state on the main thread, not in the core.
 `Spawner::spawn` reads the state when the transcription task of a generation starts (`StartCapture`), and gives the value to the task.
 Thus a change affects only subsequent generations. It never changes an active capture or a running job.
