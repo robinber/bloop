@@ -135,17 +135,27 @@ impl AudioInput for Microphone {
     }
 
     fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError> {
-        let Capture {
-            generation: started,
+        let Some(Capture {
             rate,
             stream,
             counters,
-        } = self.active.take().ok_or(AppError::Internal)?;
+            ..
+        }) = self
+            .active
+            .take_if(|capture| capture.generation == generation)
+        else {
+            if let Some(capture) = &self.active {
+                tracing::error!(
+                    started = ?capture.generation,
+                    ?generation,
+                    "the stop is for another generation, the active capture stops"
+                );
+                self.cancel();
+            }
+            return Err(AppError::Internal);
+        };
         drop(stream);
         self.meter.set(0.0);
-        if started != generation {
-            return Err(AppError::Internal);
-        }
         let overruns = counters.overruns.load(Ordering::Relaxed);
         if overruns > 0 {
             tracing::warn!(overruns, "the microphone had overruns");
