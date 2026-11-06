@@ -145,17 +145,22 @@ async fn receive(provider: &mut Provider) -> Value {
 }
 
 /// Receives audio until `input_audio.end` and returns the decoded chunks.
+/// Each message must have exactly the fields of the provider protocol.
 async fn receive_audio(provider: &mut Provider) -> Vec<Vec<u8>> {
     let mut audio = Vec::new();
     loop {
         let message = receive(provider).await;
-        match message["type"].as_str() {
-            Some("input_audio.append") => {
-                audio.push(STANDARD.decode(message["audio"].as_str().unwrap()).unwrap());
-            }
-            Some("input_audio.end") => return audio,
-            other => panic!("unexpected message type {other:?}"),
+        if message == json!({ "type": "input_audio.end" }) {
+            return audio;
         }
+        let Some(Value::String(base64)) = message.get("audio") else {
+            panic!("unexpected message {message}");
+        };
+        assert_eq!(
+            message,
+            json!({ "type": "input_audio.append", "audio": base64 })
+        );
+        audio.push(STANDARD.decode(base64).unwrap());
     }
 }
 

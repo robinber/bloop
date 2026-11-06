@@ -10,8 +10,8 @@ use bloop_core::ports::ai::{self, BoxFuture, TranscriptionOptions, Transcription
 use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
@@ -68,18 +68,17 @@ impl Transcriber {
             ServerEvent::SessionCreated => {}
             event => return Err(unexpected(&event)),
         }
-        let update = json!({
-            "type": "session.update",
-            "session": {
-                "audio_format": {
-                    "encoding": "pcm_s16le",
-                    "sample_rate": options.sample_rate.get(),
+        let update = ClientEvent::SessionUpdate {
+            session: SessionSettings {
+                audio_format: AudioFormat {
+                    encoding: "pcm_s16le",
+                    sample_rate: options.sample_rate.get(),
                 },
-                "target_streaming_delay_ms": self.config.target_streaming_delay_ms,
-                "language": options.language,
-                "context_bias": options.vocabulary,
+                target_streaming_delay_ms: self.config.target_streaming_delay_ms,
+                language: options.language,
+                context_bias: options.vocabulary,
             },
-        });
+        };
         send(&mut ws, &update).await?;
         match read(&mut ws).await? {
             ServerEvent::SessionUpdated => {
@@ -161,17 +160,16 @@ impl TranscriptionSession for Session {
     ) -> BoxFuture<'a, Result<(), ProviderError>> {
         Box::pin(async move {
             self.drain()?;
-            let append = json!({
-                "type": "input_audio.append",
-                "audio": STANDARD.encode(chunk.as_bytes()),
-            });
+            let append = ClientEvent::AudioAppend {
+                audio: STANDARD.encode(chunk.as_bytes()),
+            };
             send(&mut self.ws, &append).await
         })
     }
 
     fn finish(mut self: Box<Self>) -> BoxFuture<'static, Result<Transcript, ProviderError>> {
         Box::pin(async move {
-            send(&mut self.ws, &json!({ "type": "input_audio.end" })).await?;
+            send(&mut self.ws, &ClientEvent::AudioEnd).await?;
             let text = loop {
                 match read(&mut self.ws).await? {
                     ServerEvent::Done { text } => break text,
@@ -192,6 +190,33 @@ impl TranscriptionSession for Session {
             Ok(Transcript::new(text.0))
         })
     }
+}
+
+/// An event that the adapter sends to the provider.
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum ClientEvent<'a> {
+    #[serde(rename = "session.update")]
+    SessionUpdate { session: SessionSettings<'a> },
+    #[serde(rename = "input_audio.append")]
+    AudioAppend { audio: String },
+    #[serde(rename = "input_audio.end")]
+    AudioEnd,
+}
+
+/// The settings of a session. The provider fixes them at the first audio chunk.
+#[derive(Serialize)]
+struct SessionSettings<'a> {
+    audio_format: AudioFormat,
+    target_streaming_delay_ms: u32,
+    language: &'a str,
+    context_bias: &'a [String],
+}
+
+#[derive(Serialize)]
+struct AudioFormat {
+    encoding: &'static str,
+    sample_rate: u32,
 }
 
 /// A provider event. The adapter ignores the event types that it does not use.
@@ -236,10 +261,12 @@ struct ErrorBody {
     code: Value,
 }
 
-async fn send(ws: &mut Socket, message: &Value) -> Result<(), ProviderError> {
-    ws.send(Message::text(message.to_string()))
-        .await
-        .map_err(transport_error)
+async fn send(ws: &mut Socket, event: &ClientEvent<'_>) -> Result<(), ProviderError> {
+    let text = serde_json::to_string(event).map_err(|error| {
+        tracing::error!(category = ?error.classify(), "the adapter cannot encode its event");
+        ProviderError::InvalidResponse
+    })?;
+    ws.send(Message::text(text)).await.map_err(transport_error)
 }
 
 /// Waits for the next provider event.
