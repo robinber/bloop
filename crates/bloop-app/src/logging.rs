@@ -2,7 +2,8 @@
 //!
 //! At start, a log file larger than [`LOG_LIMIT`] moves to `bloop.log.1` and replaces the older one.
 //! Thus Bloop keeps the current file and one previous file.
-//! The log also records each panic with its thread name, location, and message.
+//! The log also records each panic with its thread name and location.
+//! It records the panic message only when the message is a literal.
 
 use std::any::Any;
 use std::fs::{self, OpenOptions};
@@ -51,24 +52,33 @@ fn install_panic_hook() {
     let previous = panic::take_hook();
     panic::set_hook(Box::new(move |info: &PanicHookInfo<'_>| {
         let current = thread::current();
+        let (payload, payload_bytes) = payload_text(info.payload());
         tracing::error!(
             thread = current.name().unwrap_or("unnamed"),
             location = info.location().map(tracing::field::display),
-            payload = payload_text(info.payload()),
+            payload,
+            payload_bytes,
             "a thread panicked"
         );
         previous(info);
     }));
 }
 
-/// Returns the text of a `&str` or `String` panic payload, or a fixed phrase for other types.
-fn payload_text(payload: &(dyn Any + Send)) -> &str {
-    if let Some(text) = payload.downcast_ref::<&str>() {
-        text
+const FORMATTED_PAYLOAD: &str = "formatted message, not logged";
+
+/// Returns the text to log for a panic payload and, for a formatted message, its length in bytes.
+///
+/// A `&'static str` payload is a literal: compile-time text that contains no dictated text.
+/// A `String` payload is a formatted message, and its arguments can contain dictated text.
+/// For example, the message of a bad `str` slice quotes a character of the string.
+/// Thus a `String` gives only a fixed phrase and its length. Other types give a fixed phrase.
+fn payload_text(payload: &(dyn Any + Send)) -> (&'static str, Option<usize>) {
+    if let Some(text) = payload.downcast_ref::<&'static str>() {
+        (text, None)
     } else if let Some(text) = payload.downcast_ref::<String>() {
-        text
+        (FORMATTED_PAYLOAD, Some(text.len()))
     } else {
-        "payload is not text"
+        ("payload is not text", None)
     }
 }
 
@@ -189,13 +199,30 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_text_of_a_panic_payload() {
+    fn logs_a_literal_payload_and_only_the_length_of_a_formatted_one() {
         let literal: Box<dyn Any + Send> = Box::new("literal text");
-        let owned: Box<dyn Any + Send> = Box::new(String::from("owned text"));
+        let owned: Box<dyn Any + Send> = Box::new(String::from("dictée privée"));
         let other: Box<dyn Any + Send> = Box::new(42_u32);
 
-        assert_eq!(payload_text(&*literal), "literal text");
-        assert_eq!(payload_text(&*owned), "owned text");
-        assert_eq!(payload_text(&*other), "payload is not text");
+        assert_eq!(payload_text(&*literal), ("literal text", None));
+        let (text, bytes) = payload_text(&*owned);
+        assert!(!text.contains("dictée"));
+        assert_eq!(text, FORMATTED_PAYLOAD);
+        assert_eq!(bytes, Some("dictée privée".len()));
+        assert_eq!(payload_text(&*other), ("payload is not text", None));
+    }
+
+    #[test]
+    fn logs_only_the_length_of_the_message_of_a_bad_slice_panic() {
+        let dictated = String::from("é secret");
+        let end = 1;
+
+        let payload = panic::catch_unwind(|| dictated[..end].len()).unwrap_err();
+
+        let message = payload.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            payload_text(&*payload),
+            (FORMATTED_PAYLOAD, Some(message.len()))
+        );
     }
 }
