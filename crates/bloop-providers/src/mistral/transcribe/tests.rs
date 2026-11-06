@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
 
-use super::{ServerEvent, Session, Text, TranscribeConfig, Transcriber};
+use super::{LOG_EXCERPT, ServerEvent, Session, Text, TranscribeConfig, Transcriber, excerpt};
 
 const KEY: &str = "test-key";
 const MODEL: &str = "voxtral-test";
@@ -458,4 +458,13 @@ fn the_debug_of_a_delta_event_shows_no_text() {
 
     assert!(output.starts_with("Delta"), "{output}");
     assert!(!output.contains("Bonsoir"), "{output}");
+}
+
+#[test]
+fn an_excerpt_ends_at_the_last_char_boundary_before_the_limit() {
+    let long = format!("a{}", "é".repeat(150));
+    assert!(!long.is_char_boundary(LOG_EXCERPT));
+
+    assert_eq!(excerpt(&long), format!("a{}", "é".repeat(99)));
+    assert_eq!(excerpt("Invalid session"), "Invalid session");
 }

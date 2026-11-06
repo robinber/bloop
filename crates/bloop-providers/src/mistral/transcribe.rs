@@ -29,6 +29,9 @@ const URL: &str = "wss://api.mistral.ai/v1/audio/transcriptions/realtime";
 /// The largest provider frame and message that the adapter accepts. It bounds the receive buffer.
 const MAX_MESSAGE_SIZE: usize = 1 << 20;
 
+/// The largest part of a provider string that a log contains, in bytes.
+const LOG_EXCERPT: usize = 200;
+
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// The Voxtral realtime transcriber. Each session opens its own connection.
@@ -250,7 +253,7 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
                     .as_ref()
                     .map_or("?", |event| event["type"].as_str().unwrap_or("?"));
                 tracing::info!(
-                    ?kind,
+                    kind = ?excerpt(kind),
                     "the provider sent an event that the adapter does not use"
                 );
                 Ok(None)
@@ -287,11 +290,22 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
 /// Logs the event that the current operation does not accept.
 fn unexpected(event: &ServerEvent) -> ProviderError {
     if let ServerEvent::Error { error } = event {
-        tracing::warn!(code = %error.code, message = %error.message, "the provider sent an error");
+        let code = error.code.to_string();
+        let message = error.message.to_string();
+        tracing::warn!(
+            code = %excerpt(&code),
+            message = %excerpt(&message),
+            "the provider sent an error"
+        );
     } else {
         tracing::warn!(?event, "the provider sent an unexpected event");
     }
     ProviderError::InvalidResponse
+}
+
+/// Returns the start of `text`: at most `LOG_EXCERPT` bytes, cut at a char boundary.
+fn excerpt(text: &str) -> &str {
+    &text[..text.floor_char_boundary(LOG_EXCERPT)]
 }
 
 /// Maps a WebSocket error without a log of its content: an HTTP refusal contains the response headers and body.
