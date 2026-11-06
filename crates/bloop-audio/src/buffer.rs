@@ -79,6 +79,8 @@ impl Reader {
         let gone = self.state()?;
         let limit = self.consumer.slots();
         samples.reserve(limit);
+        // `read_chunk` cannot fail. `slots` counted `limit` samples, and only this reader removes
+        // samples from the queue. Thus the queue still holds at least `limit` samples.
         if let Ok(chunk) = self.consumer.read_chunk(limit) {
             let (first, second) = chunk.as_slices();
             samples.extend_from_slice(first);
