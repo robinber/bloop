@@ -18,7 +18,8 @@ use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
 
 use super::{
-    DRAIN_LIMIT, LOG_EXCERPT, ServerEvent, Session, Text, TranscribeConfig, Transcriber, excerpt,
+    DRAIN_LIMIT, LOG_EXCERPT, MAX_MESSAGE_SIZE, ServerEvent, Session, Text, TranscribeConfig,
+    Transcriber, excerpt,
 };
 
 const KEY: &str = "test-key";
@@ -492,6 +493,65 @@ async fn dropping_the_session_during_audio_closes_the_connection() {
     drop(session);
 
     assert!(server.await.unwrap().1);
+}
+
+#[tokio::test]
+async fn dropping_start_while_it_waits_for_session_updated_closes_the_connection() {
+    let (transcriber, server) = serve(|mut provider| async move {
+        emit(&mut provider, &created()).await;
+        assert_eq!(receive(&mut provider).await["type"], "session.update");
+        provider
+    })
+    .await;
+
+    let mut start = ai::Transcriber::start(&transcriber, options());
+    let (_, mut provider) = tokio::select! {
+        biased;
+        _ = &mut start => panic!("start ended before session.updated"),
+        server = server => server.unwrap(),
+    };
+    drop(start);
+
+    assert!(ended(&mut provider).await);
+}
+
+#[tokio::test]
+async fn dropping_finish_while_it_waits_for_the_transcript_closes_the_connection() {
+    let (transcriber, server) = serve(|mut provider| async move {
+        setup(&mut provider).await;
+        receive_audio(&mut provider).await;
+        provider
+    })
+    .await;
+
+    let session = transcriber.open(options()).await.unwrap();
+    let mut finish = Box::new(session).finish();
+    let (_, mut provider) = tokio::select! {
+        biased;
+        _ = &mut finish => panic!("finish ended before transcription.done"),
+        server = server => server.unwrap(),
+    };
+    drop(finish);
+
+    assert!(ended(&mut provider).await);
+}
+
+#[tokio::test]
+async fn a_message_larger_than_the_limit_fails_finish_with_invalid_response() {
+    let large = json!({ "type": "transcription.text.delta", "text": "a".repeat(MAX_MESSAGE_SIZE) });
+    let (transcriber, server) = serve(|mut provider| async move {
+        setup(&mut provider).await;
+        receive_audio(&mut provider).await;
+        // The client can close the connection before the provider wrote all of the message.
+        provider.send(Message::text(large.to_string())).await.ok();
+    })
+    .await;
+
+    let session = transcriber.open(options()).await.unwrap();
+    let result = Box::new(session).finish().await;
+
+    server.await.unwrap();
+    assert_eq!(result.err(), Some(ProviderError::InvalidResponse));
 }
 
 #[test]
