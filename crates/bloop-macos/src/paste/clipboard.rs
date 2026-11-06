@@ -18,30 +18,59 @@ use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 /// The data of one clipboard item, for each of its types.
 pub(super) type SavedItem = Vec<(Retained<NSPasteboardType>, Retained<NSData>)>;
 
+const MAX_SAVED_ITEMS: usize = 64;
+const MAX_SAVED_BYTES: usize = 64 * 1024 * 1024;
+
 /// Reads all items of the clipboard, with the data of all their types.
 ///
 /// Returns `None` if macOS cannot list the items. A type that cannot be read is left out.
+/// The save runs on the main thread, which also runs the event tap. Thus a clipboard with more
+/// than [`MAX_SAVED_ITEMS`] items or more than [`MAX_SAVED_BYTES`] bytes of data also gives `None`.
 pub(super) fn save(pasteboard: &NSPasteboard) -> Option<Vec<SavedItem>> {
+    save_within(pasteboard, MAX_SAVED_ITEMS, MAX_SAVED_BYTES)
+}
+
+/// Reads the clipboard as [`save`] does, with no more than `max_items` items and `max_bytes` bytes.
+pub(super) fn save_within(
+    pasteboard: &NSPasteboard,
+    max_items: usize,
+    max_bytes: usize,
+) -> Option<Vec<SavedItem>> {
     let Some(items) = pasteboard.pasteboardItems() else {
         tracing::warn!("Bloop cannot read the clipboard, thus it will not restore it");
         return None;
     };
+    let count = items.count();
+    if count > max_items {
+        tracing::warn!(
+            items = count,
+            "the clipboard has too many items, Bloop will not restore it"
+        );
+        return None;
+    }
+    let mut bytes = 0_usize;
     let mut missing = 0_usize;
-    let saved = items
-        .iter()
-        .map(|item| {
-            item.types()
-                .iter()
-                .filter_map(|data_type| {
-                    let data = item.dataForType(&data_type);
-                    if data.is_none() {
-                        missing += 1;
-                    }
-                    data.map(|data| (data_type, data))
-                })
-                .collect()
-        })
-        .collect();
+    let mut saved = Vec::with_capacity(count);
+    for item in &items {
+        let mut types = Vec::new();
+        for data_type in item.types() {
+            let Some(data) = item.dataForType(&data_type) else {
+                missing += 1;
+                continue;
+            };
+            bytes = bytes.saturating_add(data.len());
+            if bytes > max_bytes {
+                tracing::warn!(
+                    items = count,
+                    bytes,
+                    "the clipboard data is too large, Bloop will not restore it"
+                );
+                return None;
+            }
+            types.push((data_type, data));
+        }
+        saved.push(types);
+    }
     if missing > 0 {
         tracing::warn!(
             missing,

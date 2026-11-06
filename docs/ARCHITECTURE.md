@@ -372,6 +372,7 @@ The paste:
 
 1. Bloop saves all items of the current clipboard, with the data of all their types.
    If macOS cannot list the items, Bloop does not restore the clipboard, and the text stays in it.
+   If the clipboard has more than 64 items or more than 64 MiB of data, Bloop stops the save and does not restore the clipboard.
    If some types cannot be read, Bloop restores the other types. The log records the number of missing types.
 2. Bloop does the target check. The save can wait for another application, thus the check comes after the save.
    If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.

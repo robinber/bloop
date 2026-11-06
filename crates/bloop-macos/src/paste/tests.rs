@@ -8,6 +8,7 @@ use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
 
 use bloop_core::session::InsertOutcome;
 
+use super::clipboard::save_within;
 use super::{
     KEY_V, Target, Targets, Transaction, is_posted, mark_posted, restore, save, string_type,
     transient_type, write_text,
@@ -77,6 +78,10 @@ fn contents(pasteboard: &NSPasteboard) -> Contents {
             types
         })
         .collect()
+}
+
+fn byte_count(contents: &Contents) -> usize {
+    contents.iter().flatten().map(|(_, data)| data.len()).sum()
 }
 
 fn with_transient_marker(contents: Contents) -> Contents {
@@ -207,6 +212,58 @@ fn restore_writes_the_saved_items_back_with_the_transient_marker() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), with_transient_marker(before));
+    pasteboard.clearContents();
+}
+
+#[test]
+fn save_within_keeps_a_clipboard_at_the_item_and_byte_bounds() {
+    let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+    write(
+        &pasteboard,
+        &[
+            item(&[(ns_string!("com.example.bloop.alpha"), &b"alpha"[..])]),
+            item(&[(ns_string!("com.example.bloop.beta"), &b"beta"[..])]),
+        ],
+    );
+    let before = contents(&pasteboard);
+    let saved = save_within(&pasteboard, before.len(), byte_count(&before));
+    let written = write(&pasteboard, &[bloop_text()]);
+
+    restore(&pasteboard, saved, written);
+
+    assert_eq!(contents(&pasteboard), with_transient_marker(before));
+    pasteboard.clearContents();
+}
+
+#[test]
+fn save_within_gives_nothing_for_one_item_above_the_byte_bound() {
+    let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+    write(
+        &pasteboard,
+        &[item(&[(
+            ns_string!("com.example.bloop.alpha"),
+            &[7; 16][..],
+        )])],
+    );
+    let bytes = byte_count(&contents(&pasteboard));
+
+    assert!(save_within(&pasteboard, 1, bytes - 1).is_none());
+    pasteboard.clearContents();
+}
+
+#[test]
+fn save_within_gives_nothing_for_more_items_than_the_item_bound() {
+    let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+    write(
+        &pasteboard,
+        &[
+            item(&[(ns_string!("com.example.bloop.alpha"), &b"alpha"[..])]),
+            item(&[(ns_string!("com.example.bloop.beta"), &b"beta"[..])]),
+            item(&[(ns_string!("com.example.bloop.gamma"), &b"gamma"[..])]),
+        ],
+    );
+
+    assert!(save_within(&pasteboard, 2, usize::MAX).is_none());
     pasteboard.clearContents();
 }
 
