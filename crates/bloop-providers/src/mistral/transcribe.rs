@@ -125,9 +125,9 @@ struct Session {
 }
 
 impl Session {
-    fn count(&mut self, delta: &Text) {
+    fn count(&mut self, delta: Option<&Text>) {
         self.deltas += 1;
-        self.delta_chars += delta.0.chars().count();
+        self.delta_chars += delta.map_or(0, |delta| delta.0.chars().count());
     }
 
     /// Reads the provider events that already arrived, without waiting for more.
@@ -135,7 +135,7 @@ impl Session {
         while let Some(item) = self.ws.next().now_or_never() {
             match decode(item)? {
                 None => {}
-                Some(ServerEvent::Delta { text }) => self.count(&text),
+                Some(ServerEvent::Delta { text }) => self.count(text.as_ref()),
                 Some(event) => return Err(unexpected(&event)),
             }
         }
@@ -164,7 +164,7 @@ impl TranscriptionSession for Session {
             let text = loop {
                 match read(&mut self.ws).await? {
                     ServerEvent::Done { text } => break text,
-                    ServerEvent::Delta { text } => self.count(&text),
+                    ServerEvent::Delta { text } => self.count(text.as_ref()),
                     event => return Err(unexpected(&event)),
                 }
             };
@@ -194,7 +194,7 @@ enum ServerEvent {
     #[serde(rename = "transcription.text.delta")]
     Delta {
         #[serde(default)]
-        text: Text,
+        text: Option<Text>,
     },
     #[serde(rename = "transcription.done")]
     Done { text: Text },
@@ -205,7 +205,7 @@ enum ServerEvent {
 }
 
 /// Text from the provider. `Debug` shows only the number of characters.
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
 struct Text(String);
 
 impl fmt::Debug for Text {

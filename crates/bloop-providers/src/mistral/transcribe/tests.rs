@@ -284,6 +284,31 @@ async fn deltas_during_audio_and_before_done_are_ignored() {
 }
 
 #[tokio::test]
+async fn deltas_with_a_null_text_are_counted_and_do_not_fail_the_session() {
+    let chunks = chunks();
+    let null_delta = json!({ "type": "transcription.text.delta", "text": null });
+    let (transcriber, server) = serve(|mut provider| async move {
+        setup(&mut provider).await;
+        receive(&mut provider).await;
+        emit(&mut provider, &null_delta).await;
+        receive_audio(&mut provider).await;
+        emit(&mut provider, &null_delta).await;
+        emit(&mut provider, &done()).await;
+    })
+    .await;
+
+    let mut session = transcriber.open(options()).await.unwrap();
+    session.send_audio(&chunks[0]).await.unwrap();
+    arrived(&session).await;
+    session.send_audio(&chunks[1]).await.unwrap();
+    assert_eq!((session.deltas, session.delta_chars), (1, 0));
+    let transcript = Box::new(session).finish().await.unwrap();
+
+    server.await.unwrap();
+    assert_eq!(transcript.as_str(), TEXT);
+}
+
+#[tokio::test]
 async fn a_refused_handshake_maps_the_status() {
     for (status, expected) in [
         (StatusCode::UNAUTHORIZED, ProviderError::Unauthorized),
