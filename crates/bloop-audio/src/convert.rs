@@ -1,5 +1,6 @@
 //! Incremental conversion of the capture to the sample rate of the speech provider.
 
+use std::fmt;
 use std::num::NonZeroU32;
 
 use rubato::audioadapter::{Adapter, AdapterMut};
@@ -39,6 +40,7 @@ impl From<ResampleError> for ConvertError {
 /// After [`flush`](Self::flush), the capture gave `ceil(n × RATE / rate)` output samples
 /// for `n` input samples at `rate`.
 /// The output does not depend on how the calls to [`push`](Self::push) divide the input.
+/// `Debug` shows the input and output rates, never the samples.
 pub struct Converter(Kind);
 
 enum Kind {
@@ -60,6 +62,19 @@ struct Resample {
     skip: usize,
     received: usize,
     emitted: usize,
+}
+
+impl fmt::Debug for Converter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rate = match &self.0 {
+            Kind::Copy => RATE,
+            Kind::Resample(resample) => resample.rate,
+        };
+        f.debug_struct("Converter")
+            .field("input_rate", &rate)
+            .field("output_rate", &RATE)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Converter {
@@ -269,5 +284,21 @@ mod tests {
 
             assert!(output.is_empty(), "{rate}");
         }
+    }
+
+    #[test]
+    fn the_debug_output_shows_the_rates_and_no_samples() {
+        let mut converter = Converter::new(NonZeroU32::new(48_000).unwrap()).unwrap();
+        converter.push(&[0.25; 100], &mut Vec::new()).unwrap();
+        let copy = Converter::new(NonZeroU32::new(16_000).unwrap()).unwrap();
+
+        assert_eq!(
+            format!("{converter:?}"),
+            "Converter { input_rate: 48000, output_rate: 16000, .. }"
+        );
+        assert_eq!(
+            format!("{copy:?}"),
+            "Converter { input_rate: 16000, output_rate: 16000, .. }"
+        );
     }
 }

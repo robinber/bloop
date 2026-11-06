@@ -2,6 +2,7 @@
 //!
 //! The capture uses the default input, except when `device::preferred_input` names another one.
 
+use std::fmt;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -22,6 +23,7 @@ const SCRATCH_FRAMES: usize = 4096;
 /// Captures the default input device, or the device that `device::preferred_input` names.
 ///
 /// It operates on the main thread.
+/// `Debug` shows the generation and the rate of the active capture, never its samples.
 pub struct Microphone {
     meter: LevelMeter,
     events: Arc<dyn EventSink>,
@@ -45,6 +47,23 @@ struct Counters {
     frames: AtomicU64,
     peak: AtomicU32,
     overruns: AtomicU64,
+}
+
+impl fmt::Debug for Microphone {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Microphone")
+            .field("active", &self.active)
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for Capture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Capture")
+            .field("generation", &self.generation)
+            .field("rate", &self.rate)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Microphone {
@@ -228,9 +247,20 @@ fn duration(frames: u64, rate: NonZeroU32) -> Duration {
 #[cfg(test)]
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32};
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use super::{duration, mix};
+    use bloop_core::domain::LevelMeter;
+    use bloop_core::ports::platform::EventSink;
+    use bloop_core::session::Event;
+
+    use super::{Microphone, duration, mix};
+
+    struct NoEvents;
+
+    impl EventSink for NoEvents {
+        fn send(&self, _: Event) {}
+    }
 
     #[test]
     fn the_mix_is_the_mean_of_the_channels_and_the_peak_ignores_nan() {
@@ -257,5 +287,12 @@ mod tests {
             duration(u64::MAX, rate(48_000)),
             Duration::new(384_307_168_202_282, 325_312_500)
         );
+    }
+
+    #[test]
+    fn the_debug_output_of_a_microphone_without_capture_shows_no_capture() {
+        let microphone = Microphone::new(LevelMeter::default(), Arc::new(NoEvents), || true);
+
+        assert_eq!(format!("{microphone:?}"), "Microphone { active: None, .. }");
     }
 }
