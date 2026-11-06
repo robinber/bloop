@@ -167,6 +167,23 @@ fn stale_hold_timer_does_not_start_a_newer_capture() {
 }
 
 #[test]
+fn second_hold_timer_during_listening_has_no_effect() {
+    let mut core = Core::new();
+    let generation = start_listening(&mut core);
+
+    assert_eq!(core.handle(Event::HoldElapsed(generation)), vec![]);
+    assert!(core.capture_active());
+    assert_eq!(
+        core.handle(Event::DictationKeyUp),
+        vec![
+            Command::RecordTarget(generation),
+            Command::StopCaptureAndProcess(generation),
+            Command::CloseOrb
+        ]
+    );
+}
+
+#[test]
 fn stale_capture_events_do_not_touch_the_active_capture() {
     let mut core = Core::new();
     let stale = start_listening(&mut core);
@@ -363,6 +380,36 @@ fn late_failures_of_a_pasting_job_are_ignored() {
     assert_eq!(
         core.handle(Event::InsertDone(first, InsertOutcome::Landed)),
         vec![Command::Insert(second, text("deux"))]
+    );
+}
+
+#[test]
+fn work_failure_of_a_ready_job_behind_the_head_keeps_the_queue() {
+    let mut core = Core::new();
+    let first = start_job(&mut core);
+    let second = start_job(&mut core);
+    let third = start_job(&mut core);
+    assert_eq!(core.handle(Event::TextReady(second, text("deux"))), vec![]);
+
+    assert_eq!(
+        core.handle(Event::WorkFailed(
+            second,
+            AppError::Provider(ProviderError::Network)
+        )),
+        vec![]
+    );
+    assert_eq!(
+        core.handle(Event::TextReady(first, text("un"))),
+        vec![Command::Insert(first, text("un"))]
+    );
+    assert_eq!(core.handle(Event::TextReady(third, text("trois"))), vec![]);
+    assert_eq!(
+        core.handle(Event::InsertDone(first, InsertOutcome::Landed)),
+        vec![Command::Insert(second, text("deux"))]
+    );
+    assert_eq!(
+        core.handle(Event::InsertDone(second, InsertOutcome::Landed)),
+        vec![Command::Insert(third, text("trois"))]
     );
 }
 
@@ -620,6 +667,37 @@ fn system_sleep_cancels_the_capture_and_all_jobs() {
         core.handle(Event::CopyLastResult),
         vec![Command::CopyToClipboard(text("un"))]
     );
+}
+
+#[test]
+fn system_sleep_without_a_capture_cancels_every_queued_job() {
+    let mut core = Core::new();
+    let first = start_job(&mut core);
+    let second = start_job(&mut core);
+    let third = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(first, text("un"))),
+        vec![Command::Insert(first, text("un"))]
+    );
+    assert_eq!(core.handle(Event::TextReady(second, text("deux"))), vec![]);
+
+    assert_eq!(
+        core.handle(Event::SystemSleep),
+        vec![
+            Command::CancelWork(first),
+            Command::CancelWork(second),
+            Command::CancelWork(third)
+        ]
+    );
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            first,
+            InsertOutcome::Fallback(FallbackReason::NotRead)
+        )),
+        vec![]
+    );
+    assert_eq!(core.handle(Event::TextReady(third, text("trois"))), vec![]);
+    start_listening(&mut core);
 }
 
 #[test]
