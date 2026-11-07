@@ -127,9 +127,9 @@ impl Fake {
                 log: Arc::clone(&self.log),
                 rates: Arc::clone(&self.rates),
             }),
-            correction: Some(Correction::new(
+            correction: Ok(Correction::new(
                 Arc::clone(&self.chat) as Arc<dyn ChatModel>,
-                &NATURAL_LIGHT,
+                NATURAL_LIGHT.to_prompt(),
             )),
             language: "fr".to_owned(),
             vocabulary: Vec::new(),

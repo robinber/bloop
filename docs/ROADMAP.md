@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 16 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design revision 17 (2026-11-07). Phase 1 and Phase 2 are complete.
 On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
@@ -427,15 +427,16 @@ Iteration 0 records the validated design in the documents, with the owner decisi
 The menu does not change. A change in the file applies at the next start.
 
 - [x] Persist the existing "Correct text" toggle in `config.toml` (`[refine] enabled`).
-- [ ] Add the settings schema to `bloop-app`, with default values and `schema = 1`. Each error gives the line of the key or of its table.
-- [ ] Add `Deserialize` under the vendor feature, `Clone`, `PartialEq`, the `[chat] models` list, and `template()` to the provider configs.
-- [ ] Add `files.rs`: the bounded read, the write of a missing file, and the atomic replace.
-- [ ] At the first start, write the commented `config.toml` template with `enabled = false`, and create the prompts folder.
+- [x] Add the settings schema to `bloop-app`, with default values and `schema = 1`. Each error gives the line of the key or of its table.
+- [x] Add `Deserialize` under the vendor feature, `Clone`, `PartialEq`, the `[chat] models` list, and `template()` to the provider configs.
+- [x] Add `files.rs`: the bounded read, the write of a missing file, and the atomic replace.
+- [x] At the first start, write the commented `config.toml` template with `enabled = false`, and create the prompts folder.
   Do not change an existing file.
-- [ ] Select the prompt from a user file of the prompts folder, else from the built-in prompts.
+- [x] Select the prompt from a user file of the prompts folder, else from the built-in prompts.
   Add `NoCorrection::{ChatUnavailable, InvalidPrompt}`.
-- [ ] Replace `HOLD` and `LANGUAGE` with settings. Keep `CORRECTION_LIMIT` as a constant.
-- [ ] Select the speech provider and the chat provider in `config.toml`. Add a menu choice when a second adapter exists.
+- [x] Replace `HOLD` and `LANGUAGE` with settings. Keep `CORRECTION_LIMIT` as a constant.
+- [x] Select the speech provider and the chat provider in `config.toml`.
+- [ ] Add a menu choice of the provider when a second adapter exists.
 
 ### Iteration 2: hub and settings snapshot
 

@@ -262,6 +262,7 @@ mod tests {
     fn config(reasoning_effort: Option<&str>) -> ChatConfig {
         ChatConfig {
             model: MODEL.to_owned(),
+            models: Vec::new(),
             reasoning_effort: reasoning_effort.map(str::to_owned),
             temperature: 0.0,
         }

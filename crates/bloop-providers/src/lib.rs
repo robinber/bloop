@@ -18,7 +18,14 @@ use bloop_core::ports::ai::{ChatModel, Transcriber};
 use secrecy::SecretString;
 
 /// The transcription provider and its settings.
-#[derive(Debug)]
+///
+/// In the settings file, the `provider` key selects the variant, in snake case.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(
+    feature = "mistral",
+    derive(serde::Deserialize),
+    serde(tag = "provider", rename_all = "snake_case")
+)]
 pub enum TranscriberConfig {
     /// Voxtral realtime transcription.
     #[cfg(feature = "mistral")]
@@ -37,6 +44,15 @@ impl TranscriberConfig {
 }
 
 #[cfg(feature = "mistral")]
+impl TranscriberConfig {
+    /// The commented `[transcriber]` table of the default provider, with its default values, for the settings template.
+    #[must_use]
+    pub fn template() -> &'static str {
+        mistral::TRANSCRIBER_TEMPLATE
+    }
+}
+
+#[cfg(feature = "mistral")]
 impl Default for TranscriberConfig {
     fn default() -> Self {
         Self::Mistral(mistral::TranscribeConfig::default())
@@ -44,7 +60,14 @@ impl Default for TranscriberConfig {
 }
 
 /// The chat provider and its settings.
-#[derive(Debug)]
+///
+/// In the settings file, the `provider` key selects the variant, in snake case.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(
+    feature = "mistral",
+    derive(serde::Deserialize),
+    serde(tag = "provider", rename_all = "snake_case")
+)]
 pub enum ChatConfig {
     /// Mistral chat completions.
     #[cfg(feature = "mistral")]
@@ -85,6 +108,15 @@ impl ChatConfig {
             #[cfg(feature = "mistral")]
             Self::Mistral(config) => Self::Mistral(mistral::ChatConfig { model, ..config }),
         }
+    }
+}
+
+#[cfg(feature = "mistral")]
+impl ChatConfig {
+    /// The commented `[chat]` table of the default provider, with its default values, for the settings template.
+    #[must_use]
+    pub fn template() -> &'static str {
+        mistral::CHAT_TEMPLATE
     }
 }
 

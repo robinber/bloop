@@ -83,10 +83,50 @@ Without the file, the dictionary is empty.
 
 ## Settings file
 
-Bloop keeps the state of **Correct text** in `~/Library/Application Support/Bloop/config.toml`, in the key `[refine] enabled`.
-Bloop writes the file when you click the item, and keeps your comments.
-For now, the file accepts only `schema = 1` and `[refine] enabled`.
-After you edit the file, quit and open Bloop again. An invalid file prevents dictation. The log gives the line of the error.
+The settings file is `~/Library/Application Support/Bloop/config.toml`.
+At the first start, Bloop writes this file with comments and the default values. Bloop never changes an existing file at start.
+To get the commented file again, delete the file, then quit and open Bloop again.
+
+Each key is optional. A missing key has its default value:
+
+| Key | Default value | Values |
+| --- | --- | --- |
+| `schema` | `1` | Only `1` |
+| `[dictation] hold_ms` | `220` | The hold time of the dictation key before the recording starts, from 100 to 1000 ms |
+| `[dictation] language` | `"fr"` | Two lowercase ASCII letters |
+| `[transcriber] provider` | `"mistral"` | The speech provider. It is necessary when the table exists. |
+| `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The transcription model |
+| `[transcriber] target_streaming_delay_ms` | `480` | The balance between delay and accuracy, in milliseconds |
+| `[chat] provider` | `"mistral"` | The correction provider. It is necessary when the table exists. |
+| `[chat] model` | `"mistral-medium-latest"` | The correction model |
+| `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | A list of correction models. It has no effect for now. |
+| `[chat] reasoning_effort` | `"none"` | The reasoning effort of the correction model |
+| `[refine] enabled` | `false` | The state of **Correct text** |
+| `[refine] prompt` | `"natural-light"` | A prompt name: 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-` |
+
+Each table rejects an unknown key. The file size is at most 64 KiB.
+When you click **Correct text**, Bloop writes `[refine] enabled` and keeps your comments.
+
+A change in the file applies at the next start. After you edit the file, quit and open Bloop again.
+An invalid file prevents dictation, and **Correct text** is off. The log gives the line of the key, or of its table.
+In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table.
+
+### Prompts
+
+The correction sends a prompt to the chat model. The built-in prompt is `natural-light`.
+Bloop creates the folder `~/Library/Application Support/Bloop/prompts/` at start. It contains only your prompts.
+
+To use your own prompt:
+
+1. Write the prompt in a file of the prompts folder, for example `dev.md`.
+   To start from the built-in prompt, copy `prompts/natural-light.md` of this repository.
+2. Set `prompt = "dev"` in `[refine]`.
+3. Quit and open Bloop again.
+
+A file with the name of a built-in prompt replaces it. For example, `natural-light.md` replaces the built-in prompt.
+A prompt file must contain UTF-8 text that is not empty. Its size is at most 32 KiB.
+If the selected prompt is missing or not valid, each dictation with **Correct text** fails. Without **Correct text**, dictation operates.
+The log gives the prompt name and the reason.
 
 ## Evaluate the correction
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 16 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 17 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -441,7 +441,7 @@ The write rule:
 - Bloop writes the new text to `config.toml.tmp`, syncs it, and renames it to `config.toml`.
   Thus Bloop never truncates an existing file, and the old file stays valid after a crash.
 - If the current file is invalid, Bloop does not change it.
-- If the file is missing, the change starts from the template (from Phase 4 iteration 1). Today, it starts from `schema = 1`.
+- If the file is missing, the change starts from the template.
 - The "Correct text" toggle uses this rule now for `[refine] enabled`.
 
 ### Files and prompts
@@ -475,6 +475,7 @@ The prompts:
 
 From Phase 4 iteration 2, the settings hub of `bloop-app` keeps the file texts, the parsed settings, and the current snapshot.
 Until then, Bloop reads the files at start only, and a change applies at the next start.
+At start, Bloop reads the selected prompt also when the correction is off, because the toggle can change before the next start.
 
 - At the dictation key press (from iteration 2) and when the menu opens (from iteration 3), the hub reads `config.toml`, `dictionary.toml`,
   and the selected prompt file when the correction is on.
@@ -628,7 +629,7 @@ Phase 6 adds learning from fixes:
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
 - The settings file contains nonsecret settings only: hold threshold, language, providers, models, streaming delay, correction state, and prompt name.
   The dictation key comes with the optional key iteration of Phase 4.
-- From Phase 4 iteration 1, Bloop writes a commented template with the default values when the settings file is missing at start.
+- Bloop writes a commented template with the default values when the settings file is missing at start.
 - The prompt files of the user are in `~/Library/Application Support/Bloop/prompts/` (Phase 4). They contain no dictated text.
 - For the settings, the log records file names, error kinds, lines, and nonsecret values: models, prompt name, and hold threshold.
   It never records the file content.

@@ -4,12 +4,14 @@
 
 mod dictionary;
 mod driver;
+mod files;
 mod logging;
 mod prompts;
 mod settings;
 mod worker;
 
 use std::cell::Cell;
+use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -30,15 +32,14 @@ use bloop_macos::paste::Paster;
 use bloop_macos::permissions;
 use bloop_macos::scheduler::MainScheduler;
 use bloop_macos::sleep::SleepObserver;
-use bloop_providers::{ChatConfig, TranscriberConfig, build_chat_model, build_transcriber};
+use bloop_providers::{ChatConfig, build_chat_model, build_transcriber};
 use secrecy::SecretString;
 use tokio::runtime::Builder;
 
 use crate::driver::Driver;
-use crate::worker::{Correction, Limits, Spawner, Speech};
+use crate::settings::PromptName;
+use crate::worker::{Correction, Limits, NoCorrection, Spawner, Speech};
 
-const HOLD: Duration = Duration::from_millis(220);
-const LANGUAGE: &str = "fr";
 /// The time limit of each correction request: an initial value, not measured.
 const CORRECTION_LIMIT: Duration = Duration::from_secs(8);
 
@@ -70,22 +71,23 @@ fn main() -> ExitCode {
     if !missing.is_empty() {
         tracing::warn!(?missing, "permissions are missing");
     }
-    let saved_correction = settings::load();
+    let (settings, folder) = settings::load();
     let vocabulary = dictionary::load().map(|dictionary| dictionary.written_forms());
-    let transcriber = TranscriberConfig::default();
-    let chat = ChatConfig::default();
-    let key = Keychain.get(transcriber.account());
-    let chat_key = if chat.account() == transcriber.account() {
+    let hold = settings.dictation.hold_ms.duration();
+    let correct_on = folder.is_ok() && settings.refine.enabled;
+    let key = Keychain.get(settings.transcriber.account());
+    let chat_key = if settings.chat.account() == settings.transcriber.account() {
         key.clone()
     } else {
-        Keychain.get(chat.account())
+        Keychain.get(settings.chat.account())
     };
     let key_error = key.as_ref().err().copied();
-    let speech = match (key, saved_correction, vocabulary) {
-        (Ok(key), Ok(_), Ok(vocabulary)) => Ok(Arc::new(Speech {
-            transcriber: build_transcriber(transcriber, key),
-            correction: correction(chat, chat_key),
-            language: LANGUAGE.to_owned(),
+    let prompt = &settings.refine.prompt;
+    let speech = match (key, folder, vocabulary) {
+        (Ok(key), Ok(folder), Ok(vocabulary)) => Ok(Arc::new(Speech {
+            transcriber: build_transcriber(settings.transcriber, key),
+            correction: correction(settings.chat, chat_key, &folder.prompts, prompt),
+            language: settings.dictation.language.as_str().to_owned(),
             vocabulary,
             limits: Limits::default(),
         })),
@@ -98,7 +100,6 @@ fn main() -> ExitCode {
     let _sleep = SleepObserver::new(mtm);
 
     let sink: Arc<dyn EventSink> = Arc::new(MainSink);
-    let correct_on = saved_correction.unwrap_or(false);
     let correction_on = Rc::new(Cell::new(correct_on));
     let spawner = Spawner {
         runtime: runtime.handle().clone(),
@@ -115,7 +116,7 @@ fn main() -> ExitCode {
         Paster::new(mtm),
         microphone,
         spawner,
-        HOLD,
+        hold,
     );
     // Install the tap after the slow setup: macOS disables a tap that gets events before the run loop runs.
     let tap = KeyTap::install(mtm);
@@ -147,30 +148,47 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Builds the correction steps with the default prompt.
-/// Returns `None`, and logs why, when the chat model is not available.
-fn correction(config: ChatConfig, key: Result<SecretString, SecretError>) -> Option<Correction> {
+/// Builds the correction steps with the prompt `name` of the prompts folder `folder`, or the built-in prompt.
+/// Returns why the correction is not available, and logs it, when the prompt is not valid or the chat model is not available.
+fn correction(
+    config: ChatConfig,
+    key: Result<SecretString, SecretError>,
+    folder: &Path,
+    name: &PromptName,
+) -> Result<Correction, NoCorrection> {
+    let prompt = match prompts::resolve(folder, name) {
+        Ok(prompt) => prompt,
+        Err(error) => {
+            tracing::error!(
+                prompt = name.as_str(),
+                ?error,
+                "the prompt is not valid, each dictation with the correction on fails until it is fixed and Bloop starts again"
+            );
+            return Err(NoCorrection::InvalidPrompt);
+        }
+    };
     let key = match key {
         Ok(key) => key,
         Err(error) => {
             tracing::warn!(?error, "the correction is not available: no API key");
-            return None;
+            return Err(NoCorrection::ChatUnavailable);
         }
     };
     match build_chat_model(config, key, CORRECTION_LIMIT) {
         Ok(model) => {
             tracing::info!(
-                prompt = prompts::NATURAL_LIGHT.name,
+                prompt = prompt.name,
+                source = ?prompt.source,
                 "the correction is available"
             );
-            Some(Correction::new(model, &prompts::NATURAL_LIGHT))
+            Ok(Correction::new(model, prompt))
         }
         Err(error) => {
             tracing::warn!(
                 ?error,
                 "the correction is not available: the chat model did not start"
             );
-            None
+            Err(NoCorrection::ChatUnavailable)
         }
     }
 }

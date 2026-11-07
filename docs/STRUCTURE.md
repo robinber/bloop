@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 23 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 24 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -8,6 +8,7 @@ At start, `bloop-macos` reads the API key from Keychain and checks the microphon
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
 `bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature.
 Phase 3 adds optional correction, one toggle to the existing status menu, and the dictionary.
+Phase 4 iteration 1 adds the settings file: `bloop-app` reads all the settings from `config.toml` at start.
 Phase 4 adds the settings hub and general menu model. Phase 6 adds learning from fixes.
 The [roadmap](ROADMAP.md#priorities) gives the priorities.
 
@@ -30,7 +31,7 @@ bloop/
 │   ├── bloop-providers/       AI providers: one module for each vendor
 │   ├── bloop-audio/           Microphone capture and incremental PCM conversion
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
-│   └── bloop-app/             Executable: settings (correction state; the rest in Phase 4), construction, driver
+│   └── bloop-app/             Executable: settings, construction, driver
 ├── prompts/
 │   ├── natural-light.md       Built-in correction prompt (Phase 3)
 │   └── test-set-fr.toml       French test set of the correction, with reserved validation samples (Phase 3)
@@ -114,11 +115,11 @@ src/
 ```text
 src/
 ├── lib.rs             TranscriberConfig, ChatConfig with its model accessors, build_transcriber, build_chat_model (Phase 3);
-│                      Phase 4 iteration 1 adds Deserialize (feature-gated), Clone, PartialEq, and template()
+│                      Deserialize (feature-gated), Clone, PartialEq, and template() (Phase 4)
 ├── http.rs            Shared correction client, time limits, HTTP error conversion to ProviderError (Phase 3)
 └── mistral/
-    ├── mod.rs         Mistral settings and Keychain account ("mistral"); bloop-app supplies the API key;
-    │                  Phase 4 iteration 1 adds the models list of the chat settings
+    ├── mod.rs         Mistral settings, their template tables, and Keychain account ("mistral"); bloop-app supplies the API key;
+    │                  the chat settings have the models list (Phase 4)
     ├── transcribe.rs  Voxtral WebSocket: impl Transcriber and TranscriptionSession
     └── chat.rs        Mistral chat models: impl ChatModel (Phase 3)
 ```
@@ -169,15 +170,18 @@ src/
 
 ```text
 src/
-├── main.rs            Reads the API key, starts Tokio, builds objects, starts the AppKit run loop
-├── settings.rs        Settings file: read at start, write of the correction state with toml_edit
-│                      Phase 4 iteration 1 replaces it with settings/: schema, newtypes, parse, template, toml_edit change
+├── main.rs            Reads the settings and the API key, starts Tokio, builds objects, starts the AppKit run loop
+├── settings/          Settings file (Phase 4 iteration 1)
+│   ├── mod.rs         load at start: the template and the prompts folder when missing; store of the correction state
+│   ├── schema.rs      Settings, its tables, the newtypes HoldMs, Language, and PromptName, parse
+│   ├── template.rs    The commented settings file with the default values
+│   └── edit.rs        The toml_edit change of one key
 ├── files.rs           read_bounded, write_if_missing, replace (Phase 4 iteration 1)
 ├── hub.rs             Settings hub: file texts, parsed settings, snapshot, chat model reuse (Phase 4 iteration 2)
 ├── menu.rs            Menu builder: menu model, status lines, lists, and menu actions (Phase 4 iteration 3)
 ├── dictionary.rs      Dictionary file: read (Phase 3), save and ignore a pair (Phase 6)
-├── prompts.rs         Built-in correction prompt, from prompts/natural-light.md (Phase 3);
-│                      Phase 4 iteration 1 adds the built-in table and resolves a name to a user file or a built-in prompt
+├── prompts.rs         Built-in correction prompts, from prompts/natural-light.md (Phase 3);
+│                      resolves a name to a user file or a built-in prompt (Phase 4 iteration 1)
 ├── driver.rs          Driver: events to the core, commands to the ports;
 │                      Phase 4 iteration 2 adds the Snapshots trait and a settings snapshot for each generation
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, pipeline, result event
@@ -231,13 +235,11 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 ## Settings and provider selection
 
-Today, `settings.rs` reads `config.toml` at start. The file accepts only `schema` and `[refine] enabled`.
-`settings.rs` writes `[refine] enabled` at each click of "Correct text".
-`main.rs` keeps the hold threshold and the language as temporary constants.
-The provider settings come from the default configs in `bloop-providers`.
+`settings/` reads `config.toml` at start, with the schema below. A change in the file applies at the next start.
+`settings/` writes `[refine] enabled` at each click of "Correct text".
 In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation at `StartCapture`.
+Phase 4 iteration 2 adds the settings hub. Then a change applies from the next dictation.
 
-Phase 4 iteration 1 adds the schema below. Phase 4 iteration 2 adds the settings hub.
 Each key is optional. A missing key has the value below, which is its default value.
 Each table rejects unknown keys. A `schema` value other than 1 is an error.
 
@@ -245,8 +247,8 @@ Each table rejects unknown keys. A `schema` value other than 1 is an error.
 schema = 1
 
 [dictation]
-hold_ms = 220                 # 100..=1000. Replaces the constant HOLD.
-language = "fr"               # Two lowercase ASCII letters. Replaces LANGUAGE.
+hold_ms = 220                 # 100..=1000.
+language = "fr"               # Two lowercase ASCII letters.
 
 [transcriber]
 provider = "mistral"
@@ -256,7 +258,7 @@ target_streaming_delay_ms = 480
 [chat]
 provider = "mistral"
 model = "mistral-medium-latest"
-models = ["mistral-medium-latest", "mistral-small-latest"]   # The "Model" submenu.
+models = ["mistral-medium-latest", "mistral-small-latest"]   # The "Model" submenu (iteration 4).
 reasoning_effort = "none"
 
 [refine]
@@ -273,6 +275,11 @@ prompt = "natural-light"      # A built-in prompt or a file of the prompts folde
   Thus only the line goes into the error type and the log.
 - `[refine] prompt` names a file of the prompts folder or a built-in prompt, without the `.md` extension.
   A file replaces the built-in prompt with the same name.
+- If `config.toml` does not exist at start, `settings::load` writes the template and creates the prompts folder.
+  `template.rs` builds the template from its own tables and the provider texts. Thus it names no provider.
+- For an invalid file, `settings::load` returns the default values and `InvalidSettings`. Each capture fails, and the correction is off.
+- For a valid file, the log records the nonsecret values: the hold threshold, the language, the provider settings, the prompt name,
+  and the correction state.
 - The dictionary has its own file, `dictionary.toml`, next to `config.toml`.
 - `files.rs` gives the file rules as `pub(crate)` functions: `read_bounded`, `write_if_missing`, and `replace`.
   Phase 6 writes the dictionary with the same functions.
@@ -341,7 +348,7 @@ Each config gives the Keychain account of its provider. `bloop-app` reads the ke
 `ChatConfig::model` and `ChatConfig::with_model` read and replace the model identifier for each provider. The evaluation tool uses them for `--model`.
 If the provider name is unknown, the settings are invalid. Captures fail with the error view. From Phase 4 iteration 3, the menu shows the error.
 
-From Phase 4 iteration 1:
+The configs and the settings file (Phase 4 iteration 1):
 
 - The four config types derive `Clone` and `PartialEq`. `Deserialize` is under `cfg_attr(feature = "mistral", ...)`, like the `Default` impls.
   Thus `serde` stays optional.
@@ -353,7 +360,8 @@ From Phase 4 iteration 1:
   A change of the list builds the chat client again. This is rare and costs one TLS handshake.
 - `TranscriberConfig::template()` and `ChatConfig::template()` return the commented tables of the default provider, as `&'static str`.
   `bloop-app` builds the template from its own tables and these texts. Thus vendor names stay in `bloop-providers`.
-- A `bloop-providers` test proves that each template text parses to `Default::default()`.
+- A `bloop-app` test proves that the settings template parses to the default settings. Thus each template text gives `Default::default()`.
+  The tests of the provider tables are also in `bloop-app`, because `bloop-providers` has no `toml` dependency.
 
 ## Extension procedures
 
@@ -362,8 +370,11 @@ From Phase 4 iteration 1:
 1. Add a module in `bloop-providers/src/` with its own Cargo feature.
 2. For STT, implement `Transcriber` and `TranscriptionSession`. For correction, implement `ChatModel` (Phase 3).
 3. Add a variant to `TranscriberConfig` or `ChatConfig` (Phase 3). Add one match arm in the build function.
-4. Store the API key in Keychain. Use the vendor name as the account.
-5. Set `provider` in `config.toml` (Phase 4).
+4. Derive `Clone` and `PartialEq` on the vendor config, and `Deserialize` under its feature (Phase 4).
+   Add `#[serde(default, deny_unknown_fields)]`. Write its commented table for `template()`.
+   A chat config also needs the `models` field.
+5. Store the API key in Keychain. Use the vendor name as the account.
+6. Set `provider` in `config.toml` (Phase 4).
 
 The other crates do not change.
 Every STT adapter sends audio during capture. It must not collect a complete recording before sending it.
@@ -417,7 +428,7 @@ There is no separate file transcription path or later migration.
 | Crate | Tests |
 | --- | --- |
 | `bloop-core` | State machine: event sequences, expected commands, and stale results. Pipeline and step report. Steps with a fake chat model (Phase 3). |
-| `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Chat replies, truncation, and HTTP errors with a fake HTTP server (Phase 3). Phase 4 adds: each template parses to the default config; an unknown key; an unknown provider; a missing `provider` in a table that exists. Real API tests run manually. |
+| `bloop-providers` | Protocol messages, ordered audio, final response, and cancellation with a fake server. Chat replies, truncation, and HTTP errors with a fake HTTP server (Phase 3). The settings tests of `bloop-app` cover the parse of the provider configs and the template texts, because `bloop-providers` has no `toml` dependency. Real API tests run manually. |
 | `bloop-audio` | Incremental conversion across chunk boundaries, final flush, queue limits, and level calculation with generated signals |
 | `bloop-app` | Driver and worker with fake ports: slow connection, full queue, release, failure, and cancellation during capture, a send, or `finish`. Phase 3 adds correction timeout, cancellation, reverse completion order, and toggle isolation. A cancelled task sends no event. Settings tests cover the parse, the `toml_edit` change of the correction state, and file writes in a temporary folder. Phase 4 adds the tests in the list below. Tests of the evaluation tool: arguments, test set parse and split, punctuation counts, prompt hash, median, and report format. One sample runs with a fake chat model. |
 | `bloop-macos` | Unit tests of the logic without macOS types: key state, target list, clipboard transaction, bar heights, and orb view changes. Tests of the clipboard save, restore, and text write on a private `NSPasteboard`. Phase 4 adds pure tests of `tag_of` and `action_of`: tag 0 is reserved, and an overflow fails. `NSMenu` needs a `MainThreadMarker`, which the test harness does not give. Thus manual checks cover the menu renderer. Manual acceptance checks from the [roadmap](ROADMAP.md) for the other macOS calls. |
@@ -427,6 +438,7 @@ Phase 4 tests in `bloop-app`:
 - Settings: each default value; each range limit with its line (the line of the value, of the key, and of the table);
   an unknown key in each table; wrong types; invalid prompt names (`../x`, empty, 65 characters); `[dictation] key` is an error;
   the template parses to the default values; each `Change` keeps the comments and the other keys byte for byte.
+  The provider tables: a missing table gives the default config; a table without `provider`; an unknown provider; an unknown key.
 - Files, in temporary folders with the `scratch_dir` pattern: `write_if_missing` writes one time and keeps an existing file byte for byte;
   `read_bounded` at the limit and one byte over it; prompt resolution (file, built-in, file over a built-in, missing, empty, too large).
 - Hub: an unchanged text builds no new snapshot (`Rc::ptr_eq`), and a changed text builds one; invalid files give `InvalidSettings`;
@@ -471,24 +483,21 @@ The application operates at the end of each selected phase.
 | 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
 | 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 
-`bloop-app` keeps these constants in `main.rs`:
+`bloop-app` keeps one constant in `main.rs`: the correction time limit `CORRECTION_LIMIT`, 8 s (Phase 3).
+This is an initial value, not measured. It stays a constant in Phase 4 (owner decision A, 2026-11-07).
+The hold threshold and the language are settings: `[dictation] hold_ms`, 220 ms by default, and `[dictation] language`, `fr` by default.
+The word list comes from the dictionary file.
 
-- The hold threshold: `HOLD`, 220 ms. Phase 4 iteration 1 replaces it with the setting `[dictation] hold_ms`.
-- The language: `LANGUAGE`, `fr`. Phase 4 iteration 1 replaces it with the setting `[dictation] language`.
-  The word list comes from the dictionary file.
-- The correction time limit (Phase 3): `CORRECTION_LIMIT`, 8 s. This is an initial value, not measured.
-  It stays a constant in Phase 4 (owner decision A, 2026-11-07).
+The default correction prompt is `natural-light`. `prompts.rs` puts the file in the binary with `include_str!`.
+`prompts.rs` keeps a table of the built-in prompts. It resolves a name to a user file or to a built-in prompt.
 
-The correction prompt (Phase 3) is `natural-light`. `prompts.rs` puts the file in the binary with `include_str!`.
-From Phase 4 iteration 1, `prompts.rs` keeps a table of the built-in prompts. It resolves a name to a user file or to a built-in prompt.
-
-From Phase 3, the default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
+The default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.
 The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_streaming_delay_ms` 480.
 The correction uses `mistral-medium-latest` with `reasoning_effort` `none` and temperature 0.
 Thus `main.rs` names no provider.
-From Phase 4 iteration 1, `config.toml` gives these settings. A missing key or table keeps the default value.
+`config.toml` gives these settings. A missing key or table keeps the default value.
 Phase 3 adds the correction toggle as runtime state. It does not require the settings hub.
-`settings.rs` keeps the toggle state in `config.toml` (`[refine] enabled`) before the hub exists.
+`settings/` keeps the toggle state in `config.toml` (`[refine] enabled`) before the hub exists.
 Phase 4 iteration 2 replaces the toggle state with the settings hub: `NoCorrection::Off` replaces the `correction_on` cell.
 
 ## Work method

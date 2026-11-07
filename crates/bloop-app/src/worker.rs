@@ -32,29 +32,29 @@ const POLL: Duration = Duration::from_millis(20);
 /// The speech provider, the options of its sessions, and the text steps of its transcripts.
 pub(crate) struct Speech {
     pub(crate) transcriber: Box<dyn Transcriber>,
-    /// The correction steps, or `None` when the chat model is not available.
-    /// A job with the correction on then keeps the raw transcript.
-    pub(crate) correction: Option<Correction>,
+    /// The correction steps, or why they are not available.
+    pub(crate) correction: Result<Correction, NoCorrection>,
     pub(crate) language: String,
     pub(crate) vocabulary: Vec<String>,
     pub(crate) limits: Limits,
 }
 
 impl Speech {
-    /// Returns the correction steps when `on` and when the chat model is available.
+    /// Returns the correction steps when `on` and when they are available.
     /// Logs the choice of the job, without text.
     fn text_steps(&self, generation: Generation, on: bool) -> Option<&Pipeline> {
-        let correction = self.correction.as_ref().filter(|_| on);
+        let correction = self.correction.as_ref().ok().filter(|_| on);
         tracing::info!(
             ?generation,
             correction = on,
-            prompt = correction.map(|correction| correction.prompt),
+            prompt = correction.map(|correction| correction.prompt.as_str()),
             "the text steps start"
         );
-        if on && correction.is_none() {
+        if on && let Err(reason) = &self.correction {
             tracing::warn!(
                 ?generation,
-                "the chat model is not available, the job keeps the raw transcript"
+                ?reason,
+                "the correction is not available, the job keeps the raw transcript"
             );
         }
         correction.map(|correction| &correction.pipeline)
@@ -62,19 +62,30 @@ impl Speech {
 }
 
 /// The text steps of a job with the correction on, and the name of their prompt.
+/// The prompt text is only in the steps.
 pub(crate) struct Correction {
-    prompt: &'static str,
+    prompt: String,
     pipeline: Pipeline,
 }
 
 impl Correction {
     /// The correction steps of `bloop_core::steps::correction` with `prompt`.
-    pub(crate) fn new(model: Arc<dyn ChatModel>, prompt: &Prompt) -> Self {
+    pub(crate) fn new(model: Arc<dyn ChatModel>, prompt: Prompt) -> Self {
         Self {
             prompt: prompt.name,
-            pipeline: Pipeline::new(steps::correction(model, prompt.text.to_owned())),
+            pipeline: Pipeline::new(steps::correction(model, prompt.text)),
         }
     }
+}
+
+/// Why the correction steps are not available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoCorrection {
+    /// The chat model is not available, for example without an API key.
+    /// A job with the correction on keeps the raw transcript.
+    ChatUnavailable,
+    /// The selected prompt is missing or not valid. With the correction on, each capture fails with `InvalidSettings`.
+    InvalidPrompt,
 }
 
 /// The time limits of the provider operations. The worker applies each limit to one operation.
@@ -150,6 +161,7 @@ impl Spawner {
     ///
     /// The error of `speech` when speech is not available: for example,
     /// `Provider(Unauthorized)` without an API key, or `InvalidSettings` with an invalid dictionary.
+    /// `InvalidSettings` when the toggle is on and the selected prompt is not valid.
     pub(crate) fn spawn(
         &self,
         generation: Generation,
@@ -158,6 +170,13 @@ impl Spawner {
     ) -> Result<Task, AppError> {
         let speech = self.speech.clone()?;
         let correction = self.correction_on.get();
+        if correction && matches!(speech.correction, Err(NoCorrection::InvalidPrompt)) {
+            tracing::warn!(
+                ?generation,
+                "the prompt is not valid, the capture with the correction on fails"
+            );
+            return Err(AppError::InvalidSettings);
+        }
         let events = Arc::clone(&self.events);
         let end = reader.end_mark();
         let work = self
@@ -361,7 +380,7 @@ mod tests {
         Answer, CORRECTED, Call, Fake, LONG, RATE, Recorder, Reply, Script, Sent, TEXT, TYPESET,
         chunk_lengths, pcm, samples, sent_audio, settle,
     };
-    use super::{Limits, Spawner, Task};
+    use super::{Limits, NoCorrection, Spawner, Task};
     use crate::prompts::NATURAL_LIGHT;
 
     const CAPACITY: usize = 16_000;
@@ -507,9 +526,39 @@ mod tests {
     async fn without_a_chat_model_a_job_with_the_correction_on_keeps_the_raw_transcript() {
         let fake = Fake::default();
         let mut speech = fake.speech(Script::default(), LONG);
-        speech.correction = None;
+        speech.correction = Err(NoCorrection::ChatUnavailable);
         let spawner = fake.spawner_for(speech);
         spawner.correction_on.set(true);
+
+        let event = job(&fake, &spawner).await;
+
+        assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
+        assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_an_invalid_prompt_and_the_correction_on_the_capture_fails_before_its_task() {
+        let fake = Fake::default();
+        let mut speech = fake.speech(Script::default(), LONG);
+        speech.correction = Err(NoCorrection::InvalidPrompt);
+        let spawner = fake.spawner_for(speech);
+        spawner.correction_on.set(true);
+        let (_writer, reader) = buffer::new(CAPACITY);
+
+        let result = spawner.spawn(generation(), RATE, reader);
+
+        assert_eq!(result.err(), Some(AppError::InvalidSettings));
+        settle().await;
+        assert_eq!(fake.rates.take(), [] as [NonZeroU32; 0]);
+        assert!(fake.events.take().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_an_invalid_prompt_and_the_correction_off_the_job_keeps_the_raw_transcript() {
+        let fake = Fake::default();
+        let mut speech = fake.speech(Script::default(), LONG);
+        speech.correction = Err(NoCorrection::InvalidPrompt);
+        let spawner = fake.spawner_for(speech);
 
         let event = job(&fake, &spawner).await;
 

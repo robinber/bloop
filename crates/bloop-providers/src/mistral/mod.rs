@@ -7,7 +7,9 @@ pub(crate) mod transcribe;
 pub const ACCOUNT: &str = "mistral";
 
 /// The settings of the Voxtral realtime transcription.
-#[derive(Debug)]
+/// A missing key in the settings file has its default value.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct TranscribeConfig {
     /// The model identifier, for example `voxtral-mini-transcribe-realtime-3-0`.
     pub model: String,
@@ -25,13 +27,18 @@ impl Default for TranscribeConfig {
 }
 
 /// The settings of the Mistral chat completions.
-#[derive(Debug)]
+/// A missing key in the settings file has its default value.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ChatConfig {
     /// The model identifier, for example `mistral-medium-latest`.
     pub model: String,
+    /// The models that the user can select.
+    pub models: Vec<String>,
     /// The `reasoning_effort` value, for example `none`. `None` omits the field. The provider checks the value.
     pub reasoning_effort: Option<String>,
-    /// The sampling temperature.
+    /// The sampling temperature. The settings file cannot change it.
+    #[serde(skip)]
     pub temperature: f64,
 }
 
@@ -39,8 +46,27 @@ impl Default for ChatConfig {
     fn default() -> Self {
         Self {
             model: "mistral-medium-latest".to_owned(),
+            models: vec![
+                "mistral-medium-latest".to_owned(),
+                "mistral-small-latest".to_owned(),
+            ],
             reasoning_effort: Some("none".to_owned()),
             temperature: 0.0,
         }
     }
 }
+
+/// The commented `[transcriber]` table of the settings template. It gives the default values.
+pub(crate) const TRANSCRIBER_TEMPLATE: &str = r#"[transcriber]
+provider = "mistral"                            # The speech provider.
+model = "voxtral-mini-transcribe-realtime-3-0"  # The realtime transcription model.
+target_streaming_delay_ms = 480                 # The balance between delay and accuracy, in milliseconds.
+"#;
+
+/// The commented `[chat]` table of the settings template. It gives the default values.
+pub(crate) const CHAT_TEMPLATE: &str = r#"[chat]
+provider = "mistral"                                        # The correction provider.
+model = "mistral-medium-latest"                             # The correction model.
+models = ["mistral-medium-latest", "mistral-small-latest"]  # The correction models to select from.
+reasoning_effort = "none"                                   # The reasoning effort of the model.
+"#;
