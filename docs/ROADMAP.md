@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 18 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design revision 19 (2026-11-07). Phase 1 and Phase 2 are complete.
 On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
@@ -442,8 +442,7 @@ The owner did the five manual checks on 2026-11-07. All passed.
 
 ### Iteration 2: hub and settings snapshot
 
-The menu does not change yet. After a hand edit of `[refine] enabled`, the checkmark can be wrong until iteration 3.
-After a refused write, for example a disk error, the checkmark can also be wrong until iteration 3, because the dictation follows the file.
+The menu does not change.
 
 - [x] Add the settings hub. At the dictation key press, read the files again: settings, selected prompt, and dictionary.
   Compare the text, not the modification time.
@@ -454,15 +453,17 @@ After a refused write, for example a disk error, the checkmark can also be wrong
 
 ### Iteration 3: menu model
 
-- [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
-- [ ] Build the model in `bloop-app` with the items of today. Refresh the settings when the menu opens.
-- [ ] Show the status lines: missing permissions, missing or refused API key, and invalid settings, prompt, or dictionary.
-- [ ] If the provider refuses the API key (401 or 403) for a transcription, show it in the menu. The line stays until the restart.
-- [ ] Add "Open config.toml…", "Open prompts folder…", and "Open dictionary…".
-- [ ] At the first start, write a commented empty `dictionary.toml`.
+The checkmark of "Correct text" follows the file at each open, also after a hand edit or a refused write.
+
+- [x] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
+- [x] Build the model in `bloop-app` with the items of today. Refresh the settings when the menu opens.
+- [x] Show the status lines: missing permissions, missing or refused API key, and invalid settings, prompt, or dictionary.
+- [x] If the provider refuses the API key (401 or 403) for a transcription, show it in the menu. The line stays until the restart.
+- [x] Add "Open config.toml…", "Open prompts folder…", and "Open dictionary…".
+- [x] At the first start, write a commented empty `dictionary.toml`.
 - [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.
 - [ ] Do the manual checks of the menu renderer in the [code structure](STRUCTURE.md#tests).
-  Add `bloop-macos/src/menu.rs` to the critical surfaces of `AGENTS.md`.
+  `AGENTS.md` lists `bloop-macos/src/menu.rs` in the critical surfaces.
 
 ### Iteration 4: lists
 

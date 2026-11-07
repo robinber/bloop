@@ -53,6 +53,7 @@ In the menu bar, select **Correct text** to enable correction for subsequent dic
 Bloop keeps this choice when it starts again. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
 
 Select **Copy last result** to recover the most recent result for manual paste.
+The menu shows setup problems and file errors. It also opens the settings file, the prompts folder, and the dictionary.
 See the [dictionary setup](docs/SETUP.md#dictionary) to add names and technical terms.
 
 ## Data

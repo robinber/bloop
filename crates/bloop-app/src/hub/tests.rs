@@ -5,12 +5,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use bloop_core::domain::Generation;
 use bloop_core::error::{AppError, ProviderError, SecretError};
 use bloop_core::ports::ai::ChatModel;
 use bloop_core::ports::platform::SecretStore;
+use bloop_core::session::{Command, Core, Event};
 use secrecy::SecretString;
 
-use super::{Change, Hub, HubSnapshots, Snapshot};
+use super::{Change, Hub, HubSnapshots, Snapshot, View, refuses_key};
 use crate::driver::Snapshots;
 use crate::files::tests::scratch_dir;
 use crate::settings::{self, Paths};
@@ -407,5 +409,157 @@ fn the_driver_gets_the_last_snapshot_when_the_hub_is_in_use() {
     let after = snapshots.snapshot();
     assert!(!Rc::ptr_eq(&first, &after));
     assert_eq!(no_correction(&after), None);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+fn generation() -> Generation {
+    let commands = Core::new().handle(Event::DictationKeyDown);
+    let [Command::StartHoldTimer(generation)] = commands.as_slice() else {
+        panic!("{commands:?}");
+    };
+    *generation
+}
+
+fn view(hub: &Hub) -> View {
+    hub.view().expect("a free hub")
+}
+
+#[test]
+fn the_view_gives_the_correction_state_of_the_file() {
+    let dir = folder("hub-view", OFF);
+    let hub = start(&dir);
+    let first = view(&hub);
+    assert!(!first.settings.as_ref().unwrap().correction);
+    assert_eq!(first.prompt, None);
+    assert_eq!(first.dictionary, None);
+    assert!(!first.key_refused);
+
+    fs::write(dir.join("config.toml"), ON).unwrap();
+
+    assert!(view(&hub).settings.unwrap().correction);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_view_gives_the_line_of_each_file_error() {
+    let dir = folder(
+        "hub-view-errors",
+        "schema = 1\n\n[dictation]\nhold_ms = 5000\n",
+    );
+    fs::write(
+        dir.join("dictionary.toml"),
+        "[[entry]]\nwritten = \"objc2\"\n\n[[entry]]\nwritten = \" \"\n",
+    )
+    .unwrap();
+    let hub = start(&dir);
+
+    let view = view(&hub);
+
+    assert_eq!(
+        view.settings.err(),
+        Some(settings::Invalid::Parse { line: Some(4) })
+    );
+    assert_eq!(view.prompt, None);
+    assert_eq!(
+        view.dictionary,
+        Some(dictionary::Invalid::EmptyWritten { line: Some(5) })
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_view_gives_the_prompt_error_only_with_the_correction_on() {
+    let dir = folder(
+        "hub-view-prompt",
+        "schema = 1\n\n[refine]\nenabled = false\nprompt = \"absent\"\n",
+    );
+    let hub = start(&dir);
+    assert_eq!(view(&hub).prompt, None);
+
+    fs::write(
+        dir.join("config.toml"),
+        "schema = 1\n\n[refine]\nenabled = true\nprompt = \"absent\"\n",
+    )
+    .unwrap();
+    let (name, error) = view(&hub).prompt.unwrap();
+
+    assert_eq!(name.as_str(), "absent");
+    assert_eq!(error, prompts::PromptError::Missing);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_view_of_a_hub_in_use_is_none() {
+    let dir = folder("hub-view-in-use", OFF);
+    let hub = start(&dir);
+
+    let borrow = hub.inner.borrow_mut();
+    assert!(hub.view().is_none());
+    drop(borrow);
+
+    assert!(hub.view().is_some());
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn only_an_unauthorized_failure_refuses_the_key() {
+    let generation = generation();
+    let unauthorized = AppError::Provider(ProviderError::Unauthorized);
+
+    assert!(refuses_key(&Event::CaptureFailed(generation, unauthorized)));
+    assert!(refuses_key(&Event::WorkFailed(generation, unauthorized)));
+    for error in [
+        AppError::Provider(ProviderError::Timeout),
+        AppError::Provider(ProviderError::Http(500)),
+        AppError::InvalidSettings,
+        AppError::Internal,
+    ] {
+        assert!(!refuses_key(&Event::CaptureFailed(generation, error)));
+        assert!(!refuses_key(&Event::WorkFailed(generation, error)));
+    }
+    for event in [
+        Event::DictationKeyDown,
+        Event::NothingHeard(generation),
+        Event::CopyLastResult,
+    ] {
+        assert!(!refuses_key(&event));
+    }
+}
+
+#[test]
+fn a_refused_key_stays_until_the_next_start() {
+    let dir = folder("hub-refused", OFF);
+    let hub = start(&dir);
+    let generation = generation();
+    hub.note(&Event::WorkFailed(
+        generation,
+        AppError::Provider(ProviderError::Timeout),
+    ));
+    assert!(!view(&hub).key_refused);
+
+    hub.note(&Event::CaptureFailed(
+        generation,
+        AppError::Provider(ProviderError::Unauthorized),
+    ));
+    hub.note(&Event::DictationKeyUp);
+    fs::write(dir.join("config.toml"), ON).unwrap();
+
+    assert!(view(&hub).key_refused);
+    assert!(!view(&start(&dir)).key_refused);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn without_a_key_at_start_an_unauthorized_failure_is_not_a_refused_key() {
+    let dir = folder("hub-refused-no-key", OFF);
+    let hub = Hub::start(Paths::new(&dir), &Secrets::without_keys(), LIMIT);
+
+    hub.note(&Event::CaptureFailed(
+        generation(),
+        AppError::Provider(ProviderError::Unauthorized),
+    ));
+
+    assert!(!view(&hub).key_refused);
+    assert_eq!(hub.key_error(), Some(SecretError::NotFound));
     fs::remove_dir_all(&dir).unwrap();
 }

@@ -7,6 +7,7 @@ mod driver;
 mod files;
 mod hub;
 mod logging;
+mod menu;
 mod prompts;
 mod settings;
 mod worker;
@@ -33,7 +34,8 @@ use bloop_macos::sleep::SleepObserver;
 use tokio::runtime::Builder;
 
 use crate::driver::Driver;
-use crate::hub::{Change, Hub, HubSnapshots};
+use crate::hub::{Hub, HubSnapshots};
+use crate::menu::{AppMenu, Facts};
 use crate::settings::Paths;
 use crate::worker::Spawner;
 
@@ -72,7 +74,7 @@ fn main() -> ExitCode {
         tracing::error!("the home folder is unknown");
         return ExitCode::FAILURE;
     };
-    let hub = Rc::new(Hub::start(paths, &Keychain, CORRECTION_LIMIT));
+    let hub = Rc::new(Hub::start(paths.clone(), &Keychain, CORRECTION_LIMIT));
     let _sleep = SleepObserver::new(mtm);
 
     let sink: Arc<dyn EventSink> = Arc::new(MainSink);
@@ -98,18 +100,14 @@ fn main() -> ExitCode {
             "macOS refused the event tap, enable Input Monitoring and Accessibility, then open Bloop again"
         );
     }
-    let _menu = StatusMenu::new(
-        mtm,
-        &missing,
-        tap.is_some(),
-        hub.key_error(),
-        hub.correction_on(),
-        Box::new(move |on| {
-            tracing::info!(on, "the correction toggle changed");
-            hub.set(Change::Correction(on));
-        }),
-    );
+    let facts = Facts {
+        missing,
+        tap: tap.is_some(),
+        key: hub.key_error(),
+    };
+    let _menu = StatusMenu::new(mtm, Box::new(AppMenu::new(Rc::clone(&hub), facts, paths)));
     events::set_handler(mtm, move |event| {
+        hub.note(&event);
         driver.handle(event);
         if let Some(tap) = &tap {
             tap.set_capture_active(driver.capture_active());

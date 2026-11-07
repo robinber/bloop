@@ -1,16 +1,17 @@
 //! The settings hub: the settings files, the objects built from them, and the settings snapshot of the next generation.
 //!
-//! At each dictation key press, the hub reads `config.toml`, `dictionary.toml`, and the selected prompt
-//! when the correction is on. It compares each text with its last text. It builds a new snapshot only after a change,
-//! and it builds the chat model again only when `[chat]` changes.
+//! At each dictation key press and each time the status menu opens, the hub reads `config.toml`,
+//! `dictionary.toml`, and the selected prompt when the correction is on. It compares each text with its last text.
+//! It builds a new snapshot only after a change, and it builds the chat model again only when `[chat]` changes.
 //! It reads the API keys one time at start, because a Keychain read can wait for a dialog.
+//! It keeps the refused key state until the next start.
 //!
 //! The hub runs on the main thread only. A hub borrow contains only file I/O, parsing, object construction,
 //! and `tracing` calls: no `AppKit` call, no `Scheduler::after`, no `MainSink::send`, and nothing that runs the run loop.
 //! Each method returns its `Rc` after the borrow ends. Thus a failed borrow is a bug: the hub logs it and never panics.
 //! The log contains file names, error kinds, lines, and nonsecret values. It never contains file content or prompt text.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use std::time::Duration;
 use bloop_core::error::{AppError, ProviderError, SecretError};
 use bloop_core::ports::ai::ChatModel;
 use bloop_core::ports::platform::SecretStore;
+use bloop_core::session::Event;
 use bloop_providers::{ChatConfig, build_chat_model, build_transcriber};
 use secrecy::SecretString;
 
@@ -26,7 +28,7 @@ use crate::dictionary;
 use crate::driver::Snapshots;
 use crate::files::{self, FileError};
 use crate::prompts::{self, Prompt, PromptError};
-use crate::settings::{self, HoldMs, Paths, Settings};
+use crate::settings::{self, HoldMs, Paths, PromptName, Settings};
 use crate::worker::{Correction, Limits, NoCorrection, Speech};
 
 /// The settings of one generation: the hold time and the speech objects.
@@ -34,6 +36,24 @@ pub(crate) struct Snapshot {
     pub(crate) hold: Duration,
     /// The speech objects, or the error of each capture when speech is not available.
     pub(crate) speech: Result<Arc<Speech>, AppError>,
+}
+
+/// The state of the settings files for the status menu. It contains no file content.
+pub(crate) struct View {
+    /// The values of valid settings, or why `config.toml` is invalid.
+    pub(crate) settings: Result<Summary, settings::Invalid>,
+    /// The selected prompt and why it is not available. It is `None` when the prompt is valid or the correction is off.
+    pub(crate) prompt: Option<(PromptName, PromptError)>,
+    /// Why `dictionary.toml` is invalid. It is `None` when the dictionary is valid.
+    pub(crate) dictionary: Option<dictionary::Invalid>,
+    /// `true` after the provider refused the API key that `Hub::start` read.
+    pub(crate) key_refused: bool,
+}
+
+/// The values of valid settings that the status menu shows.
+pub(crate) struct Summary {
+    /// The state of "Correct text".
+    pub(crate) correction: bool,
 }
 
 /// A change of one setting from the status menu.
@@ -50,6 +70,8 @@ pub(crate) struct Hub {
     keys: Keys,
     /// The time limit of each correction request.
     limit: Duration,
+    /// `true` after the provider refused the key of the transcription. It stays until the next start.
+    key_refused: Cell<bool>,
     inner: RefCell<Inner>,
 }
 
@@ -107,6 +129,7 @@ impl Hub {
             paths,
             keys,
             limit,
+            key_refused: Cell::new(false),
             inner: RefCell::new(inner),
         }
     }
@@ -120,6 +143,45 @@ impl Hub {
         };
         inner.refresh(&self.paths, &self.keys, self.limit);
         Some(Rc::clone(&inner.snapshot))
+    }
+
+    /// Reads the files again and returns their state for the status menu.
+    /// Returns `None` only when the hub is already borrowed, which is a bug.
+    pub(crate) fn view(&self) -> Option<View> {
+        let Ok(mut inner) = self.inner.try_borrow_mut() else {
+            tracing::error!("the settings hub is already in use, the menu shows its last state");
+            return None;
+        };
+        inner.refresh(&self.paths, &self.keys, self.limit);
+        let state = &inner.state;
+        let prompt = match (&state.settings, &state.prompt) {
+            (Ok(settings), Some(Err(error))) => Some((settings.refine.prompt.clone(), *error)),
+            _ => None,
+        };
+        Some(View {
+            settings: match &state.settings {
+                Ok(settings) => Ok(Summary {
+                    correction: settings.refine.enabled,
+                }),
+                Err(error) => Err(*error),
+            },
+            prompt,
+            dictionary: state.vocabulary.as_ref().err().copied(),
+            key_refused: self.key_refused.get(),
+        })
+    }
+
+    /// Marks the API key as refused when `event` reports `Unauthorized` and `start` read the key.
+    /// Without a key at start, the status menu shows the missing key instead.
+    pub(crate) fn note(&self, event: &Event) {
+        if refuses_key(event)
+            && self.keys.transcriber_error().is_none()
+            && !self.key_refused.replace(true)
+        {
+            tracing::warn!(
+                "the provider refused the API key: add a valid key, then open Bloop again"
+            );
+        }
     }
 
     /// Writes `change` to `config.toml`, then refreshes. It never changes an invalid file.
@@ -175,6 +237,16 @@ impl Inner {
         self.state.prompt = prompt;
         self.snapshot = Rc::new(build(&self.state, &mut self.chat, keys, limit));
     }
+}
+
+/// Returns `true` when `event` reports that the provider refused the API key.
+/// Only the transcription sends `Unauthorized` in an event: a failed correction keeps the raw text.
+fn refuses_key(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::CaptureFailed(_, AppError::Provider(ProviderError::Unauthorized))
+            | Event::WorkFailed(_, AppError::Provider(ProviderError::Unauthorized))
+    )
 }
 
 /// The API keys that `Hub::start` read: the key of the transcription account,

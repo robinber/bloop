@@ -1,11 +1,11 @@
 # Rust contracts
 
-Status: revision 26 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
-and the transcription, chat, text step, and platform ports.
+Status: revision 27 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
+the transcription, chat, text step, and platform ports, and the menu model.
 It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step and pipeline signatures follow the Phase 3 design of 2026-11-05.
-`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model follows the Phase 4 design of 2026-11-07.
+`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model follows the Phase 4 design of 2026-11-07. Phase 4 iteration 3 implements it.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -376,8 +376,8 @@ pub trait SecretStore {
 
 ## Menu model
 
-Phase 4 design of 2026-11-07. Phase 4 iteration 3 implements it. Until then, `bloop-macos/src/menu.rs` builds fixed items.
-These plain data types go in `ports/platform.rs`. `bloop-app` builds the model, and `bloop-macos` renders it.
+Phase 4 design of 2026-11-07, implemented in Phase 4 iteration 3.
+These plain data types are in `ports/platform.rs`. `bloop-app` builds the model, and `bloop-macos` renders it.
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -412,6 +412,9 @@ pub trait MenuSource {
 ```
 
 - `bloop-macos` calls `MenuSource::model` each time the menu opens (`menuNeedsUpdate:`). Then it removes all items and renders the model.
+  `StatusMenu::new` also renders the model one time. Thus the menu has its items before the first open.
+- The menu delegate is set on the top-level menu only. The delegate and the item targets are weak references.
+  `StatusMenu` keeps the target alive as long as its status item.
 - `MenuSource::activate` receives the action of a click.
 - A `Status` item gives information only. It has no action, thus AppKit disables it. A status line that opens something is an `Action`.
 - A `Choice` is an item with a submenu. Each option has a checkmark state.
@@ -508,9 +511,9 @@ These events contain no header value and no body. The Bloop log records only the
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 An invalid settings file of the user is `AppError::InvalidSettings`: `config.toml` or `dictionary.toml`, invalid or too large.
 Then each capture fails with the error view, as for a missing API key.
-The settings hub reads both files at each dictation key press. Thus a fixed file applies from the next dictation, without restart.
+The settings hub reads both files at each dictation key press and each time the menu opens. Thus a fixed file applies from the next dictation, without restart.
 A missing or invalid prompt is also `InvalidSettings`, but only when the correction is on (owner decision B).
-From Phase 4 iteration 3, the menu shows each of these errors with its file, and with its line when it is known.
+The menu shows each of these errors with its file, and with its line when it is known.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
 If the transcription task panics, the worker sends `CaptureFailed` with `AppError::Internal`.
@@ -553,8 +556,8 @@ pub struct Processed {
 `run` calls `process` and converts its result to the event. Thus the steps and the raw fallback exist one time.
 The evaluation tool calls `process`, because only the core creates a `Generation`.
 The correction toggle is the status menu item "Correct text". `bloop-app` keeps its state in `config.toml`, in the key `[refine] enabled`.
-At start, the settings hub reads the key, and `bloop-app` gives the state to `StatusMenu::new`. If the file or the key does not exist, the state is off.
-An invalid file is `AppError::InvalidSettings`, as for the dictionary. The toggle then starts off.
+Each time the menu opens, the settings hub reads the files again, and the checkmark shows the key. If the file or the key does not exist, the state is off.
+An invalid file is `AppError::InvalidSettings`, as for the dictionary. The menu then hides the toggle.
 Each click writes the key through `Hub::set` with `toml_edit`, on the main thread. If the current file is invalid, Bloop does not change it and logs a warning.
 `bloop-app` keeps the settings on the main thread, not in the core. The settings snapshot of each generation contains the correction state.
 Thus a change affects only subsequent generations. It never changes an active capture or a running job.
@@ -589,7 +592,7 @@ The worker runs this pipeline only after `finish` returns the complete transcrip
 The worker builds the `StepContext` from the language of the dictation.
 Before the steps, the worker logs one `info` line for each job: the correction value and, when it is on, the prompt name.
 The worker logs each `StepReport` at the `info` level: the step name and the `Debug` output of the result.
-From Phase 4 iteration 3, an event with `ProviderError::Unauthorized` from the transcription sets the refused key line in the menu.
+An event with `ProviderError::Unauthorized` from the transcription sets the refused key line in the menu.
 This applies when Bloop read a key at start. Else the menu shows the missing key line.
 The event handler of `main.rs` reads each event before the driver. The driver does not change for this rule.
 The line stays until the restart, because Bloop reads the key at start only.

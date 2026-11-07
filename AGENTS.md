@@ -105,6 +105,7 @@ Add or update tests when you change these surfaces:
 | `bloop-app/src/hub.rs` | Unit tests with temporary folders and a fake `SecretStore`: unchanged text, changed text, invalid files, chat model reuse, the write of a change |
 | `bloop-macos/src/paste.rs` and `bloop-macos/src/paste/clipboard.rs` | Manual checks: target check, one paste for each generation, clipboard restore |
 | `bloop-macos/src/keys.rs` | Manual checks: hold threshold, combinations, Escape blocking |
+| `bloop-macos/src/menu.rs` | Manual checks: one `menuNeedsUpdate:` for each open, checkmarks, ⌘Q, the tag guard, the Open items |
 
 ### Documentation
 

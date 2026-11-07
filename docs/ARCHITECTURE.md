@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 19 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 20 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -418,8 +418,8 @@ Known limits:
 Phase 3 adds one correction toggle to the existing menu: the item "Correct text" with a checkmark,
 between the status lines and "Copy last result".
 Bloop keeps its state in `config.toml`, in the key `[refine] enabled`. Without the file, the toggle is off.
-The menu reads the key at start. Each dictation reads it at the key press, through the settings hub.
-Each click writes the key with the `toml_edit` rule below. If the file is invalid, Bloop does not change it.
+The menu reads the key each time it opens. Each dictation reads it at the key press. Both reads go through the settings hub.
+Each click writes the key with the `toml_edit` rule below. If the file is invalid, Bloop does not change it, and the menu hides the item.
 An invalid `config.toml` has the same effect as an invalid dictionary: each capture fails with the error view.
 Each generation uses the value of its settings snapshot, which the driver takes at the key press.
 A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
@@ -449,14 +449,14 @@ The write rule:
 ### Files and prompts
 
 All files are in the folder `~/Library/Application Support/Bloop/`.
-A refresh reads the files again at the dictation key press. From Phase 4 iteration 3, a refresh also occurs when the menu opens.
+A refresh reads the files again at the dictation key press and each time the menu opens.
 
 | File | At start, when missing | Read | Written by Bloop | Size limit |
 | --- | --- | --- | --- | --- |
 | `config.toml` | Bloop writes the commented template, with `enabled = false` | At each refresh | One key for each menu choice | 64 KiB |
-| `prompts/` | Bloop creates the folder | At each menu open, for the list of names | Never | — |
+| `prompts/` | Bloop creates the folder | At each menu open, for the list of names (from Phase 4 iteration 4) | Never | — |
 | `prompts/<name>.md` | — | The selected prompt, at each refresh when the correction is on | Never | 32 KiB |
-| `dictionary.toml` | Bloop writes a commented empty dictionary (from Phase 4 iteration 3) | At each refresh | Never in Phase 4 | 256 KiB |
+| `dictionary.toml` | Bloop writes a commented empty dictionary | At each refresh | Never in Phase 4 | 256 KiB |
 
 - Bloop writes a file at start only when the file does not exist. It never rewrites or migrates an existing file.
 - The current file of the owner stays valid. It has no comments. To get the commented template, the owner deletes the file.
@@ -510,6 +510,8 @@ The settings hub of `bloop-app` keeps the file texts, the parsed settings, and t
 - A missing or invalid prompt affects only the correction (owner decision B). A feature that is off does not change the dictation path.
   With the correction on, the capture fails. Bloop does not silently paste the raw text.
 - A file error gives the file and the line. It never gives the file content.
+  Without a known line, the status line has no line number.
+  For a file that is too large or not readable, the status line is `<file>: file too large` or `<file>: file not readable`.
 - Bloop tracks a refused key from the transcription only. The event handler of `main.rs` sees each event before the driver.
 - An event with `ProviderError::Unauthorized` sets the refused key state when Bloop read a key at start. Else the menu shows the missing key line.
 - The refused key line stays until the restart, because Bloop reads the key at start only.
@@ -518,22 +520,25 @@ The settings hub of `bloop-app` keeps the file texts, the parsed settings, and t
 
 ### Menu
 
-From Phase 4 iteration 3, `bloop-app` builds the menu content as a data model.
+`bloop-app` builds the menu content as a data model.
 `bloop-macos` renders the model each time the menu opens (`menuNeedsUpdate:`). Thus a new feature does not change AppKit code.
 
-- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings, the errors, and the prompt names.
+- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings and the errors.
+  From Phase 4 iteration 4, the model also uses the prompt names.
 - The prompt names are the built-in names and the valid `.md` file names of the prompts folder, sorted and without duplicates.
   Bloop skips a file name that is not UTF-8.
 - "Prompt" lists the prompt names. "Model" lists `[chat] models`. "Hold delay" lists 150, 220, 300, and 400 ms (Phase 4 iteration 4).
 - If the current value is not in its list, the list adds it as the selected option. Thus the menu always shows the current value.
 - With invalid settings, the menu shows the status line and hides "Correct text" and the three submenus.
 - A missing permission line opens the related System Settings pane, as today.
+- The status lines that need a restart come first: the missing permissions, the API key, then "Then open Bloop again".
+  The file errors follow, in the order of the table above.
 - When nothing needs action, the status line is "Ready: hold Right Command to dictate", as today.
 - "Open config.toml…" and "Open dictionary…" open the file in the application for `.toml` files.
   Without such an application, Bloop opens the folder in Finder. "Open prompts folder…" opens the folder.
 - The renderer adds "Quit Bloop" with ⌘Q after the model items, as today.
 
-The planned menu. In this example, `dev` is a prompt file of the user:
+The menu of Phase 4 iteration 4. Iteration 3 has the same menu without the three submenus. In this example, `dev` is a prompt file of the user:
 
 ```text
 Status lines: permissions, API key, and file errors, or "Ready: hold Right Command to dictate"
@@ -590,7 +595,7 @@ written = "comme Taby"
 - The pairs (entries with `heard`) have no effect for now. The owner parked this task on 2026-11-06.
   Pairs in the correction prompt failed in the evaluation. The [roadmap](ROADMAP.md) gives the findings and a proposed design.
 - Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
-- If the dictionary file is invalid, each capture fails with the error view. From Phase 4 iteration 3, the menu also shows the error and its line.
+- If the dictionary file is invalid, each capture fails with the error view. The menu also shows the error and its line.
 - For an invalid file, the log gives the line of the error when it is known.
   The log never contains the file content or the parser message, because the message can quote an entry.
 - For a valid file, the log gives only the number of entries.

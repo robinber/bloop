@@ -76,7 +76,7 @@ pub fn microphone_allowed() -> bool {
 }
 
 /// Opens the System Settings pane where the user enables `permission` for Bloop.
-pub(crate) fn open_settings(permission: Permission) {
+pub fn open_settings(permission: Permission) {
     let pane = match permission {
         Permission::Microphone => "Privacy_Microphone",
         Permission::Accessibility => "Privacy_Accessibility",

@@ -1,7 +1,9 @@
 //! The settings file `~/Library/Application Support/Bloop/config.toml`, and the prompts folder next to it.
 //!
-//! The settings hub reads the file at each dictation key press. A missing key has its default value.
+//! The settings hub reads the file at each dictation key press and each time the status menu opens.
+//! A missing key has its default value.
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
+//! It also writes a commented empty `dictionary.toml` when that file does not exist.
 //! The "Correct text" menu item writes its state to `[refine] enabled`. The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
 
@@ -13,6 +15,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::dictionary;
 use crate::files::{self, FileError};
 pub(crate) use schema::{HoldMs, PromptName, Settings, parse};
 
@@ -23,6 +26,7 @@ const FOLDER: &str = "Library/Application Support/Bloop";
 pub(crate) const LIMIT: u64 = 64 * 1024;
 
 /// The paths of the settings folder.
+#[derive(Clone)]
 pub(crate) struct Paths {
     pub(crate) config: PathBuf,
     /// The folder of the prompt files of the user.
@@ -47,7 +51,7 @@ impl Paths {
 }
 
 /// Why the settings file is invalid. It contains no file content.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Invalid {
     /// The file is larger than [`LIMIT`].
     TooLarge,
@@ -78,13 +82,18 @@ pub(crate) enum NotSaved {
     Write(io::ErrorKind),
 }
 
-/// Writes the template when `config.toml` does not exist, and creates the prompts folder.
-/// A failure logs a warning with the error kind. Then Bloop continues.
+/// Writes the template when `config.toml` does not exist, the empty dictionary when `dictionary.toml` does not exist,
+/// and creates the prompts folder. A failure logs a warning with the error kind. Then Bloop continues.
 pub(crate) fn prepare(paths: &Paths) {
     match files::write_if_missing(&paths.config, &template::template()) {
         Ok(true) => tracing::info!("the settings file did not exist, Bloop wrote the template"),
         Ok(false) => {}
         Err(error) => tracing::warn!(kind = ?error.kind(), "the settings template is not written"),
+    }
+    match files::write_if_missing(&paths.dictionary, dictionary::TEMPLATE) {
+        Ok(true) => tracing::info!("the dictionary file did not exist, Bloop wrote it"),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(kind = ?error.kind(), "the empty dictionary is not written"),
     }
     if let Err(error) = fs::create_dir_all(&paths.prompts) {
         tracing::warn!(kind = ?error.kind(), "the prompts folder is not created");
@@ -112,6 +121,7 @@ mod tests {
     use std::path::Path;
 
     use super::{Invalid, LIMIT, NotSaved, Paths, Settings, parse, prepare, write};
+    use crate::dictionary;
     use crate::files::read_bounded;
     use crate::files::tests::scratch_dir;
     use crate::settings::template::template;
@@ -132,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn the_first_start_writes_the_template_and_creates_the_prompts_folder() {
+    fn the_first_start_writes_the_templates_and_creates_the_prompts_folder() {
         let dir = scratch_dir("settings-first");
         let paths = Paths::new(&dir.join("Bloop"));
 
@@ -141,19 +151,28 @@ mod tests {
         assert_eq!(fs::read_to_string(&paths.config).unwrap(), template());
         assert!(paths.prompts.is_dir());
         assert_eq!(read(&paths.config), Ok(Some(Settings::default())));
+        let text = fs::read_to_string(&paths.dictionary).unwrap();
+        assert_eq!(text, dictionary::TEMPLATE);
+        assert_eq!(
+            dictionary::parse(&text).unwrap().written_forms(),
+            [] as [String; 0]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
-    fn a_later_start_keeps_the_existing_file_byte_for_byte() {
+    fn a_later_start_keeps_the_existing_files_byte_for_byte() {
         let dir = scratch_dir("settings-later");
         let paths = Paths::new(&dir);
         let text = b"# mine\r\n[refine]\r\nenabled = true\r\n";
+        let words = b"[[entry]]\r\nwritten = \"objc2\"\r\n";
         fs::write(&paths.config, text).unwrap();
+        fs::write(&paths.dictionary, words).unwrap();
 
         prepare(&paths);
 
         assert_eq!(fs::read(&paths.config).unwrap(), text);
+        assert_eq!(fs::read(&paths.dictionary).unwrap(), words);
         let settings = read(&paths.config).unwrap().unwrap();
         assert!(settings.refine.enabled);
         fs::remove_dir_all(&dir).unwrap();

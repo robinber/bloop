@@ -58,12 +58,9 @@ If the default input is a Bluetooth device, Bloop uses the built-in microphone w
 
 ## Dictionary
 
-Create `~/Library/Application Support/Bloop/dictionary.toml` to give the speech provider names and technical terms.
-Create the parent directory first if needed:
-
-```sh
-mkdir -p "$HOME/Library/Application Support/Bloop"
-```
+The dictionary file `~/Library/Application Support/Bloop/dictionary.toml` gives the speech provider names and technical terms.
+At the first start, Bloop writes this file with comments and no entries. Bloop never changes an existing file at start.
+Select **Open dictionary…** in the menu to edit it.
 
 Add one entry for each written form:
 
@@ -79,13 +76,14 @@ Each entry needs a non-empty `written` value. The file size is at most 256 KiB.
 The optional `heard` field stores the form that Bloop writes now. It does not affect transcription or correction yet.
 
 Bloop reads the dictionary again at each dictation. A change applies from the next dictation, without restart.
-Without the file, the dictionary is empty.
+Without the file, the dictionary is empty. An invalid file prevents dictation. The menu shows the error and its line.
 
 ## Settings file
 
 The settings file is `~/Library/Application Support/Bloop/config.toml`.
 At the first start, Bloop writes this file with comments and the default values. Bloop never changes an existing file at start.
 To get the commented file again, delete the file, then quit and open Bloop again.
+Select **Open config.toml…** in the menu to edit the file.
 
 Each key is optional. A missing key has its default value:
 
@@ -108,14 +106,15 @@ Each table rejects an unknown key. The file size is at most 64 KiB.
 When you click **Correct text**, Bloop writes `[refine] enabled` and keeps your comments.
 
 A change in the file applies from the next dictation, without restart. A new API key still needs a restart.
-After you edit `[refine] enabled` in the file, the checkmark of **Correct text** can be wrong. The dictation follows the file.
-An invalid file prevents dictation, and **Correct text** is off. The log gives the line of the key, or of its table.
+Each time you open the menu, the checkmark of **Correct text** shows the value in the file.
+An invalid file prevents dictation. The menu shows the line of the key, or of its table, and hides **Correct text**.
 In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table.
 
 ### Prompts
 
 The correction sends a prompt to the chat model. The built-in prompt is `natural-light`.
 Bloop creates the folder `~/Library/Application Support/Bloop/prompts/` at start. It contains only your prompts.
+Select **Open prompts folder…** in the menu to open it.
 
 To use your own prompt:
 
@@ -128,7 +127,7 @@ The next dictation uses the prompt. A change in the prompt file also applies fro
 A file with the name of a built-in prompt replaces it. For example, `natural-light.md` replaces the built-in prompt.
 A prompt file must contain UTF-8 text that is not empty. Its size is at most 32 KiB.
 If the selected prompt is missing or not valid, each dictation with **Correct text** fails. Without **Correct text**, dictation operates.
-The log gives the prompt name and the reason.
+The menu shows the prompt name and the reason.
 
 ## Evaluate the correction
 
@@ -151,9 +150,9 @@ The tool sends each sample to the provider. The samples are invented and contain
 
 - **No recording:** check the menu for missing permissions, then quit and open Bloop again.
 - **Missing API key:** add the key with the command above, then quit and open Bloop again.
-- **Red recording indicator after a dictionary edit:** check the TOML syntax and each `written` value.
-  An invalid dictionary prevents dictation until you fix the file.
+- **The provider refused the API key:** store a valid key with the command above, then quit and open Bloop again.
+- **Red recording indicator after a file edit:** the menu shows the file and the line of the error.
+  Select the line to open the file. An invalid file prevents dictation until you fix it.
 - **Text was not inserted:** select **Copy last result** in the menu, then paste manually.
 
 Logs are in `~/Library/Logs/Bloop/bloop.log`.
-Dictionary errors include the line number when it is available.

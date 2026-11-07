@@ -1,29 +1,25 @@
-//! Status item and menu: the status of Bloop, "Correct text", "Copy last result", and "Quit Bloop".
+//! Status item and menu. Each time the menu opens, it shows the model of a `MenuSource`, then "Quit Bloop".
 
 #![expect(
     unsafe_code,
-    reason = "a menu item action is an Objective-C selector that the compiler cannot check, and its target is an Objective-C class"
+    reason = "a menu item action is an Objective-C selector that the compiler cannot check, its target is an Objective-C class, and the menu delegate implements an Objective-C protocol"
 )]
 
-use std::cell::Cell;
 use std::fmt;
 
-use bloop_core::error::{Permission, SecretError};
-use bloop_core::ports::platform::EventSink;
-use bloop_core::session::Event;
+use bloop_core::ports::platform::{ActionId, ChoiceOption, MenuItem, MenuSource};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{DefinedClass as _, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSControlStateValue, NSControlStateValueOff, NSControlStateValueOn, NSImage, NSMenu,
-    NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
+    NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
 };
 use objc2_foundation::{NSString, ns_string};
 
-use crate::events::MainSink;
-use crate::permissions;
-
 /// The Bloop item in the menu bar. The item stays in the menu bar while this value exists.
+///
+/// The menu delegate and the item targets are weak references to the target, which this value keeps.
 #[derive(Debug)]
 pub struct StatusMenu {
     _item: Retained<NSStatusItem>,
@@ -33,50 +29,14 @@ pub struct StatusMenu {
 impl StatusMenu {
     /// Adds the Bloop item to the menu bar.
     ///
-    /// The menu shows the status at start: the missing permissions and API key, or if the event tap operates.
-    /// macOS can keep the old permission result until Bloop starts again.
-    ///
-    /// The item "Correct text" has a checkmark and starts in the state `correction_on`.
-    /// Each click changes it and gives the new state to `correct`, on the main thread.
-    /// `correct` runs inside an `AppKit` callback, thus it must not panic.
+    /// Each time the menu opens, it shows `source.model()`, then a separator and "Quit Bloop".
+    /// A click on an item gives its action to `source.activate`.
     #[must_use]
-    pub fn new(
-        mtm: MainThreadMarker,
-        missing: &[Permission],
-        keys_ready: bool,
-        key: Option<SecretError>,
-        correction_on: bool,
-        correct: Box<dyn Fn(bool)>,
-    ) -> Self {
-        let target = MenuTarget::new(mtm, Toggle::new(correction_on, correct));
+    pub fn new(mtm: MainThreadMarker, source: Box<dyn MenuSource>) -> Self {
+        let target = MenuTarget::new(mtm, Source(source));
         let menu = NSMenu::new(mtm);
-        for line in status(missing, keys_ready, key) {
-            let item = match line {
-                Line::Text(title) => menu_item(mtm, title, None, ""),
-                Line::Settings(permission) => {
-                    let item = menu_item(
-                        mtm,
-                        settings_title(permission),
-                        Some(settings_action(permission)),
-                        "",
-                    );
-                    set_target(&item, &target);
-                    item
-                }
-            };
-            menu.addItem(&item);
-        }
-        menu.addItem(&NSMenuItem::separatorItem(mtm));
-        let correction = menu_item(mtm, "Correct text", Some(sel!(toggleCorrection:)), "");
-        correction.setState(check(correction_on));
-        set_target(&correction, &target);
-        menu.addItem(&correction);
-        menu.addItem(&NSMenuItem::separatorItem(mtm));
-        let copy = menu_item(mtm, "Copy last result", Some(sel!(copyLastResult:)), "");
-        set_target(&copy, &target);
-        menu.addItem(&copy);
-        menu.addItem(&NSMenuItem::separatorItem(mtm));
-        menu.addItem(&menu_item(mtm, "Quit Bloop", Some(sel!(terminate:)), "q"));
+        target.render(&menu);
+        menu.setDelegate(Some(ProtocolObject::from_ref(&*target)));
 
         let item = NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
         item.setMenu(Some(&menu));
@@ -97,49 +57,16 @@ impl StatusMenu {
     }
 }
 
-/// A line of the status at the top of the menu.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Line {
-    /// Information only. `AppKit` disables an item without an action.
-    Text(&'static str),
-    /// Opens the System Settings pane of a missing permission.
-    Settings(Permission),
+/// Returns the tag of the menu item for `action`: the action plus 1. Thus the default tag 0 never starts an action.
+/// Returns `None` when the tag does not fit in `isize`.
+fn tag_of(action: ActionId) -> Option<isize> {
+    isize::try_from(action.0).ok()?.checked_add(1)
 }
 
-fn status(missing: &[Permission], keys_ready: bool, key: Option<SecretError>) -> Vec<Line> {
-    let mut lines: Vec<Line> = missing.iter().copied().map(Line::Settings).collect();
-    lines.extend(key.map(|error| Line::Text(key_title(error))));
-    if !lines.is_empty() {
-        lines.push(Line::Text("Then open Bloop again"));
-        lines
-    } else if keys_ready {
-        vec![Line::Text("Ready: hold Right Command to dictate")]
-    } else {
-        vec![Line::Text("Open Bloop again to use the dictation key")]
-    }
-}
-
-fn settings_title(permission: Permission) -> &'static str {
-    match permission {
-        Permission::Microphone => "Allow Microphone access…",
-        Permission::Accessibility => "Allow Accessibility access…",
-        Permission::InputMonitoring => "Allow Input Monitoring…",
-    }
-}
-
-fn key_title(error: SecretError) -> &'static str {
-    match error {
-        SecretError::NotFound => "Add the API key to Keychain",
-        SecretError::Unavailable => "Allow Bloop to read the API key in Keychain",
-    }
-}
-
-fn settings_action(permission: Permission) -> Sel {
-    match permission {
-        Permission::Microphone => sel!(openMicrophoneSettings:),
-        Permission::Accessibility => sel!(openAccessibilitySettings:),
-        Permission::InputMonitoring => sel!(openInputMonitoringSettings:),
-    }
+/// Returns the action of the menu item tag `tag`. Returns `None` for the tag 0 and for a negative tag.
+fn action_of(tag: isize) -> Option<ActionId> {
+    let index = tag.checked_sub(1)?;
+    usize::try_from(index).ok().map(ActionId)
 }
 
 fn menu_item(
@@ -149,9 +76,9 @@ fn menu_item(
     key: &str,
 ) -> Retained<NSMenuItem> {
     let item = NSMenuItem::alloc(mtm);
-    // SAFETY: each action is a selector from `sel!`. `toggleCorrection:`, `copyLastResult:`, and the
-    // settings selectors go to a `MenuTarget`, which implements them. `terminate:` has no target,
-    // thus AppKit sends it through the responder chain to `NSApplication`, which implements it.
+    // SAFETY: each action is a selector from `sel!`. `menuAction:` goes to a `MenuTarget`, which
+    // implements it. `terminate:` has no target, thus AppKit sends it through the responder chain
+    // to `NSApplication`, which implements it.
     unsafe {
         NSMenuItem::initWithTitle_action_keyEquivalent(
             item,
@@ -169,38 +96,6 @@ fn set_target(item: &NSMenuItem, target: &MenuTarget) {
     unsafe { item.setTarget(Some(target)) };
 }
 
-/// The state of a menu item with a checkmark, and the function that gets each new state.
-struct Toggle {
-    on: Cell<bool>,
-    changed: Box<dyn Fn(bool)>,
-}
-
-impl Toggle {
-    /// Starts in the state `on`.
-    fn new(on: bool, changed: Box<dyn Fn(bool)>) -> Self {
-        Self {
-            on: Cell::new(on),
-            changed,
-        }
-    }
-
-    /// Changes the state, gives the new state to the function, and returns it.
-    fn flip(&self) -> bool {
-        let on = !self.on.get();
-        self.on.set(on);
-        (self.changed)(on);
-        on
-    }
-}
-
-impl fmt::Debug for Toggle {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Toggle")
-            .field("on", &self.on)
-            .finish_non_exhaustive()
-    }
-}
-
 fn check(on: bool) -> NSControlStateValue {
     if on {
         NSControlStateValueOn
@@ -209,140 +104,157 @@ fn check(on: bool) -> NSControlStateValue {
     }
 }
 
+/// The source of the menu content. `Debug` shows nothing of the source.
+struct Source(Box<dyn MenuSource>);
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Source").finish_non_exhaustive()
+    }
+}
+
 define_class!(
     // SAFETY: `NSObject` has no subclassing requirements, and `MenuTarget` does not implement `Drop`.
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[name = "BloopMenuTarget"]
-    #[ivars = Toggle]
+    #[ivars = Source]
     #[derive(Debug)]
     struct MenuTarget;
 
     impl MenuTarget {
-        #[unsafe(method(toggleCorrection:))]
-        fn toggle_correction(&self, sender: Option<&AnyObject>) {
-            let on = self.ivars().flip();
+        /// Gives the action of the clicked item to the source. A tag without an action logs an error.
+        #[unsafe(method(menuAction:))]
+        fn menu_action(&self, sender: Option<&AnyObject>) {
             let Some(item) = sender.and_then(AnyObject::downcast_ref::<NSMenuItem>) else {
-                tracing::warn!("the correction toggle has no menu item to update");
+                tracing::error!("a menu action has no menu item, the click has no effect");
                 return;
             };
-            item.setState(check(on));
-        }
-
-        #[unsafe(method(copyLastResult:))]
-        fn copy_last_result(&self, _sender: Option<&AnyObject>) {
-            MainSink.send(Event::CopyLastResult);
-        }
-
-        #[unsafe(method(openMicrophoneSettings:))]
-        fn open_microphone_settings(&self, _sender: Option<&AnyObject>) {
-            permissions::open_settings(Permission::Microphone);
-        }
-
-        #[unsafe(method(openAccessibilitySettings:))]
-        fn open_accessibility_settings(&self, _sender: Option<&AnyObject>) {
-            permissions::open_settings(Permission::Accessibility);
-        }
-
-        #[unsafe(method(openInputMonitoringSettings:))]
-        fn open_input_monitoring_settings(&self, _sender: Option<&AnyObject>) {
-            permissions::open_settings(Permission::InputMonitoring);
+            let tag = item.tag();
+            let Some(action) = action_of(tag) else {
+                tracing::error!(tag, "the menu item has no action, the click has no effect");
+                return;
+            };
+            self.ivars().0.activate(action);
         }
     }
 
     // SAFETY: `NSObject` implements all methods of `NSObjectProtocol`.
     unsafe impl NSObjectProtocol for MenuTarget {}
+
+    // SAFETY: all methods of the protocol are optional. The selector, the argument type, and the
+    // empty result of `menuNeedsUpdate:` match the `objc2-app-kit` declaration.
+    unsafe impl NSMenuDelegate for MenuTarget {
+        /// Shows the current model before the menu opens.
+        #[unsafe(method(menuNeedsUpdate:))]
+        fn menu_needs_update(&self, menu: &NSMenu) {
+            self.render(menu);
+        }
+    }
 );
 
 impl MenuTarget {
-    fn new(mtm: MainThreadMarker, toggle: Toggle) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(toggle);
+    fn new(mtm: MainThreadMarker, source: Source) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(source);
         // SAFETY: the `init` method of `NSObject` has no requirements.
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Replaces the items of `menu` with the model of the source, a separator, and "Quit Bloop".
+    fn render(&self, menu: &NSMenu) {
+        let mtm = self.mtm();
+        let model = self.ivars().0.model();
+        menu.removeAllItems();
+        for item in &model.items {
+            menu.addItem(&self.item(mtm, item));
+        }
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+        menu.addItem(&menu_item(mtm, "Quit Bloop", Some(sel!(terminate:)), "q"));
+    }
+
+    fn item(&self, mtm: MainThreadMarker, item: &MenuItem) -> Retained<NSMenuItem> {
+        match item {
+            MenuItem::Status { title } => menu_item(mtm, title, None, ""),
+            MenuItem::Action { title, action } => self.action_item(mtm, title, *action),
+            MenuItem::Toggle {
+                title,
+                action,
+                checked,
+            } => {
+                let item = self.action_item(mtm, title, *action);
+                item.setState(check(*checked));
+                item
+            }
+            MenuItem::Choice { title, options } => {
+                let item = menu_item(mtm, title, None, "");
+                item.setSubmenu(Some(&self.submenu(mtm, options)));
+                item
+            }
+            MenuItem::Separator => NSMenuItem::separatorItem(mtm),
+        }
+    }
+
+    fn submenu(&self, mtm: MainThreadMarker, options: &[ChoiceOption]) -> Retained<NSMenu> {
+        let menu = NSMenu::new(mtm);
+        for option in options {
+            let item = self.action_item(mtm, &option.title, option.action);
+            item.setState(check(option.selected));
+            menu.addItem(&item);
+        }
+        menu
+    }
+
+    /// Returns an item that gives `action` to the source. Without a valid tag, the item has no action.
+    fn action_item(
+        &self,
+        mtm: MainThreadMarker,
+        title: &str,
+        action: ActionId,
+    ) -> Retained<NSMenuItem> {
+        let Some(tag) = tag_of(action) else {
+            tracing::error!(
+                ?action,
+                "the menu action has no tag, the item has no action"
+            );
+            return menu_item(mtm, title, None, "");
+        };
+        let item = menu_item(mtm, title, Some(sel!(menuAction:)), "");
+        item.setTag(tag);
+        set_target(&item, self);
+        item
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use bloop_core::ports::platform::ActionId;
 
-    use bloop_core::error::{Permission, SecretError};
-
-    use super::{Line, Toggle, status};
+    use super::{action_of, tag_of};
 
     #[test]
-    fn each_flip_changes_the_toggle_and_gives_the_new_state() {
-        for start in [false, true] {
-            let states = Rc::new(RefCell::new(Vec::new()));
-            let received = Rc::clone(&states);
-            let toggle = Toggle::new(start, Box::new(move |on| received.borrow_mut().push(on)));
+    fn the_tag_is_the_action_plus_one_and_gives_the_action_back() {
+        for index in [0, 1, 41] {
+            let tag = tag_of(ActionId(index)).unwrap();
 
-            assert!(states.borrow().is_empty());
-            assert_eq!(toggle.flip(), !start);
-            assert_eq!(toggle.flip(), start);
-            assert_eq!(toggle.flip(), !start);
-
-            assert_eq!(*states.borrow(), [!start, start, !start]);
+            assert_eq!(tag, isize::try_from(index).unwrap() + 1);
+            assert_eq!(action_of(tag), Some(ActionId(index)));
         }
     }
 
     #[test]
-    fn with_all_permissions_the_status_says_how_to_dictate() {
-        assert_eq!(
-            status(&[], true, None),
-            [Line::Text("Ready: hold Right Command to dictate")]
-        );
+    fn the_tag_0_and_negative_tags_give_no_action() {
+        for tag in [0, -1, isize::MIN] {
+            assert_eq!(action_of(tag), None, "{tag}");
+        }
     }
 
     #[test]
-    fn each_missing_permission_has_a_settings_item() {
-        assert_eq!(
-            status(
-                &[Permission::InputMonitoring, Permission::Accessibility],
-                false,
-                None
-            ),
-            [
-                Line::Settings(Permission::InputMonitoring),
-                Line::Settings(Permission::Accessibility),
-                Line::Text("Then open Bloop again"),
-            ]
-        );
-    }
+    fn an_action_without_a_tag_that_fits_gives_no_tag() {
+        let last = usize::try_from(isize::MAX).unwrap();
 
-    #[test]
-    fn a_refused_tap_without_missing_permissions_asks_for_a_restart() {
-        assert_eq!(
-            status(&[], false, None),
-            [Line::Text("Open Bloop again to use the dictation key")]
-        );
-    }
-
-    #[test]
-    fn a_missing_key_asks_to_add_it() {
-        assert_eq!(
-            status(&[], true, Some(SecretError::NotFound)),
-            [
-                Line::Text("Add the API key to Keychain"),
-                Line::Text("Then open Bloop again"),
-            ]
-        );
-    }
-
-    #[test]
-    fn the_key_line_follows_the_missing_permissions() {
-        assert_eq!(
-            status(
-                &[Permission::Accessibility],
-                false,
-                Some(SecretError::Unavailable)
-            ),
-            [
-                Line::Settings(Permission::Accessibility),
-                Line::Text("Allow Bloop to read the API key in Keychain"),
-                Line::Text("Then open Bloop again"),
-            ]
-        );
+        assert_eq!(tag_of(ActionId(last - 1)), Some(isize::MAX));
+        assert_eq!(tag_of(ActionId(last)), None);
+        assert_eq!(tag_of(ActionId(usize::MAX)), None);
+        assert_eq!(action_of(isize::MAX), Some(ActionId(last - 1)));
     }
 }

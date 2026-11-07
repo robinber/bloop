@@ -1,4 +1,4 @@
-//! Platform ports. The driver uses them on the main thread, except `EventSink` and `AudioSink`.
+//! Platform ports and the menu model. The ports operate on the main thread, except `EventSink` and `AudioSink`.
 
 use std::num::NonZeroU32;
 use std::time::Duration;
@@ -97,4 +97,73 @@ pub trait SecretStore {
     /// `SecretError::NotFound` when the store has no key for `account`.
     /// `SecretError::Unavailable` when the store has the key but the read failed.
     fn get(&self, account: &str) -> Result<SecretString, SecretError>;
+}
+
+/// The identifier of a menu action: the index of the action in the list that `bloop-app` builds with the model.
+/// It is valid only in that model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionId(pub usize);
+
+/// The content of the status menu. The renderer adds "Quit Bloop" after the items.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuModel {
+    /// The items, in display order.
+    pub items: Vec<MenuItem>,
+}
+
+/// One item of the status menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuItem {
+    /// Information only. It has no action, thus `AppKit` disables it.
+    Status {
+        /// The text of the item.
+        title: String,
+    },
+    /// An item that starts an action.
+    Action {
+        /// The text of the item.
+        title: String,
+        /// The action of a click.
+        action: ActionId,
+    },
+    /// An item with a checkmark.
+    Toggle {
+        /// The text of the item.
+        title: String,
+        /// The action of a click.
+        action: ActionId,
+        /// `true` shows the checkmark.
+        checked: bool,
+    },
+    /// An item with a submenu. Each option has a checkmark state.
+    Choice {
+        /// The text of the item.
+        title: String,
+        /// The items of the submenu.
+        options: Vec<ChoiceOption>,
+    },
+    /// A line between groups of items.
+    Separator,
+}
+
+/// One option of a [`MenuItem::Choice`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoiceOption {
+    /// The text of the option.
+    pub title: String,
+    /// The action of a click.
+    pub action: ActionId,
+    /// `true` shows the checkmark.
+    pub selected: bool,
+}
+
+/// Gives the content of the status menu and receives its clicks. Main thread only.
+///
+/// `AppKit` calls both methods from Objective-C, thus they must not panic.
+pub trait MenuSource {
+    /// Returns the content of the menu. The renderer calls it each time the menu opens.
+    fn model(&self) -> MenuModel;
+
+    /// Starts the action of a click. `action` comes from the last model.
+    fn activate(&self, action: ActionId);
 }

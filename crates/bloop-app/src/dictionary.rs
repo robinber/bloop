@@ -1,6 +1,8 @@
 //! The dictionary file `~/Library/Application Support/Bloop/dictionary.toml`.
 //!
-//! The settings hub reads the file at each dictation key press. A missing file gives an empty dictionary.
+//! The settings hub reads the file at each dictation key press and each time the status menu opens.
+//! A missing file gives an empty dictionary.
+//! When the file does not exist at start, Bloop writes a commented empty dictionary.
 //! The errors and the log never contain the file content, because a parser message can quote an entry.
 
 use std::io;
@@ -14,8 +16,21 @@ use crate::files::FileError;
 /// The size limit of `dictionary.toml`, in bytes.
 pub(crate) const LIMIT: u64 = 256 * 1024;
 
+/// The commented empty dictionary that Bloop writes when `dictionary.toml` does not exist.
+pub(crate) const TEMPLATE: &str = r##"# Bloop dictionary: the names and terms that the dictation must spell correctly.
+# Each entry gives one written form. Bloop gives the written forms to the speech provider.
+# A change applies from the next dictation. To use an example, remove the "#" at the start of its lines.
+
+# [[entry]]
+# written = "Voxtral"
+
+# [[entry]]
+# heard = "obj c 2"           # Optional: the form that Bloop writes now. It has no effect for now.
+# written = "objc2"
+"##;
+
 /// Why the dictionary file is invalid. It contains no file content.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Invalid {
     /// The file is larger than [`LIMIT`].
     TooLarge,
@@ -83,7 +98,7 @@ pub(crate) fn line(text: &str, offset: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Invalid, line, parse};
+    use super::{Invalid, TEMPLATE, line, parse};
 
     const VALID: &str = r#"
 [[entry]]
@@ -111,6 +126,25 @@ written = "comme Taby"
         let dictionary = parse("[[entry]]\nwritten = \"Voxtral\"\n").unwrap();
 
         assert_eq!(dictionary.written_forms(), ["Voxtral"]);
+    }
+
+    #[test]
+    fn the_template_is_an_empty_dictionary() {
+        assert_eq!(parse(TEMPLATE).unwrap().written_forms(), [] as [String; 0]);
+    }
+
+    #[test]
+    fn the_template_examples_are_valid_entries_without_the_comment_marks() {
+        let examples: Vec<&str> = TEMPLATE
+            .lines()
+            .filter_map(|line| line.strip_prefix("# "))
+            .filter(|line| line.starts_with('[') || line.contains(" = "))
+            .collect();
+
+        assert_eq!(
+            parse(&examples.join("\n")).unwrap().written_forms(),
+            ["Voxtral", "objc2"]
+        );
     }
 
     #[test]
