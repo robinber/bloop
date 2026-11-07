@@ -229,7 +229,7 @@ mod tests {
         write(&path, true).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
-            template().replace("enabled = false", "enabled = true")
+            template().replace("enabled = false ", "enabled = true  ")
         );
         assert!(read(&path).unwrap().unwrap().refine.enabled);
 

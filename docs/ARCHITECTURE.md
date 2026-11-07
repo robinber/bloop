@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 17 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 18 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -438,6 +438,7 @@ The write rule:
 
 - For a menu change, Bloop reads the current file and validates it with the parser.
   Then it changes one key with `toml_edit`. The comments and the other keys stay.
+  A comment after the value keeps its column, with a minimum of one space before it.
 - Bloop writes the new text to `config.toml.tmp`, syncs it, and renames it to `config.toml`.
   Thus Bloop never truncates an existing file, and the old file stays valid after a crash.
 - If the current file is invalid, Bloop does not change it.
