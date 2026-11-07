@@ -90,20 +90,21 @@ Each key is optional. A missing key has its default value:
 | Key | Default value | Values |
 | --- | --- | --- |
 | `schema` | `1` | Only `1` |
-| `[dictation] hold_ms` | `220` | The hold time of the dictation key before the recording starts, from 100 to 1000 ms |
+| `[dictation] hold_ms` | `220` | The hold time of the dictation key before the recording starts, from 100 to 1000 ms. **Hold delay** in the menu selects it. |
 | `[dictation] language` | `"fr"` | Two lowercase ASCII letters |
 | `[transcriber] provider` | `"mistral"` | The speech provider. It is necessary when the table exists. |
 | `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The transcription model |
 | `[transcriber] target_streaming_delay_ms` | `480` | The balance between delay and accuracy, in milliseconds |
 | `[chat] provider` | `"mistral"` | The correction provider. It is necessary when the table exists. |
-| `[chat] model` | `"mistral-medium-latest"` | The correction model |
-| `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | A list of correction models. It has no effect for now. |
+| `[chat] model` | `"mistral-medium-latest"` | The correction model. **Model** in the menu selects it. |
+| `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | The correction models that the **Model** submenu lists |
 | `[chat] reasoning_effort` | `"none"` | The reasoning effort of the correction model |
 | `[refine] enabled` | `false` | The state of **Correct text** |
-| `[refine] prompt` | `"natural-light"` | A prompt name: 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-` |
+| `[refine] prompt` | `"natural-light"` | A prompt name: 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. **Prompt** in the menu selects it. |
 
 Each table rejects an unknown key. The file size is at most 64 KiB.
-When you click **Correct text**, Bloop writes `[refine] enabled` and keeps your comments.
+When you select **Correct text**, or an option of **Prompt**, **Model**, or **Hold delay**, Bloop writes its key and keeps your comments.
+The **Hold delay** submenu lists 150, 220, 300, and 400 ms. Another value of the file shows at the end of its list.
 
 A change in the file applies from the next dictation, without restart. A new API key still needs a restart.
 Each time you open the menu, the checkmark of **Correct text** shows the value in the file.
@@ -120,7 +121,7 @@ To use your own prompt:
 
 1. Write the prompt in a file of the prompts folder, for example `dev.md`.
    To start from the built-in prompt, copy `prompts/natural-light.md` of this repository.
-2. Set `prompt = "dev"` in `[refine]`.
+2. Select **dev** in the **Prompt** submenu, or set `prompt = "dev"` in `[refine]`.
 
 The next dictation uses the prompt. A change in the prompt file also applies from the next dictation.
 
@@ -152,7 +153,7 @@ The tool sends each sample to the provider. The samples are invented and contain
 - **Missing API key:** add the key with the command above, then quit and open Bloop again.
 - **The provider refused the API key:** store a valid key with the command above, then quit and open Bloop again.
 - **Red recording indicator after a file edit:** the menu shows the file and the line of the error.
-  Select the line to open the file. An invalid file prevents dictation until you fix it.
+  Select the line to open the file or the prompts folder. An invalid file prevents dictation until you fix it.
 - **Text was not inserted:** select **Copy last result** in the menu, then paste manually.
 
 Logs are in `~/Library/Logs/Bloop/bloop.log`.

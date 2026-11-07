@@ -4,7 +4,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use bloop_core::error::{Permission, SecretError};
-use bloop_core::ports::platform::{ActionId, MenuItem, MenuModel, MenuSource as _, SecretStore};
+use bloop_core::ports::platform::{
+    ActionId, ChoiceOption, MenuItem, MenuModel, MenuSource as _, SecretStore,
+};
+use bloop_providers::ChatConfig;
 use secrecy::SecretString;
 
 use super::{Action, AppMenu, Facts, build};
@@ -12,7 +15,7 @@ use crate::dictionary;
 use crate::files::tests::scratch_dir;
 use crate::hub::{Hub, Summary, View};
 use crate::prompts::PromptError;
-use crate::settings::{self, Paths, PromptName};
+use crate::settings::{self, HoldMs, Paths, PromptName};
 
 const READY: &str = "Ready: hold Right Command to dictate";
 const RESTART: &str = "Then open Bloop again";
@@ -25,17 +28,60 @@ fn facts() -> Facts {
     }
 }
 
+fn summary(correction: bool) -> Summary {
+    Summary {
+        correction,
+        prompt: name("natural-light"),
+        model: "mistral-medium-latest".to_owned(),
+        models: vec![
+            "mistral-medium-latest".to_owned(),
+            "mistral-small-latest".to_owned(),
+        ],
+        hold: hold(220),
+    }
+}
+
 fn view() -> View {
     View {
-        settings: Ok(Summary { correction: false }),
+        settings: Ok(summary(false)),
         prompt: None,
         dictionary: None,
         key_refused: false,
+        prompts: vec![name("dev"), name("natural-light")],
     }
 }
 
 fn name(value: &str) -> PromptName {
     PromptName::try_from(value.to_owned()).unwrap()
+}
+
+fn hold(ms: u64) -> HoldMs {
+    HoldMs::try_from(ms).unwrap()
+}
+
+/// Returns the options of the list `title`: the title of each option, and `true` for the selected option.
+fn options(model: &MenuModel, title: &str) -> Vec<(String, bool)> {
+    model
+        .items
+        .iter()
+        .find_map(|item| match item {
+            MenuItem::Choice {
+                title: list,
+                options,
+            } if list == title => Some(options),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no list {title}: {model:?}"))
+        .iter()
+        .map(|option| (option.title.clone(), option.selected))
+        .collect()
+}
+
+fn shown(titles: &[&str], selected: &str) -> Vec<(String, bool)> {
+    titles
+        .iter()
+        .map(|title| ((*title).to_owned(), *title == selected))
+        .collect()
 }
 
 /// Returns the items before the first separator, with the action of each item from the action list.
@@ -85,6 +131,9 @@ fn with_nothing_to_do_the_menu_says_how_to_dictate_and_shows_each_item() {
             READY,
             "---",
             "Correct text",
+            "Prompt",
+            "Model",
+            "Hold delay",
             "---",
             "Copy last result",
             "Open config.toml…",
@@ -96,11 +145,103 @@ fn with_nothing_to_do_the_menu_says_how_to_dictate_and_shows_each_item() {
         actions,
         [
             Action::ToggleCorrection,
+            Action::Prompt(name("dev")),
+            Action::Prompt(name("natural-light")),
+            Action::Model("mistral-medium-latest".to_owned()),
+            Action::Model("mistral-small-latest".to_owned()),
+            Action::Hold(hold(150)),
+            Action::Hold(hold(220)),
+            Action::Hold(hold(300)),
+            Action::Hold(hold(400)),
             Action::CopyLastResult,
             Action::OpenConfig,
             Action::OpenPrompts,
             Action::OpenDictionary,
         ]
+    );
+}
+
+#[test]
+fn each_list_has_a_checkmark_on_the_current_value() {
+    let (model, _) = build(&facts(), &view());
+
+    assert_eq!(
+        options(&model, "Prompt"),
+        shown(&["dev", "natural-light"], "natural-light")
+    );
+    assert_eq!(
+        options(&model, "Model"),
+        shown(
+            &["mistral-medium-latest", "mistral-small-latest"],
+            "mistral-medium-latest"
+        )
+    );
+    assert_eq!(
+        options(&model, "Hold delay"),
+        shown(&["150 ms", "220 ms", "300 ms", "400 ms"], "220 ms")
+    );
+}
+
+#[test]
+fn a_current_value_outside_its_list_is_added_at_the_end_and_selected() {
+    let view = View {
+        settings: Ok(Summary {
+            prompt: name("absent"),
+            model: "ministral-8b-2512".to_owned(),
+            hold: hold(250),
+            ..summary(false)
+        }),
+        ..view()
+    };
+    let (model, actions) = build(&facts(), &view);
+
+    assert_eq!(
+        options(&model, "Prompt"),
+        shown(&["dev", "natural-light", "absent"], "absent")
+    );
+    assert_eq!(
+        options(&model, "Model"),
+        shown(
+            &[
+                "mistral-medium-latest",
+                "mistral-small-latest",
+                "ministral-8b-2512"
+            ],
+            "ministral-8b-2512"
+        )
+    );
+    assert_eq!(
+        options(&model, "Hold delay"),
+        shown(
+            &["150 ms", "220 ms", "300 ms", "400 ms", "250 ms"],
+            "250 ms"
+        )
+    );
+    assert!(actions.contains(&Action::Prompt(name("absent"))));
+    assert!(actions.contains(&Action::Model("ministral-8b-2512".to_owned())));
+    assert!(actions.contains(&Action::Hold(hold(250))));
+}
+
+#[test]
+fn a_model_listed_twice_has_one_option() {
+    let view = View {
+        settings: Ok(Summary {
+            models: vec![
+                "mistral-small-latest".to_owned(),
+                "mistral-medium-latest".to_owned(),
+                "mistral-small-latest".to_owned(),
+            ],
+            ..summary(false)
+        }),
+        ..view()
+    };
+
+    assert_eq!(
+        options(&build(&facts(), &view).0, "Model"),
+        shown(
+            &["mistral-small-latest", "mistral-medium-latest"],
+            "mistral-medium-latest"
+        )
     );
 }
 
@@ -119,9 +260,13 @@ fn each_action_id_is_the_index_of_its_action() {
     let ids: Vec<ActionId> = model
         .items
         .iter()
-        .filter_map(|item| match item {
-            MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => Some(*action),
-            _ => None,
+        .flat_map(|item| match item {
+            MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => vec![*action],
+            MenuItem::Choice { options, .. } => options
+                .iter()
+                .map(|ChoiceOption { action, .. }| *action)
+                .collect(),
+            MenuItem::Status { .. } | MenuItem::Separator => Vec::new(),
         })
         .collect();
 
@@ -129,13 +274,14 @@ fn each_action_id_is_the_index_of_its_action() {
     assert_eq!(actions[0], Action::OpenPermission(Permission::Microphone));
     assert_eq!(actions[1], Action::OpenDictionary);
     assert_eq!(actions[2], Action::ToggleCorrection);
+    assert_eq!(actions[3], Action::Prompt(name("dev")));
 }
 
 #[test]
 fn the_checkmark_of_correct_text_follows_the_settings() {
     for correction in [false, true] {
         let view = View {
-            settings: Ok(Summary { correction }),
+            settings: Ok(summary(correction)),
             ..view()
         };
         let (model, _) = build(&facts(), &view);
@@ -289,7 +435,7 @@ fn a_prompt_error_opens_the_prompts_folder() {
         ),
     ] {
         let view = View {
-            settings: Ok(Summary { correction: true }),
+            settings: Ok(summary(true)),
             prompt: Some((name("dev"), error)),
             ..view()
         };
@@ -343,10 +489,11 @@ fn the_restart_lines_come_before_the_file_errors() {
         key: None,
     };
     let view = View {
-        settings: Ok(Summary { correction: true }),
+        settings: Ok(summary(true)),
         prompt: Some((name("dev"), PromptError::Missing)),
         dictionary: Some(dictionary::Invalid::Parse { line: Some(4) }),
         key_refused: true,
+        ..view()
     };
 
     assert_eq!(
@@ -463,5 +610,81 @@ fn an_unknown_action_has_no_effect() {
     menu.activate(ActionId(usize::MAX));
 
     assert_eq!(fs::read_to_string(dir.join("config.toml")).unwrap(), text);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+fn option(model: &MenuModel, list: &str, title: &str) -> ActionId {
+    model
+        .items
+        .iter()
+        .find_map(|item| match item {
+            MenuItem::Choice {
+                title: name,
+                options,
+            } if name == list => options
+                .iter()
+                .find(|option| option.title == title)
+                .map(|option| option.action),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no option {title} in {list}: {model:?}"))
+}
+
+#[test]
+fn a_click_on_each_list_option_writes_its_key() {
+    let dir = scratch_dir("menu-lists");
+    let text = "schema = 1\n\n[refine]\nenabled = true\n";
+    fs::write(dir.join("config.toml"), text).unwrap();
+    fs::create_dir(dir.join("prompts")).unwrap();
+    fs::write(dir.join("prompts").join("dev.md"), "Corrige.\n").unwrap();
+    let menu = app_menu(&dir);
+
+    menu.activate(option(&menu.model(), "Prompt", "dev"));
+    menu.activate(option(&menu.model(), "Model", "mistral-small-latest"));
+    menu.activate(option(&menu.model(), "Hold delay", "400 ms"));
+
+    let new = fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(
+        new,
+        format!(
+            "{text}prompt = \"dev\"\n\n[chat]\nprovider = \"{}\"\nmodel = \"mistral-small-latest\"\n\n[dictation]\nhold_ms = 400\n",
+            ChatConfig::default().provider()
+        )
+    );
+    let model = menu.model();
+    assert_eq!(
+        options(&model, "Prompt"),
+        shown(&["dev", "natural-light"], "dev")
+    );
+    assert_eq!(
+        options(&model, "Model"),
+        shown(
+            &["mistral-medium-latest", "mistral-small-latest"],
+            "mistral-small-latest"
+        )
+    );
+    assert_eq!(
+        options(&model, "Hold delay"),
+        shown(&["150 ms", "220 ms", "300 ms", "400 ms"], "400 ms")
+    );
+    assert_eq!(titles(&model).first(), Some(&READY));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn with_invalid_settings_a_click_on_an_old_list_option_changes_nothing() {
+    let dir = scratch_dir("menu-lists-invalid");
+    fs::write(dir.join("config.toml"), "schema = 1\n").unwrap();
+    let menu = app_menu(&dir);
+    let id = option(&menu.model(), "Hold delay", "400 ms");
+    let invalid = "schema = 1\n\n[dictation]\nhold_ms = 5000\n";
+    fs::write(dir.join("config.toml"), invalid).unwrap();
+
+    menu.activate(id);
+
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        invalid
+    );
     fs::remove_dir_all(&dir).unwrap();
 }

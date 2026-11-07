@@ -12,10 +12,10 @@ use bloop_core::ports::platform::SecretStore;
 use bloop_core::session::{Command, Core, Event};
 use secrecy::SecretString;
 
-use super::{Change, Hub, HubSnapshots, Snapshot, View, refuses_key};
+use super::{Hub, HubSnapshots, Snapshot, View, refuses_key};
 use crate::driver::Snapshots;
 use crate::files::tests::scratch_dir;
-use crate::settings::{self, Paths};
+use crate::settings::{self, Change, Paths, PromptName};
 use crate::worker::{NoCorrection, Speech};
 use crate::{dictionary, prompts};
 
@@ -330,7 +330,7 @@ fn set_correction_writes_the_key_and_the_next_snapshot_has_the_correction() {
     assert_eq!(no_correction(&first), Some(NoCorrection::Off));
     assert!(!hub.correction_on());
 
-    hub.set(Change::Correction(true));
+    hub.set(&Change::Correction(true));
 
     assert!(hub.correction_on());
     assert!(!Rc::ptr_eq(&first, &hub.inner.borrow().snapshot));
@@ -339,7 +339,7 @@ fn set_correction_writes_the_key_and_the_next_snapshot_has_the_correction() {
         "# mine\nschema = 1\n\n[refine]\nenabled = true    # the correction\n"
     );
     assert_eq!(no_correction(&current(&hub)), None);
-    hub.set(Change::Correction(false));
+    hub.set(&Change::Correction(false));
     assert_eq!(fs::read_to_string(dir.join("config.toml")).unwrap(), text);
     assert_eq!(no_correction(&current(&hub)), Some(NoCorrection::Off));
     fs::remove_dir_all(&dir).unwrap();
@@ -352,7 +352,7 @@ fn set_on_an_invalid_file_changes_nothing() {
     let hub = start(&dir);
     let first = current(&hub);
 
-    hub.set(Change::Correction(true));
+    hub.set(&Change::Correction(true));
 
     assert_eq!(fs::read_to_string(dir.join("config.toml")).unwrap(), text);
     let next = current(&hub);
@@ -561,5 +561,50 @@ fn without_a_key_at_start_an_unauthorized_failure_is_not_a_refused_key() {
 
     assert!(!view(&hub).key_refused);
     assert_eq!(hub.key_error(), Some(SecretError::NotFound));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_view_gives_the_values_of_the_lists_and_the_prompt_names() {
+    let dir = folder(
+        "hub-view-lists",
+        "schema = 1\n\n[dictation]\nhold_ms = 300\n\n[chat]\nprovider = \"mistral\"\nmodel = \"b\"\nmodels = [\"a\", \"b\"]\n\n[refine]\nprompt = \"dev\"\n",
+    );
+    fs::create_dir(dir.join("prompts")).unwrap();
+    fs::write(dir.join("prompts").join("dev.md"), "Corrige.\n").unwrap();
+    let hub = start(&dir);
+
+    let view = view(&hub);
+
+    let summary = view.settings.unwrap();
+    assert!(!summary.correction);
+    assert_eq!(summary.prompt.as_str(), "dev");
+    assert_eq!(summary.model, "b");
+    assert_eq!(summary.models, ["a", "b"]);
+    assert_eq!(summary.hold.get(), 300);
+    let names: Vec<&str> = view.prompts.iter().map(PromptName::as_str).collect();
+    assert_eq!(names, ["dev", "natural-light"]);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn set_writes_each_change_and_the_next_snapshot_uses_it() {
+    let dir = folder("hub-set-lists", ON);
+    let hub = start(&dir);
+    let model = chat_model(&hub);
+
+    hub.set(&Change::Hold(settings::HoldMs::try_from(400).unwrap()));
+    hub.set(&Change::Model("mistral-small-latest".to_owned()));
+    hub.set(&Change::Prompt(
+        PromptName::try_from("absent".to_owned()).unwrap(),
+    ));
+
+    let snapshot = current(&hub);
+    assert_eq!(snapshot.hold, Duration::from_millis(400));
+    assert_eq!(no_correction(&snapshot), Some(NoCorrection::InvalidPrompt));
+    let summary = view(&hub).settings.unwrap();
+    assert_eq!(summary.model, "mistral-small-latest");
+    assert_eq!(summary.prompt.as_str(), "absent");
+    assert!(!Arc::ptr_eq(&model, &chat_model(&hub)));
     fs::remove_dir_all(&dir).unwrap();
 }

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 20 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 21 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -444,7 +444,9 @@ The write rule:
   Thus Bloop never truncates an existing file, and the old file stays valid after a crash.
 - If the current file is invalid, Bloop does not change it.
 - If the file is missing, the change starts from the template.
-- The "Correct text" toggle uses this rule now for `[refine] enabled`.
+- If the table of the key does not exist, Bloop adds it at the end of the file.
+- A new `[chat]` table also gets the `provider` of the current settings, because a `[chat]` table without `provider` is invalid.
+- Each menu choice uses this rule: `[refine] enabled`, `[refine] prompt`, `[chat] model`, and `[dictation] hold_ms`.
 
 ### Files and prompts
 
@@ -454,7 +456,7 @@ A refresh reads the files again at the dictation key press and each time the men
 | File | At start, when missing | Read | Written by Bloop | Size limit |
 | --- | --- | --- | --- | --- |
 | `config.toml` | Bloop writes the commented template, with `enabled = false` | At each refresh | One key for each menu choice | 64 KiB |
-| `prompts/` | Bloop creates the folder | At each menu open, for the list of names (from Phase 4 iteration 4) | Never | — |
+| `prompts/` | Bloop creates the folder | At each menu open, for the list of names | Never | — |
 | `prompts/<name>.md` | — | The selected prompt, at each refresh when the correction is on | Never | 32 KiB |
 | `dictionary.toml` | Bloop writes a commented empty dictionary | At each refresh | Never in Phase 4 | 256 KiB |
 
@@ -523,12 +525,13 @@ The settings hub of `bloop-app` keeps the file texts, the parsed settings, and t
 `bloop-app` builds the menu content as a data model.
 `bloop-macos` renders the model each time the menu opens (`menuNeedsUpdate:`). Thus a new feature does not change AppKit code.
 
-- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings and the errors.
-  From Phase 4 iteration 4, the model also uses the prompt names.
+- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings, the errors, and the prompt names.
 - The prompt names are the built-in names and the valid `.md` file names of the prompts folder, sorted and without duplicates.
-  Bloop skips a file name that is not UTF-8.
-- "Prompt" lists the prompt names. "Model" lists `[chat] models`. "Hold delay" lists 150, 220, 300, and 400 ms (Phase 4 iteration 4).
-- If the current value is not in its list, the list adds it as the selected option. Thus the menu always shows the current value.
+  Bloop skips a file name that is not UTF-8. It does not read the files for the list.
+- "Prompt" lists the prompt names. "Model" lists `[chat] models`. "Hold delay" lists 150, 220, 300, and 400 ms.
+- If the current value is not in its list, the list adds it at the end as the selected option. Thus the menu always shows the current value.
+  A value that occurs two times in a list has one option.
+- A click on an option writes its key with the write rule. The change applies from the next dictation.
 - With invalid settings, the menu shows the status line and hides "Correct text" and the three submenus.
 - A missing permission line opens the related System Settings pane, as today.
 - The status lines that need a restart come first: the missing permissions, the API key, then "Then open Bloop again".
@@ -538,7 +541,7 @@ The settings hub of `bloop-app` keeps the file texts, the parsed settings, and t
   Without such an application, Bloop opens the folder in Finder. "Open prompts folder…" opens the folder.
 - The renderer adds "Quit Bloop" with ⌘Q after the model items, as today.
 
-The menu of Phase 4 iteration 4. Iteration 3 has the same menu without the three submenus. In this example, `dev` is a prompt file of the user:
+The menu. In this example, `dev` is a prompt file of the user:
 
 ```text
 Status lines: permissions, API key, and file errors, or "Ready: hold Right Command to dictate"

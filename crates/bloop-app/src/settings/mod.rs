@@ -4,7 +4,7 @@
 //! A missing key has its default value.
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
 //! It also writes a commented empty `dictionary.toml` when that file does not exist.
-//! The "Correct text" menu item writes its state to `[refine] enabled`. The comments and the other keys stay.
+//! Each menu choice writes one key: a `Change`. The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
 
 mod edit;
@@ -73,7 +73,20 @@ impl From<FileError> for Invalid {
     }
 }
 
-/// Why Bloop did not save the correction state. It contains no file content.
+/// A change of one setting from the status menu: one key of `config.toml`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// `[refine] enabled`: the state of "Correct text".
+    Correction(bool),
+    /// `[refine] prompt`.
+    Prompt(PromptName),
+    /// `[chat] model`.
+    Model(String),
+    /// `[dictation] hold_ms`.
+    Hold(HoldMs),
+}
+
+/// Why Bloop did not save a change. It contains no file content.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum NotSaved {
     /// The current file is invalid. Bloop does not change it.
@@ -100,18 +113,15 @@ pub(crate) fn prepare(paths: &Paths) {
     }
 }
 
-/// Sets the correction state in the file at `path`, after it checks the current file.
+/// Writes `change` to the file at `path`, after it checks the current file.
 /// When the file does not exist, it starts from the template, and it creates the folder.
-pub(crate) fn write(path: &Path, on: bool) -> Result<(), NotSaved> {
-    let text = files::read_bounded(path, LIMIT).map_err(|error| NotSaved::Invalid(error.into()))?;
-    let new = match &text {
-        Some(text) => {
-            parse(text).map_err(NotSaved::Invalid)?;
-            edit::with_correction(text, on)
-        }
-        None => edit::with_correction(&template::template(), on),
-    }
-    .map_err(NotSaved::Invalid)?;
+pub(crate) fn write(path: &Path, change: &Change) -> Result<(), NotSaved> {
+    let text = files::read_bounded(path, LIMIT)
+        .map_err(|error| NotSaved::Invalid(error.into()))?
+        .unwrap_or_else(template::template);
+    let settings = parse(&text).map_err(NotSaved::Invalid)?;
+    let new =
+        edit::with_change(&text, change, settings.chat.provider()).map_err(NotSaved::Invalid)?;
     files::replace(path, &new).map_err(|error| NotSaved::Write(error.kind()))
 }
 
@@ -120,7 +130,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use super::{Invalid, LIMIT, NotSaved, Paths, Settings, parse, prepare, write};
+    use super::{Change, Invalid, LIMIT, NotSaved, Paths, Settings, parse, prepare, write};
     use crate::dictionary;
     use crate::files::read_bounded;
     use crate::files::tests::scratch_dir;
@@ -190,7 +200,7 @@ mod tests {
 
         assert_eq!(read(&path), Err(Invalid::TooLarge));
         assert_eq!(
-            write(&path, true),
+            write(&path, &Change::Correction(true)),
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
@@ -202,14 +212,14 @@ mod tests {
         let dir = scratch_dir("settings-new");
         let path = dir.join("Bloop").join("config.toml");
 
-        write(&path, true).unwrap();
+        write(&path, &Change::Correction(true)).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             template().replace("enabled = false ", "enabled = true  ")
         );
         assert!(read(&path).unwrap().unwrap().refine.enabled);
 
-        write(&path, false).unwrap();
+        write(&path, &Change::Correction(false)).unwrap();
         assert!(!read(&path).unwrap().unwrap().refine.enabled);
         assert!(!path.with_added_extension("tmp").exists());
         fs::remove_dir_all(&dir).unwrap();
@@ -223,7 +233,7 @@ mod tests {
         fs::write(&path, text).unwrap();
 
         assert_eq!(
-            write(&path, true),
+            write(&path, &Change::Correction(true)),
             Err(NotSaved::Invalid(Invalid::Parse { line: Some(3) }))
         );
         assert_eq!(fs::read(&path).unwrap(), text);

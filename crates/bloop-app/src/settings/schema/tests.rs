@@ -139,7 +139,7 @@ fn the_hold_time_accepts_100_to_1000_ms() {
 
 #[test]
 fn a_hold_time_outside_its_limits_is_an_error_with_the_line_of_the_value() {
-    for value in ["99", "1001", "0", "-1"] {
+    for value in ["99", "1001", "0", "-1", "65636"] {
         let text = format!("schema = 1\n[dictation]\nhold_ms = {value}\n");
 
         assert_eq!(error_line(&text), Some(3), "{value}");

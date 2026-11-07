@@ -28,7 +28,7 @@ use crate::dictionary;
 use crate::driver::Snapshots;
 use crate::files::{self, FileError};
 use crate::prompts::{self, Prompt, PromptError};
-use crate::settings::{self, HoldMs, Paths, PromptName, Settings};
+use crate::settings::{self, Change, HoldMs, Paths, PromptName, Settings};
 use crate::worker::{Correction, Limits, NoCorrection, Speech};
 
 /// The settings of one generation: the hold time and the speech objects.
@@ -48,19 +48,22 @@ pub(crate) struct View {
     pub(crate) dictionary: Option<dictionary::Invalid>,
     /// `true` after the provider refused the API key that `Hub::start` read.
     pub(crate) key_refused: bool,
+    /// The built-in prompt names and the prompt file names, sorted and without duplicates.
+    pub(crate) prompts: Vec<PromptName>,
 }
 
 /// The values of valid settings that the status menu shows.
 pub(crate) struct Summary {
     /// The state of "Correct text".
     pub(crate) correction: bool,
-}
-
-/// A change of one setting from the status menu.
-#[derive(Clone, Copy)]
-pub(crate) enum Change {
-    /// The state of "Correct text": `[refine] enabled`.
-    Correction(bool),
+    /// The selected prompt.
+    pub(crate) prompt: PromptName,
+    /// The correction model.
+    pub(crate) model: String,
+    /// The correction models to select from.
+    pub(crate) models: Vec<String>,
+    /// The hold time of the dictation key.
+    pub(crate) hold: HoldMs,
 }
 
 /// Owns the settings state on the main thread. All its methods take `&self`, so that the owners share it as `Rc<Hub>`.
@@ -145,9 +148,10 @@ impl Hub {
         Some(Rc::clone(&inner.snapshot))
     }
 
-    /// Reads the files again and returns their state for the status menu.
+    /// Lists the prompt names, then reads the files again and returns their state for the status menu.
     /// Returns `None` only when the hub is already borrowed, which is a bug.
     pub(crate) fn view(&self) -> Option<View> {
+        let prompts = prompts::names(&self.paths.prompts);
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
             tracing::error!("the settings hub is already in use, the menu shows its last state");
             return None;
@@ -162,12 +166,17 @@ impl Hub {
             settings: match &state.settings {
                 Ok(settings) => Ok(Summary {
                     correction: settings.refine.enabled,
+                    prompt: settings.refine.prompt.clone(),
+                    model: settings.chat.model().to_owned(),
+                    models: settings.chat.models().to_vec(),
+                    hold: settings.dictation.hold_ms,
                 }),
                 Err(error) => Err(*error),
             },
             prompt,
             dictionary: state.vocabulary.as_ref().err().copied(),
             key_refused: self.key_refused.get(),
+            prompts,
         })
     }
 
@@ -186,11 +195,8 @@ impl Hub {
 
     /// Writes `change` to `config.toml`, then refreshes. It never changes an invalid file.
     /// A refused write logs a warning. It never panics, because it runs in an `AppKit` callback.
-    pub(crate) fn set(&self, change: Change) {
-        let result = match change {
-            Change::Correction(on) => settings::write(&self.paths.config, on),
-        };
-        if let Err(error) = result {
+    pub(crate) fn set(&self, change: &Change) {
+        if let Err(error) = settings::write(&self.paths.config, change) {
             tracing::warn!(?error, "the settings file is not changed");
         }
         self.refresh();

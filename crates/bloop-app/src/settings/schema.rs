@@ -59,15 +59,15 @@ pub(crate) struct Refine {
 /// The hold time of the dictation key before the capture starts: 100 to 1000 ms, 220 ms by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "u64")]
-pub(crate) struct HoldMs(u64);
+pub(crate) struct HoldMs(u16);
 
 impl HoldMs {
-    pub(crate) fn get(self) -> u64 {
+    pub(crate) fn get(self) -> u16 {
         self.0
     }
 
     pub(crate) fn duration(self) -> Duration {
-        Duration::from_millis(self.0)
+        Duration::from_millis(u64::from(self.0))
     }
 }
 
@@ -81,11 +81,11 @@ impl TryFrom<u64> for HoldMs {
     type Error = &'static str;
 
     fn try_from(value: u64) -> Result<Self, Self::Error> {
-        if (100..=1000).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err("the hold time is not from 100 to 1000 ms")
-        }
+        u16::try_from(value)
+            .ok()
+            .filter(|ms| (100..=1000).contains(ms))
+            .map(Self)
+            .ok_or("the hold time is not from 100 to 1000 ms")
     }
 }
 
@@ -120,7 +120,7 @@ impl TryFrom<String> for Language {
 
 /// The name of a correction prompt: 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`, `natural-light` by default.
 /// Thus a name cannot point outside the prompts folder.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(try_from = "String")]
 pub(crate) struct PromptName(String);
 

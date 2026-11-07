@@ -1,7 +1,10 @@
 //! The correction prompts: the built-in prompts and the prompt files of the user.
 //! The log names a prompt and its source, never its text.
 
+use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fmt;
+use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -108,13 +111,42 @@ pub(crate) fn resolve(folder: &Path, name: &PromptName) -> Result<Prompt, Prompt
     Ok(prompt)
 }
 
+/// Returns the prompt names for the status menu: the built-in names and the names of the `.md` files of `folder`,
+/// sorted and without duplicates. It skips a file name that is not UTF-8 or that is not a valid prompt name.
+/// It does not read the files.
+pub(crate) fn names(folder: &Path) -> Vec<PromptName> {
+    let mut names: BTreeSet<PromptName> = BUILT_IN
+        .iter()
+        .filter_map(|prompt| PromptName::try_from(prompt.name.to_owned()).ok())
+        .collect();
+    match fs::read_dir(folder) {
+        Ok(entries) => {
+            names.extend(entries.filter_map(|entry| name_of(&entry.ok()?.file_name())));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => tracing::debug!(
+            kind = ?error.kind(),
+            "the prompts folder is not readable, the menu lists the built-in prompts only"
+        ),
+    }
+    names.into_iter().collect()
+}
+
+/// Returns the prompt name of the file name `file`: its name without `.md`, when it is UTF-8 and a valid prompt name.
+fn name_of(file: &OsStr) -> Option<PromptName> {
+    let stem = file.to_str()?.strip_suffix(".md")?;
+    PromptName::try_from(stem.to_owned()).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use std::assert_matches;
+    use std::ffi::OsStr;
     use std::fs;
     use std::io;
+    use std::os::unix::ffi::OsStrExt as _;
 
-    use super::{LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, resolve};
+    use super::{LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, name_of, names, resolve};
     use crate::files::tests::scratch_dir;
     use crate::settings::PromptName;
 
@@ -215,6 +247,61 @@ mod tests {
             Err(PromptError::Unreadable(io::ErrorKind::InvalidData))
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn listed(folder: &std::path::Path) -> Vec<String> {
+        names(folder)
+            .iter()
+            .map(|name| name.as_str().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_names_are_the_built_in_names_and_the_md_files_sorted_without_duplicates() {
+        let dir = scratch_dir("prompt-names");
+        for file in [
+            "dev.md",
+            "Mail.md",
+            "a_b-2.md",
+            "natural-light.md",
+            "notes.txt",
+            "dev.md.bak",
+            "bad name.md",
+            ".md",
+            "._dev.md",
+        ] {
+            fs::write(dir.join(file), "Corrige.\n").unwrap();
+        }
+
+        assert_eq!(listed(&dir), ["Mail", "a_b-2", "dev", "natural-light"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn without_the_folder_the_names_are_the_built_in_names() {
+        let dir = scratch_dir("prompt-names-missing");
+
+        assert_eq!(listed(&dir.join("absent")), ["natural-light"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_name_that_is_not_utf_8_or_not_a_valid_name_gives_no_name() {
+        assert_eq!(
+            name_of(OsStr::new("dev.md")).map(|name| name.as_str().to_owned()),
+            Some("dev".to_owned())
+        );
+        for file in [
+            OsStr::from_bytes(b"d\xffv.md"),
+            OsStr::new("dev"),
+            OsStr::new("dev.MD"),
+            OsStr::new("../dev.md"),
+            OsStr::new(".md"),
+        ] {
+            assert_eq!(name_of(file), None, "{file:?}");
+        }
+        let long = format!("{}.md", "a".repeat(65));
+        assert_eq!(name_of(OsStr::new(&long)), None);
     }
 
     #[test]

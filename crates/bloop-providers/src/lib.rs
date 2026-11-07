@@ -84,12 +84,30 @@ impl ChatConfig {
         }
     }
 
+    /// The `provider` value of the `[chat]` table that selects this provider in the settings file.
+    #[must_use]
+    pub fn provider(&self) -> &'static str {
+        match *self {
+            #[cfg(feature = "mistral")]
+            Self::Mistral(_) => mistral::PROVIDER,
+        }
+    }
+
     /// The model identifier.
     #[must_use]
     pub fn model(&self) -> &str {
         match *self {
             #[cfg(feature = "mistral")]
             Self::Mistral(ref config) => &config.model,
+        }
+    }
+
+    /// The models that the user can select in the status menu.
+    #[must_use]
+    pub fn models(&self) -> &[String] {
+        match *self {
+            #[cfg(feature = "mistral")]
+            Self::Mistral(ref config) => &config.models,
         }
     }
 
@@ -203,6 +221,25 @@ mod tests {
         assert_eq!(mistral.model, "mistral-medium-latest");
         assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
         assert_eq!(mistral.temperature, 0.0);
+    }
+
+    #[test]
+    fn the_provider_value_selects_the_same_chat_provider() {
+        let config = ChatConfig::default();
+
+        let read: ChatConfig =
+            serde_json::from_value(serde_json::json!({ "provider": config.provider() })).unwrap();
+
+        assert_eq!(config.provider(), "mistral");
+        assert_eq!(read, config);
+    }
+
+    #[test]
+    fn models_gives_the_models_to_select_from() {
+        assert_eq!(
+            ChatConfig::default().models(),
+            ["mistral-medium-latest", "mistral-small-latest"]
+        );
     }
 
     #[test]

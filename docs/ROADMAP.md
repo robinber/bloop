@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 19 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design revision 20 (2026-11-07). Phase 1 and Phase 2 are complete.
 On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
@@ -467,8 +467,8 @@ The checkmark of "Correct text" follows the file at each open, also after a hand
 
 ### Iteration 4: lists
 
-- [ ] Add the "Prompt", "Model", and "Hold delay" submenus. Each choice writes one key.
-  The owner decided these lists on 2026-11-06. Only `bloop-app` changes.
+- [x] Add the "Prompt", "Model", and "Hold delay" submenus. Each choice writes one key.
+  The owner decided these lists on 2026-11-06. `bloop-app` changes, and `bloop-providers` gives the `provider` value and the models of `[chat]`.
 
 ### Iteration 5: dictation key (optional)
 

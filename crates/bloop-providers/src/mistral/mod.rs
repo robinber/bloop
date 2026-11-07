@@ -6,6 +6,9 @@ pub(crate) mod transcribe;
 /// The `SecretStore` account of the Mistral API key.
 pub const ACCOUNT: &str = "mistral";
 
+/// The `provider` value of the Mistral tables in the settings file.
+pub(crate) const PROVIDER: &str = "mistral";
+
 /// The settings of the Voxtral realtime transcription.
 /// A missing key in the settings file has its default value.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]

@@ -51,6 +51,7 @@ Press **Escape** during recording to cancel. Bloop sets no maximum recording dur
 
 In the menu bar, select **Correct text** to enable correction for subsequent dictations.
 Bloop keeps this choice when it starts again. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
+The **Prompt**, **Model**, and **Hold delay** submenus select the correction prompt, the correction model, and the hold time of the key.
 
 Select **Copy last result** to recover the most recent result for manual paste.
 The menu shows setup problems and file errors. It also opens the settings file, the prompts folder, and the dictionary.

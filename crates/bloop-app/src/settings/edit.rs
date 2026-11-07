@@ -1,34 +1,58 @@
 //! The change of one key in the settings text with `toml_edit`. The comments and the other keys stay.
 
-use toml_edit::{DocumentMut, Item, RawString, TomlError, Value};
+use toml_edit::{DocumentMut, Item, RawString, TableLike, TomlError, Value};
 
-use super::Invalid;
+use super::{Change, Invalid};
 use crate::dictionary::line;
 
-/// Returns `text` with `[refine] enabled` set to `on`. The other text does not change.
-pub(super) fn with_correction(text: &str, on: bool) -> Result<String, Invalid> {
+/// Returns `text` with the key of `change` set. The other text does not change.
+/// A missing table goes at the end of the text.
+///
+/// `provider` is the `provider` value of the current `[chat]` settings. A `[chat]` table without `provider` is invalid.
+/// Thus, when a model change creates the table, or the table has no `provider` key, the change also writes `provider`.
+pub(super) fn with_change(text: &str, change: &Change, provider: &str) -> Result<String, Invalid> {
     let mut document: DocumentMut = text.parse().map_err(|error: TomlError| Invalid::Parse {
         line: error.span().and_then(|span| line(text, span.start)),
     })?;
-    let refine = document
-        .entry("refine")
+    let (table, key, value, tag) = match change {
+        Change::Correction(on) => ("refine", "enabled", Value::from(*on), None),
+        Change::Prompt(name) => ("refine", "prompt", Value::from(name.as_str()), None),
+        Change::Model(model) => ("chat", "model", Value::from(model.as_str()), Some(provider)),
+        Change::Hold(hold) => (
+            "dictation",
+            "hold_ms",
+            Value::from(i64::from(hold.get())),
+            None,
+        ),
+    };
+    let table = document
+        .entry(table)
         .or_insert(toml_edit::table())
         .as_table_like_mut()
         .ok_or(Invalid::Parse { line: None })?;
-    let new = Value::from(on);
+    if let Some(tag) = tag
+        && !table.contains_key("provider")
+    {
+        table.insert("provider", Item::Value(Value::from(tag)));
+    }
+    set(table, key, value);
+    Ok(document.to_string())
+}
+
+/// Sets `key` of `table` to `value`. An existing key keeps its spaces and its comments.
+fn set(table: &mut dyn TableLike, key: &str, value: Value) {
     // `insert` on an existing key resets the key format, which removes the comments above it.
-    match refine.get_mut("enabled") {
+    match table.get_mut(key) {
         Some(item) => {
             *item = Item::Value(match item.as_value() {
-                Some(old) => with_decor_of(old, new),
-                None => new,
+                Some(old) => with_decor_of(old, value),
+                None => value,
             });
         }
         None => {
-            refine.insert("enabled", Item::Value(new));
+            table.insert(key, Item::Value(value));
         }
     }
-    Ok(document.to_string())
 }
 
 /// Returns `new` with the spaces and the comments of `old`.
@@ -56,69 +80,4 @@ fn width(value: &Value) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::with_correction;
-    use crate::settings::template::template;
-
-    #[test]
-    fn a_new_file_gets_the_template_with_the_correction_state() {
-        let text = template();
-
-        assert_eq!(
-            with_correction(&text, true).unwrap(),
-            text.replace("enabled = false ", "enabled = true  ")
-        );
-        assert_eq!(with_correction(&text, false).unwrap(), text);
-    }
-
-    #[test]
-    fn the_change_replaces_the_value() {
-        assert_eq!(
-            with_correction("schema = 1\n\n[refine]\nenabled = true\n", false).unwrap(),
-            "schema = 1\n\n[refine]\nenabled = false\n"
-        );
-    }
-
-    #[test]
-    fn the_change_keeps_the_comments_and_the_spacing() {
-        let text = "# Bloop settings\nschema = 1\n\n\n# The correction\n[refine]  # menu\n  # Set from the menu\n  enabled   =   false   # off for now\n\n# End\n";
-
-        assert_eq!(
-            with_correction(text, true).unwrap(),
-            text.replace("=   false   #", "=   true    #")
-        );
-    }
-
-    #[test]
-    fn the_change_keeps_the_column_of_the_comment() {
-        let text = "[refine]\nenabled = false   # off\nprompt = \"x\"     # name\n";
-        let on = "[refine]\nenabled = true    # off\nprompt = \"x\"     # name\n";
-
-        assert_eq!(with_correction(text, true).unwrap(), on);
-        assert_eq!(with_correction(on, false).unwrap(), text);
-    }
-
-    #[test]
-    fn a_comment_without_room_keeps_one_space() {
-        assert_eq!(
-            with_correction("[refine]\nenabled = true # on\n", false).unwrap(),
-            "[refine]\nenabled = false # on\n"
-        );
-    }
-
-    #[test]
-    fn a_comment_without_a_space_before_it_does_not_move() {
-        assert_eq!(
-            with_correction("[refine]\nenabled = true#on\n", false).unwrap(),
-            "[refine]\nenabled = false#on\n"
-        );
-    }
-
-    #[test]
-    fn a_file_without_the_refine_table_gets_a_standard_table() {
-        assert_eq!(
-            with_correction("# Bloop settings\nschema = 1\n", true).unwrap(),
-            "# Bloop settings\nschema = 1\n\n[refine]\nenabled = true\n"
-        );
-    }
-}
+mod tests;

@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 26 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 27 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -10,6 +10,7 @@ When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core
 Phase 3 adds optional correction, one toggle to the existing status menu, and the dictionary.
 Phase 4 iteration 1 adds the settings file. Iteration 2 adds the settings hub: `bloop-app` reads the files again at each dictation key press.
 Iteration 3 adds the menu model: `bloop-app` builds the menu content, and `bloop-macos` renders it each time the menu opens.
+Iteration 4 adds the lists of the menu: prompt, correction model, and hold delay.
 Phase 6 adds learning from fixes.
 The [roadmap](ROADMAP.md#priorities) gives the priorities.
 
@@ -115,7 +116,7 @@ src/
 
 ```text
 src/
-├── lib.rs             TranscriberConfig, ChatConfig with its model accessors, build_transcriber, build_chat_model (Phase 3);
+├── lib.rs             TranscriberConfig, ChatConfig with its accessors, build_transcriber, build_chat_model (Phase 3);
 │                      Deserialize (feature-gated), Clone, PartialEq, and template() (Phase 4)
 ├── http.rs            Shared correction client, time limits, HTTP error conversion to ProviderError (Phase 3)
 └── mistral/
@@ -174,18 +175,18 @@ src/
 ├── main.rs            Starts Tokio and the settings hub, builds objects, starts the AppKit run loop
 ├── settings/          Settings file (Phase 4 iteration 1)
 │   ├── mod.rs         Paths; prepare: the template, the empty dictionary, and the prompts folder when missing; parse;
-│   │                  the write of the correction state
+│   │                  Change and its write
 │   ├── schema.rs      Settings, its tables, the newtypes HoldMs, Language, and PromptName, parse
 │   ├── template.rs    The commented settings file with the default values
 │   └── edit.rs        The toml_edit change of one key
 ├── files.rs           read_bounded, write_if_missing, replace (Phase 4 iteration 1)
 ├── hub.rs             Settings hub: file texts, parsed settings, snapshot, chat model reuse, HubSnapshots (Phase 4 iteration 2);
 │                      the menu view and the refused key state (iteration 3)
-├── menu.rs            Menu builder: AppMenu, menu model, status lines, and menu actions (Phase 4 iteration 3); lists (iteration 4)
+├── menu.rs            Menu builder: AppMenu, menu model, status lines, menu actions (Phase 4 iteration 3), and lists (iteration 4)
 ├── dictionary.rs      Dictionary file: parse (Phase 3), size limit (Phase 4 iteration 2), commented empty template (iteration 3),
 │                      save and ignore a pair (Phase 6)
 ├── prompts.rs         Built-in correction prompts, from prompts/natural-light.md (Phase 3);
-│                      resolves a name to a user file or a built-in prompt (Phase 4 iteration 1)
+│                      resolves a name to a user file or a built-in prompt (Phase 4 iteration 1); the prompt names (iteration 4)
 ├── driver.rs          Driver: events to the core, commands to the ports;
 │                      the Snapshots trait and a settings snapshot for each generation (Phase 4 iteration 2)
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, pipeline, result event
@@ -241,7 +242,7 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 `settings/` parses `config.toml` with the schema below. The settings hub reads the file at each dictation key press and each time the menu opens.
 Thus a change in the file applies from the next dictation.
-`settings/` writes `[refine] enabled` at each click of "Correct text", through `Hub::set`.
+`settings/` writes one key for each menu choice, through `Hub::set`: `[refine] enabled`, `[refine] prompt`, `[chat] model`, or `[dictation] hold_ms`.
 
 Each key is optional. A missing key has the value below, which is its default value.
 Each table rejects unknown keys. A `schema` value other than 1 is an error.
@@ -261,7 +262,7 @@ target_streaming_delay_ms = 480
 [chat]
 provider = "mistral"
 model = "mistral-medium-latest"
-models = ["mistral-medium-latest", "mistral-small-latest"]   # The "Model" submenu (iteration 4).
+models = ["mistral-medium-latest", "mistral-small-latest"]   # The "Model" submenu.
 reasoning_effort = "none"
 
 [refine]
@@ -312,9 +313,11 @@ pub(crate) trait Snapshots {
   If each text and the prompt equal the last ones, the snapshot stays. Else the hub parses the changed files and builds a new snapshot.
 - `Hub::refresh` returns the current snapshot as `Option<Rc<Snapshot>>`. The value is `None` only for a failed borrow.
 - `Hub::set` writes one key for a `Change`. Then it refreshes. Thus one path builds each new snapshot. A refused write logs a warning.
-  Iteration 2 has `Change::Correction`. Iteration 4 adds `Prompt`, `Model`, and `Hold`.
+  `settings::Change` has `Correction`, `Prompt`, `Model`, and `Hold`. `settings::write` parses the current file before the change.
+  When a `Model` change creates `[chat]`, it also writes `provider`: `ChatConfig::provider` of the current settings.
 - `Hub::view` refreshes, then returns a `View` for the menu: the settings summary or the `config.toml` error,
-  the prompt error with the correction on, the dictionary error, and the refused key state. It contains no file content.
+  the prompt error with the correction on, the dictionary error, the refused key state, and the prompt names.
+  The summary has the correction state, the prompt, the model, the models, and the hold time. It contains no file content.
 - `Hub::note` gets each event before the driver. An event with `Unauthorized` sets the refused key state when `Hub::start` read the key.
   The state is a `Cell` outside the `RefCell`. It stays until the next start.
 - `Driver` gets `Snapshots` as a fifth generic parameter, like the other ports. `HubSnapshots` implements it for the hub. Tests use a fake.
@@ -360,6 +363,7 @@ Each vendor declares its own settings.
 Each config gives the Keychain account of its provider. `bloop-app` reads the key with `SecretStore` and gives it to the build function.
 `bloop-app` uses only these configs and the `Transcriber` and `ChatModel` traits. It names no provider.
 `ChatConfig::model` and `ChatConfig::with_model` read and replace the model identifier for each provider. The evaluation tool uses them for `--model`.
+`ChatConfig::models` gives the models of the "Model" submenu. `ChatConfig::provider` gives the `provider` value that selects the config.
 If the provider name is unknown, the settings are invalid. Captures fail with the error view. The menu shows the error.
 
 The configs and the settings file (Phase 4 iteration 1):
@@ -454,7 +458,8 @@ Phase 4 tests in `bloop-app`:
   the template parses to the default values; each `Change` keeps the comments and the other keys byte for byte.
   The provider tables: a missing table gives the default config; a table without `provider`; an unknown provider; an unknown key.
 - Files, in temporary folders with the `scratch_dir` pattern: `write_if_missing` writes one time and keeps an existing file byte for byte;
-  `read_bounded` at the limit and one byte over it; prompt resolution (file, built-in, file over a built-in, missing, empty, too large).
+  `read_bounded` at the limit and one byte over it; prompt resolution (file, built-in, file over a built-in, missing, empty, too large);
+  the prompt names (sorted, without duplicates, built-in names included, invalid and non-UTF-8 names skipped).
 - Hub, in temporary folders with a fake `SecretStore`: an unchanged text builds no new snapshot (`Rc::ptr_eq`);
   a changed settings file, dictionary, or prompt file builds one; invalid, unreadable, or too large files give `InvalidSettings`;
   a prompt change keeps the chat model, and a `[chat]` change replaces it (`Arc::ptr_eq`, with the real `build_chat_model` and a dummy key);
@@ -496,7 +501,7 @@ The application operates at the end of each selected phase.
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`, the provider configs and build functions in `lib.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval/`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
-| 4: Settings and status menu | Iteration 1: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `settings/` (it replaces `settings.rs`), `files.rs`, `prompts.rs`, `worker.rs`, `main.rs`. Iteration 2: `bloop-app`: `hub.rs`, `driver.rs`, `worker.rs`, `main.rs`. Iteration 3: `bloop-core`: the menu model in `ports/platform.rs`. `bloop-macos`: `menu.rs`, `workspace.rs`, `permissions.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/mod.rs`, `dictionary.rs`, `main.rs`. Iteration 4: `bloop-app`: `menu.rs`, `hub.rs`. Iteration 5, optional: `bloop-macos`: `keys.rs`. No new dependency and no new Cargo feature. |
+| 4: Settings and status menu | Iteration 1: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `settings/` (it replaces `settings.rs`), `files.rs`, `prompts.rs`, `worker.rs`, `main.rs`. Iteration 2: `bloop-app`: `hub.rs`, `driver.rs`, `worker.rs`, `main.rs`. Iteration 3: `bloop-core`: the menu model in `ports/platform.rs`. `bloop-macos`: `menu.rs`, `workspace.rs`, `permissions.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/mod.rs`, `dictionary.rs`, `main.rs`. Iteration 4: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/`, `prompts.rs`. Iteration 5, optional: `bloop-macos`: `keys.rs`. No new dependency and no new Cargo feature. |
 | 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
 | 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 

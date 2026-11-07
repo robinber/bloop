@@ -1,4 +1,4 @@
-//! The content of the status menu: the status lines, "Correct text", and the menu actions.
+//! The content of the status menu: the status lines, "Correct text", the lists, and the menu actions.
 //!
 //! Each time the menu opens, `AppMenu` refreshes the settings hub and builds the model with the pure function `build`.
 //! The status lines give the file and the line of an error, never the file content.
@@ -8,15 +8,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use bloop_core::error::{Permission, SecretError};
-use bloop_core::ports::platform::{ActionId, EventSink as _, MenuItem, MenuModel, MenuSource};
+use bloop_core::ports::platform::{
+    ActionId, ChoiceOption, EventSink as _, MenuItem, MenuModel, MenuSource,
+};
 use bloop_core::session::Event;
 use bloop_macos::events::MainSink;
 use bloop_macos::{permissions, workspace};
 
 use crate::dictionary;
-use crate::hub::{Change, Hub, View};
+use crate::hub::{Hub, View};
 use crate::prompts::PromptError;
-use crate::settings::{self, Paths, PromptName};
+use crate::settings::{self, Change, HoldMs, Paths, PromptName};
+
+/// The options of the "Hold delay" list, in milliseconds.
+const HOLDS: [u64; 4] = [150, 220, 300, 400];
 
 /// The status at start that the settings files do not change.
 pub(crate) struct Facts {
@@ -35,6 +40,12 @@ pub(crate) enum Action {
     OpenPermission(Permission),
     /// Changes the state of "Correct text".
     ToggleCorrection,
+    /// Selects the correction prompt.
+    Prompt(PromptName),
+    /// Selects the correction model.
+    Model(String),
+    /// Selects the hold time of the dictation key.
+    Hold(HoldMs),
     CopyLastResult,
     OpenConfig,
     OpenPrompts,
@@ -97,7 +108,19 @@ impl MenuSource for AppMenu {
             Action::ToggleCorrection => {
                 let on = !self.hub.correction_on();
                 tracing::info!(on, "the correction toggle changed");
-                self.hub.set(Change::Correction(on));
+                self.hub.set(&Change::Correction(on));
+            }
+            Action::Prompt(name) => {
+                tracing::info!(prompt = name.as_str(), "the menu selected a prompt");
+                self.hub.set(&Change::Prompt(name));
+            }
+            Action::Model(model) => {
+                tracing::info!(model, "the menu selected a correction model");
+                self.hub.set(&Change::Model(model));
+            }
+            Action::Hold(hold) => {
+                tracing::info!(hold_ms = hold.get(), "the menu selected a hold time");
+                self.hub.set(&Change::Hold(hold));
             }
             Action::CopyLastResult => MainSink.send(Event::CopyLastResult),
             Action::OpenConfig => workspace::open_file(&self.paths.config),
@@ -114,6 +137,31 @@ pub(crate) fn build(facts: &Facts, view: &View) -> (MenuModel, Vec<Action>) {
     menu.items.push(MenuItem::Separator);
     if let Ok(summary) = &view.settings {
         menu.toggle("Correct text", Action::ToggleCorrection, summary.correction);
+        menu.choice(
+            "Prompt",
+            &view.prompts,
+            &summary.prompt,
+            |name| name.as_str().to_owned(),
+            Action::Prompt,
+        );
+        menu.choice(
+            "Model",
+            &summary.models,
+            &summary.model,
+            Clone::clone,
+            Action::Model,
+        );
+        let holds: Vec<HoldMs> = HOLDS
+            .into_iter()
+            .filter_map(|ms| HoldMs::try_from(ms).ok())
+            .collect();
+        menu.choice(
+            "Hold delay",
+            &holds,
+            &summary.hold,
+            |hold| format!("{} ms", hold.get()),
+            Action::Hold,
+        );
         menu.items.push(MenuItem::Separator);
     }
     menu.action("Copy last result".to_owned(), Action::CopyLastResult);
@@ -241,6 +289,36 @@ impl Builder {
             title: title.to_owned(),
             action,
             checked,
+        });
+    }
+
+    /// Adds a submenu with one option for each of `values`, without duplicates, and a checkmark on `current`.
+    /// When `current` is not in `values`, the submenu adds it at the end. Thus the menu always shows the current value.
+    fn choice<T: Clone + PartialEq>(
+        &mut self,
+        title: &str,
+        values: &[T],
+        current: &T,
+        label: impl Fn(&T) -> String,
+        action: impl Fn(T) -> Action,
+    ) {
+        let mut shown: Vec<&T> = Vec::new();
+        for value in values.iter().chain([current]) {
+            if !shown.contains(&value) {
+                shown.push(value);
+            }
+        }
+        let options = shown
+            .into_iter()
+            .map(|value| ChoiceOption {
+                title: label(value),
+                selected: value == current,
+                action: self.add(action(value.clone())),
+            })
+            .collect();
+        self.items.push(MenuItem::Choice {
+            title: title.to_owned(),
+            options,
         });
     }
 }
