@@ -1,6 +1,6 @@
 //! The settings file `~/Library/Application Support/Bloop/config.toml`, and the prompts folder next to it.
 //!
-//! Bloop reads the file one time at start. A missing key has its default value.
+//! The settings hub reads the file at each dictation key press. A missing key has its default value.
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
 //! The "Correct text" menu item writes its state to `[refine] enabled`. The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
@@ -13,43 +13,42 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bloop_core::error::AppError;
-
 use crate::files::{self, FileError};
-pub(crate) use schema::{PromptName, Settings};
+pub(crate) use schema::{HoldMs, PromptName, Settings, parse};
 
 /// The settings folder in the home folder.
 const FOLDER: &str = "Library/Application Support/Bloop";
 
 /// The size limit of `config.toml`, in bytes.
-const LIMIT: u64 = 64 * 1024;
+pub(crate) const LIMIT: u64 = 64 * 1024;
 
 /// The paths of the settings folder.
 pub(crate) struct Paths {
-    config: PathBuf,
+    pub(crate) config: PathBuf,
     /// The folder of the prompt files of the user.
     pub(crate) prompts: PathBuf,
+    pub(crate) dictionary: PathBuf,
 }
 
 impl Paths {
     /// Returns the paths in the home folder, or `None` when the home folder is unknown.
-    fn in_home() -> Option<Self> {
+    pub(crate) fn in_home() -> Option<Self> {
         std::env::home_dir().map(|home| Self::new(&home.join(FOLDER)))
     }
 
-    fn new(folder: &Path) -> Self {
+    /// Returns the paths in the settings folder `folder`.
+    pub(crate) fn new(folder: &Path) -> Self {
         Self {
             config: folder.join("config.toml"),
             prompts: folder.join("prompts"),
+            dictionary: folder.join("dictionary.toml"),
         }
     }
 }
 
 /// Why the settings file is invalid. It contains no file content.
 #[derive(Debug, PartialEq, Eq)]
-enum Invalid {
-    /// The home folder is unknown.
-    NoHome,
+pub(crate) enum Invalid {
     /// The file is larger than [`LIMIT`].
     TooLarge,
     /// The file exists, but Bloop cannot read it as UTF-8 text.
@@ -72,60 +71,16 @@ impl From<FileError> for Invalid {
 
 /// Why Bloop did not save the correction state. It contains no file content.
 #[derive(Debug, PartialEq, Eq)]
-enum NotSaved {
+pub(crate) enum NotSaved {
     /// The current file is invalid. Bloop does not change it.
     Invalid(Invalid),
     /// The write of the new file failed.
     Write(io::ErrorKind),
 }
 
-/// Reads the settings at start. Before that, it writes the template when `config.toml` does not exist,
-/// and it creates the prompts folder. It logs the nonsecret values or the error, never the file content.
-///
-/// Returns the settings, and the paths of the settings folder when the file is valid.
-/// For an invalid file, the settings have the default values and the result is `InvalidSettings`.
-pub(crate) fn load() -> (Settings, Result<Paths, AppError>) {
-    let result = Paths::in_home().ok_or(Invalid::NoHome).and_then(|paths| {
-        prepare(&paths);
-        read(&paths.config).map(|settings| (settings.unwrap_or_default(), paths))
-    });
-    match result {
-        Ok((settings, paths)) => {
-            tracing::info!(
-                hold_ms = settings.dictation.hold_ms.get(),
-                language = settings.dictation.language.as_str(),
-                transcriber = ?settings.transcriber,
-                chat = ?settings.chat,
-                prompt = settings.refine.prompt.as_str(),
-                correction = settings.refine.enabled,
-                "the settings are ready"
-            );
-            (settings, Ok(paths))
-        }
-        Err(error) => {
-            tracing::error!(
-                ?error,
-                "the settings file is invalid, each dictation fails until the file is fixed and Bloop starts again"
-            );
-            (Settings::default(), Err(AppError::InvalidSettings))
-        }
-    }
-}
-
-/// Writes the correction state to the settings file, and logs a warning if it fails.
-/// It does not change an invalid file. It never panics, because it runs in an `AppKit` callback.
-pub(crate) fn store(on: bool) {
-    let result = Paths::in_home()
-        .ok_or(NotSaved::Invalid(Invalid::NoHome))
-        .and_then(|paths| write(&paths.config, on));
-    if let Err(error) = result {
-        tracing::warn!(?error, "the correction state is not saved");
-    }
-}
-
 /// Writes the template when `config.toml` does not exist, and creates the prompts folder.
 /// A failure logs a warning with the error kind. Then Bloop continues.
-fn prepare(paths: &Paths) {
+pub(crate) fn prepare(paths: &Paths) {
     match files::write_if_missing(&paths.config, &template::template()) {
         Ok(true) => tracing::info!("the settings file did not exist, Bloop wrote the template"),
         Ok(false) => {}
@@ -136,20 +91,13 @@ fn prepare(paths: &Paths) {
     }
 }
 
-/// Reads and parses the file at `path`. Returns `None` when the file does not exist.
-fn read(path: &Path) -> Result<Option<Settings>, Invalid> {
-    files::read_bounded(path, LIMIT)?
-        .map(|text| schema::parse(&text))
-        .transpose()
-}
-
 /// Sets the correction state in the file at `path`, after it checks the current file.
 /// When the file does not exist, it starts from the template, and it creates the folder.
-fn write(path: &Path, on: bool) -> Result<(), NotSaved> {
+pub(crate) fn write(path: &Path, on: bool) -> Result<(), NotSaved> {
     let text = files::read_bounded(path, LIMIT).map_err(|error| NotSaved::Invalid(error.into()))?;
     let new = match &text {
         Some(text) => {
-            schema::parse(text).map_err(NotSaved::Invalid)?;
+            parse(text).map_err(NotSaved::Invalid)?;
             edit::with_correction(text, on)
         }
         None => edit::with_correction(&template::template(), on),
@@ -161,10 +109,19 @@ fn write(path: &Path, on: bool) -> Result<(), NotSaved> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
-    use super::{Invalid, LIMIT, NotSaved, Paths, Settings, prepare, read, write};
+    use super::{Invalid, LIMIT, NotSaved, Paths, Settings, parse, prepare, write};
+    use crate::files::read_bounded;
     use crate::files::tests::scratch_dir;
     use crate::settings::template::template;
+
+    /// Reads and parses the file at `path`, as the settings hub does. Returns `None` when the file does not exist.
+    fn read(path: &Path) -> Result<Option<Settings>, Invalid> {
+        read_bounded(path, LIMIT)?
+            .map(|text| parse(&text))
+            .transpose()
+    }
 
     #[test]
     fn a_missing_file_is_not_an_error() {
@@ -203,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_over_the_limit_is_invalid_and_store_does_not_change_it() {
+    fn a_file_over_the_limit_is_invalid_and_the_write_does_not_change_it() {
         let dir = scratch_dir("settings-large");
         let path = dir.join("config.toml");
         let text = format!(
@@ -222,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn store_creates_the_folder_and_the_file() {
+    fn the_write_creates_the_folder_and_the_file() {
         let dir = scratch_dir("settings-new");
         let path = dir.join("Bloop").join("config.toml");
 
@@ -240,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn store_does_not_change_an_invalid_file() {
+    fn the_write_does_not_change_an_invalid_file() {
         let dir = scratch_dir("settings-invalid");
         let path = dir.join("config.toml");
         let text = b"# Bloop\n[refine]\nenabled = \"yes\"\n";

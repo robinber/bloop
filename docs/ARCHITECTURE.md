@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 18 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 19 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -233,7 +233,7 @@ The worker applies the transcription limits. Each chat adapter applies the corre
 The correction HTTP client:
 
 - One `hyper-util` legacy client serves all correction requests. `build_chat_model` builds it with the chat model.
-  Today, `bloop-app` builds the chat model one time at start. From Phase 4 iteration 2, it builds it again only when `[chat]` changes.
+  The settings hub of `bloop-app` builds the chat model when the correction needs it. It builds it again only when `[chat]` changes.
 - It uses `hyper-tls` with `native-tls`. The TLS handshake offers `h2` and `http/1.1` through ALPN.
   The client uses HTTP/2 when the server selects `h2`, and HTTP/1.1 otherwise.
 - The TCP connection limit is 5 s. If the host has more than one address, each address gets an equal part of this limit.
@@ -315,7 +315,7 @@ Raw fallback rules apply only after a complete transcript is available:
 - The 50% to 160% character ratio is a candidate rule, not a required limit or a meaning check.
   The example "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
   Phase 3 selects or removes these heuristics before daily use. They must not reject expected corrections in the test set.
-- If `bloop-app` cannot build the chat model at start, for example without an API key, the correction is not available.
+- If `bloop-app` cannot build the chat model, for example without an API key, the correction is not available.
   A job with the correction on then logs a warning and uses the raw transcript. The dictation continues to operate.
 - The worker logs the reason for each fallback from the step report.
 
@@ -417,10 +417,11 @@ Known limits:
 
 Phase 3 adds one correction toggle to the existing menu: the item "Correct text" with a checkmark,
 between the status lines and "Copy last result".
-Bloop keeps its state in `config.toml`, in the key `[refine] enabled`. Bloop reads the key at start. Without the file, the toggle is off.
+Bloop keeps its state in `config.toml`, in the key `[refine] enabled`. Without the file, the toggle is off.
+The menu reads the key at start. Each dictation reads it at the key press, through the settings hub.
 Each click writes the key with the `toml_edit` rule below. If the file is invalid, Bloop does not change it.
 An invalid `config.toml` has the same effect as an invalid dictionary: each capture fails with the error view.
-`bloop-app` captures its value when the transcription task of a generation starts (`StartCapture`).
+Each generation uses the value of its settings snapshot, which the driver takes at the key press.
 A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
 Phase 4 adds the design below. The owner validated it on 2026-11-07.
 The [roadmap](ROADMAP.md#phase-4-settings-and-status-menu) gives the iterations. Until an iteration is complete, the Phase 3 behavior above stays.
@@ -448,7 +449,7 @@ The write rule:
 ### Files and prompts
 
 All files are in the folder `~/Library/Application Support/Bloop/`.
-A refresh reads the files again, at the dictation key press (from Phase 4 iteration 2) and when the menu opens (from iteration 3).
+A refresh reads the files again at the dictation key press. From Phase 4 iteration 3, a refresh also occurs when the menu opens.
 
 | File | At start, when missing | Read | Written by Bloop | Size limit |
 | --- | --- | --- | --- | --- |
@@ -474,12 +475,9 @@ The prompts:
 
 ### Refresh and settings snapshot
 
-From Phase 4 iteration 2, the settings hub of `bloop-app` keeps the file texts, the parsed settings, and the current snapshot.
-Until then, Bloop reads the files at start only, and a change applies at the next start.
-At start, Bloop reads the selected prompt also when the correction is off, because the toggle can change before the next start.
+The settings hub of `bloop-app` keeps the file texts, the parsed settings, and the current snapshot.
 
-- At the dictation key press (from iteration 2) and when the menu opens (from iteration 3), the hub reads `config.toml`, `dictionary.toml`,
-  and the selected prompt file when the correction is on.
+- At each refresh, the hub reads `config.toml`, `dictionary.toml`, and the selected prompt file when the correction is on.
 - The hub compares each text with its last text. If no text changed, the current snapshot stays.
   Else the hub parses the changed files and builds a new snapshot.
 - Bloop does not use the modification time and does not watch the files. A text comparison is deterministic.
@@ -584,7 +582,7 @@ written = "comme Taby"
 
 - Each entry must have a `written` value that is not empty and does not contain only whitespace. `heard` is optional.
   An unknown key makes the file invalid.
-- Phase 3 reads the dictionary at start. From Phase 4 iteration 2, the hub reads it again at each refresh and parses it again if its text changed.
+- The settings hub reads the dictionary at each refresh. It parses the file again only when its text changed.
 - If the file does not exist, the dictionary is empty. This is not an error.
 - The written forms go to the speech provider in `TranscriptionOptions::vocabulary`, in file order and one time each.
   The Mistral adapter sends them as `context_bias`.

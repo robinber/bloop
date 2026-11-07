@@ -75,10 +75,10 @@ written = "objc2"
 written = "Voxtral"
 ```
 
-Each entry needs a non-empty `written` value.
+Each entry needs a non-empty `written` value. The file size is at most 256 KiB.
 The optional `heard` field stores the form that Bloop writes now. It does not affect transcription or correction yet.
 
-Bloop reads the dictionary at start. After editing the file, quit and open Bloop again.
+Bloop reads the dictionary again at each dictation. A change applies from the next dictation, without restart.
 Without the file, the dictionary is empty.
 
 ## Settings file
@@ -107,7 +107,8 @@ Each key is optional. A missing key has its default value:
 Each table rejects an unknown key. The file size is at most 64 KiB.
 When you click **Correct text**, Bloop writes `[refine] enabled` and keeps your comments.
 
-A change in the file applies at the next start. After you edit the file, quit and open Bloop again.
+A change in the file applies from the next dictation, without restart. A new API key still needs a restart.
+After you edit `[refine] enabled` in the file, the checkmark of **Correct text** can be wrong. The dictation follows the file.
 An invalid file prevents dictation, and **Correct text** is off. The log gives the line of the key, or of its table.
 In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table.
 
@@ -121,7 +122,8 @@ To use your own prompt:
 1. Write the prompt in a file of the prompts folder, for example `dev.md`.
    To start from the built-in prompt, copy `prompts/natural-light.md` of this repository.
 2. Set `prompt = "dev"` in `[refine]`.
-3. Quit and open Bloop again.
+
+The next dictation uses the prompt. A change in the prompt file also applies from the next dictation.
 
 A file with the name of a built-in prompt replaces it. For example, `natural-light.md` replaces the built-in prompt.
 A prompt file must contain UTF-8 text that is not empty. Its size is at most 32 KiB.
@@ -150,7 +152,7 @@ The tool sends each sample to the provider. The samples are invented and contain
 - **No recording:** check the menu for missing permissions, then quit and open Bloop again.
 - **Missing API key:** add the key with the command above, then quit and open Bloop again.
 - **Red recording indicator after a dictionary edit:** check the TOML syntax and each `written` value.
-  An invalid dictionary prevents dictation until you fix the file and restart Bloop.
+  An invalid dictionary prevents dictation until you fix the file.
 - **Text was not inserted:** select **Copy last result** in the menu, then paste manually.
 
 Logs are in `~/Library/Logs/Bloop/bloop.log`.

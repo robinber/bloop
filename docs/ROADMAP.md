@@ -1,6 +1,6 @@
 # Roadmap
 
-Status: Design revision 17 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design revision 18 (2026-11-07). Phase 1 and Phase 2 are complete.
 On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
@@ -438,16 +438,19 @@ The menu does not change. A change in the file applies at the next start.
 - [x] Select the speech provider and the chat provider in `config.toml`.
 - [ ] Add a menu choice of the provider when a second adapter exists.
 
+The owner did the five manual checks on 2026-11-07. All passed.
+
 ### Iteration 2: hub and settings snapshot
 
 The menu does not change yet. After a hand edit of `[refine] enabled`, the checkmark can be wrong until iteration 3.
+After a refused write, for example a disk error, the checkmark can also be wrong until iteration 3, because the dictation follows the file.
 
-- [ ] Add the settings hub. At the dictation key press, read the files again: settings, selected prompt, and dictionary.
+- [x] Add the settings hub. At the dictation key press, read the files again: settings, selected prompt, and dictionary.
   Compare the text, not the modification time.
-- [ ] Give each generation the settings snapshot that exists when the core creates it (`StartHoldTimer`). Add the `Snapshots` trait to the driver.
-- [ ] Build the chat model again only when `[chat]` changes. Build the correction of each snapshot from the selected prompt and the chat model.
-- [ ] Replace the toggle cell with `NoCorrection::Off`. The toggle writes its key through the hub.
-- [ ] `Hub::set` writes one key with the write rule, then refreshes. Today, the "Correct text" toggle uses this rule for `[refine] enabled`.
+- [x] Give each generation the settings snapshot that exists when the core creates it (`StartHoldTimer`). Add the `Snapshots` trait to the driver.
+- [x] Build the chat model again only when `[chat]` changes. Build the correction of each snapshot from the selected prompt and the chat model.
+- [x] Replace the toggle cell with `NoCorrection::Off`. The toggle writes its key through the hub.
+- [x] `Hub::set` writes one key with the write rule, then refreshes. Today, the "Correct text" toggle uses this rule for `[refine] enabled`.
 
 ### Iteration 3: menu model
 

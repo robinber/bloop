@@ -1,10 +1,8 @@
 //! Fake speech provider, chat model, and event sink for the worker and driver tests.
 
-use std::cell::Cell;
 use std::collections::VecDeque;
 use std::future;
 use std::num::NonZeroU32;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +19,7 @@ use bloop_core::session::Event;
 use tokio::runtime::Handle;
 use tokio::time::sleep;
 
-use super::{Correction, Limits, Spawner, Speech};
+use super::{Correction, Limits, NoCorrection, Spawner, Speech};
 use crate::prompts::NATURAL_LIGHT;
 
 /// The transcript of each fake session. `Typography` changes its no-break space.
@@ -113,13 +111,15 @@ pub(crate) struct Fake {
 }
 
 impl Fake {
-    /// Returns a spawner on the current runtime whose sessions follow `script`.
-    /// Its correction uses the fake chat model, and its toggle is off.
-    pub(crate) fn spawner(&self, script: Script, limits: Limits) -> Spawner {
-        self.spawner_for(self.speech(script, limits))
+    /// Returns a spawner on the current runtime that sends the result events to `events`.
+    pub(crate) fn spawner(&self) -> Spawner {
+        Spawner {
+            runtime: Handle::current(),
+            events: Arc::clone(&self.events) as Arc<dyn EventSink>,
+        }
     }
 
-    /// Returns the speech of [`Fake::spawner`], for a test that changes it.
+    /// Returns speech whose sessions follow `script`, with the correction off.
     pub(crate) fn speech(&self, script: Script, limits: Limits) -> Speech {
         Speech {
             transcriber: Box::new(FakeTranscriber {
@@ -127,23 +127,21 @@ impl Fake {
                 log: Arc::clone(&self.log),
                 rates: Arc::clone(&self.rates),
             }),
-            correction: Ok(Correction::new(
-                Arc::clone(&self.chat) as Arc<dyn ChatModel>,
-                NATURAL_LIGHT.to_prompt(),
-            )),
+            correction: Err(NoCorrection::Off),
             language: "fr".to_owned(),
             vocabulary: Vec::new(),
             limits,
         }
     }
 
-    /// Returns a spawner on the current runtime for `speech`, with the correction toggle off.
-    pub(crate) fn spawner_for(&self, speech: Speech) -> Spawner {
-        Spawner {
-            runtime: Handle::current(),
-            speech: Ok(Arc::new(speech)),
-            events: Arc::clone(&self.events) as Arc<dyn EventSink>,
-            correction_on: Rc::new(Cell::new(false)),
+    /// Returns the speech of [`Fake::speech`] with the correction on: the fake chat model and `natural-light`.
+    pub(crate) fn corrected_speech(&self, script: Script, limits: Limits) -> Speech {
+        Speech {
+            correction: Ok(Correction::new(
+                Arc::clone(&self.chat) as Arc<dyn ChatModel>,
+                NATURAL_LIGHT.to_prompt(),
+            )),
+            ..self.speech(script, limits)
         }
     }
 }

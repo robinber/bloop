@@ -49,6 +49,7 @@ pub(crate) enum Source {
 /// A correction prompt: the system message of `LlmRefine`.
 ///
 /// `Debug` shows the name, the source, and the number of characters, never the text.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Prompt {
     pub(crate) name: String,
     /// The instructions to the chat model.

@@ -1,7 +1,7 @@
 //! Driver: gives each event to the core and executes the commands through the ports.
 
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::rc::Rc;
 
 use bloop_audio::buffer;
 use bloop_core::domain::Generation;
@@ -9,22 +9,31 @@ use bloop_core::error::AppError;
 use bloop_core::ports::platform::{AudioInput, Overlay, Scheduler, TextOutput};
 use bloop_core::session::{Command, Core, Event};
 
+use crate::hub::Snapshot;
 use crate::worker::{Spawner, Task};
 
 /// The capacity of the audio queue of each capture, in samples: 20 s at 48 kHz.
 const CAPACITY: usize = 960_000;
 
+/// Gives the settings snapshot of each new generation. It operates on the main thread.
+pub(crate) trait Snapshots {
+    /// Returns the current settings snapshot.
+    fn snapshot(&mut self) -> Rc<Snapshot>;
+}
+
 /// Owns the core, the ports, and the transcription tasks. It operates on the main thread.
-pub(crate) struct Driver<S, O, T, A> {
+pub(crate) struct Driver<S, O, T, A, N> {
     core: Core,
     scheduler: S,
     overlay: O,
     output: T,
     input: A,
     spawner: Spawner,
+    snapshots: N,
+    /// The settings snapshot of the generation whose hold timer runs.
+    pending: Option<(Generation, Rc<Snapshot>)>,
     active: Option<Active>,
     jobs: Vec<(Generation, Task)>,
-    hold: Duration,
 }
 
 /// The capture that the microphone fills, and its transcription task.
@@ -33,15 +42,15 @@ struct Active {
     task: Task,
 }
 
-impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> {
-    /// `hold` is the time that the user holds the dictation key before the capture starts.
+impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput, N: Snapshots> Driver<S, O, T, A, N> {
+    /// `snapshots` gives the settings of each generation: the hold time and the speech objects.
     pub(crate) fn new(
         scheduler: S,
         overlay: O,
         output: T,
         input: A,
         spawner: Spawner,
-        hold: Duration,
+        snapshots: N,
     ) -> Self {
         Self {
             core: Core::new(),
@@ -50,9 +59,10 @@ impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> 
             output,
             input,
             spawner,
+            snapshots,
+            pending: None,
             active: None,
             jobs: Vec::new(),
-            hold,
         }
     }
 
@@ -75,8 +85,10 @@ impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> 
     fn execute(&mut self, command: Command) -> Option<Event> {
         match command {
             Command::StartHoldTimer(generation) => {
+                let snapshot = self.snapshots.snapshot();
                 self.scheduler
-                    .after(self.hold, Event::HoldElapsed(generation));
+                    .after(snapshot.hold, Event::HoldElapsed(generation));
+                self.pending = Some((generation, snapshot));
             }
             Command::StartCapture(generation) => return self.start_capture(generation),
             Command::RecordTarget(generation) => {
@@ -102,12 +114,24 @@ impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput> Driver<S, O, T, A> 
         None
     }
 
+    /// Starts the microphone and the transcription task with the settings snapshot of `generation`.
     fn start_capture(&mut self, generation: Generation) -> Option<Event> {
+        let Some((_, snapshot)) = self
+            .pending
+            .take()
+            .filter(|(pending, _)| *pending == generation)
+        else {
+            tracing::error!(?generation, "the generation has no settings snapshot");
+            return Some(Event::CaptureFailed(generation, AppError::Internal));
+        };
         let (writer, reader) = buffer::new(CAPACITY);
         let task = self
             .input
             .start(generation, Box::new(writer))
-            .and_then(|rate| self.spawner.spawn(generation, rate, reader));
+            .and_then(|rate| {
+                self.spawner
+                    .spawn(generation, rate, reader, &snapshot.speech)
+            });
         match task {
             Ok(task) => {
                 self.active = Some(Active { generation, task });
@@ -150,15 +174,18 @@ mod tests {
     use std::cell::RefCell;
     use std::num::NonZeroU32;
     use std::rc::Rc;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use bloop_core::domain::{CaptureSummary, FinalText, Generation, TargetInfo};
     use bloop_core::error::{AppError, ProviderError};
     use bloop_core::ports::platform::{AudioInput, AudioSink, Overlay, Scheduler, TextOutput};
-    use bloop_core::session::{Event, InsertOutcome, OrbView};
+    use bloop_core::session::{Command, Core, Event, InsertOutcome, OrbView};
     use tokio::time::sleep;
 
-    use super::Driver;
+    use super::{Driver, Snapshots};
+    use crate::hub::Snapshot;
+    use crate::worker::Speech;
     use crate::worker::fakes::{
         Answer, CORRECTED, Call, Fake, LONG, RATE, Reply, Script, TEXT, pcm, samples, sent_audio,
         settle,
@@ -271,20 +298,47 @@ mod tests {
         }
     }
 
-    type TestDriver = Driver<FakeScheduler, FakeOverlay, FakeOutput, FakeInput>;
+    /// Gives `next` to each new generation. A test replaces it to change the settings.
+    struct FakeSnapshots {
+        next: Rc<Snapshot>,
+    }
+
+    impl Snapshots for FakeSnapshots {
+        fn snapshot(&mut self) -> Rc<Snapshot> {
+            Rc::clone(&self.next)
+        }
+    }
+
+    type TestDriver = Driver<FakeScheduler, FakeOverlay, FakeOutput, FakeInput, FakeSnapshots>;
 
     /// Returns a driver whose transcription tasks run on the current runtime, with their fake provider.
+    /// Its settings have the hold time `HOLD` and the correction off.
     fn driver() -> (TestDriver, Fake) {
         let fake = Fake::default();
+        let snapshots = FakeSnapshots {
+            next: snapshot(HOLD, Ok(fake.speech(Script::default(), LONG))),
+        };
         let driver = Driver::new(
             FakeScheduler::default(),
             FakeOverlay::default(),
             FakeOutput::default(),
             FakeInput::default(),
-            fake.spawner(Script::default(), LONG),
-            HOLD,
+            fake.spawner(),
+            snapshots,
         );
         (driver, fake)
+    }
+
+    fn snapshot(hold: Duration, speech: Result<Speech, AppError>) -> Rc<Snapshot> {
+        Rc::new(Snapshot {
+            hold,
+            speech: speech.map(Arc::new),
+        })
+    }
+
+    /// Gives `speech` and the hold time `HOLD` to the next generations.
+    fn set_speech(driver: &mut TestDriver, speech: Result<Speech, AppError>) {
+        driver.snapshots.next = snapshot(HOLD, speech);
     }
 
     fn transcript() -> FinalText {
@@ -341,6 +395,41 @@ mod tests {
         fire_only_timer(&mut driver);
         assert!(driver.capture_active());
         assert_eq!(driver.overlay.calls, [OrbCall::Show(OrbView::Listening)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_hold_timer_uses_the_hold_time_of_the_snapshot_at_the_key_press() {
+        let (mut driver, fake) = driver();
+        let hold = Duration::from_millis(400);
+        driver.snapshots.next = snapshot(hold, Ok(fake.speech(Script::default(), LONG)));
+
+        driver.handle(Event::DictationKeyDown);
+        set_speech(&mut driver, Err(AppError::InvalidSettings));
+
+        let timers = driver.scheduler.timers.take();
+        let [(delay, Event::HoldElapsed(generation))] = timers[..] else {
+            panic!("{timers:?}");
+        };
+        assert_eq!(delay, hold);
+        driver.handle(Event::HoldElapsed(generation));
+        assert_eq!(driver.input.calls, [InputCall::Start(generation)]);
+        assert!(driver.active.is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_capture_without_its_settings_snapshot_fails_before_the_microphone_starts() {
+        let (mut driver, _) = driver();
+        let commands = Core::new().handle(Event::DictationKeyDown);
+        let [Command::StartHoldTimer(generation)] = commands[..] else {
+            panic!("{commands:?}");
+        };
+
+        assert_matches!(
+            driver.start_capture(generation),
+            Some(Event::CaptureFailed(failed, AppError::Internal)) if failed == generation
+        );
+        assert_eq!(driver.input.calls, [] as [InputCall; 0]);
+        assert!(driver.active.is_none());
     }
 
     #[tokio::test(start_paused = true)]
@@ -416,7 +505,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_missing_key_fails_the_capture_and_cancels_the_microphone() {
         let (mut driver, _) = driver();
-        driver.spawner.speech = Err(AppError::Provider(ProviderError::Unauthorized));
+        set_speech(
+            &mut driver,
+            Err(AppError::Provider(ProviderError::Unauthorized)),
+        );
         driver.handle(Event::DictationKeyDown);
 
         fire_only_timer(&mut driver);
@@ -430,21 +522,17 @@ mod tests {
                 OrbCall::Show(OrbView::Error)
             ]
         );
-        let [InputCall::Start(generation), InputCall::Cancel] = driver.input.calls[..] else {
-            panic!("{:?}", driver.input.calls);
-        };
-        assert!(driver.active.is_none() && driver.jobs.is_empty());
         assert_matches!(
-            driver.start_capture(generation),
-            Some(Event::CaptureFailed(failed, AppError::Provider(ProviderError::Unauthorized)))
-                if failed == generation
+            driver.input.calls[..],
+            [InputCall::Start(_), InputCall::Cancel]
         );
+        assert!(driver.active.is_none() && driver.jobs.is_empty());
     }
 
     #[tokio::test(start_paused = true)]
     async fn an_invalid_dictionary_fails_the_capture_and_cancels_the_microphone() {
         let (mut driver, fake) = driver();
-        driver.spawner.speech = Err(AppError::InvalidSettings);
+        set_speech(&mut driver, Err(AppError::InvalidSettings));
         driver.handle(Event::DictationKeyDown);
 
         fire_only_timer(&mut driver);
@@ -459,16 +547,13 @@ mod tests {
                 OrbCall::Show(OrbView::Error)
             ]
         );
-        let [InputCall::Start(generation), InputCall::Cancel] = driver.input.calls[..] else {
-            panic!("{:?}", driver.input.calls);
-        };
+        assert_matches!(
+            driver.input.calls[..],
+            [InputCall::Start(_), InputCall::Cancel]
+        );
         assert!(driver.active.is_none() && driver.jobs.is_empty());
         assert_eq!(fake.log.take(), [] as [Call; 0]);
         assert!(fake.events.take().is_empty());
-        assert_matches!(
-            driver.start_capture(generation),
-            Some(Event::CaptureFailed(failed, AppError::InvalidSettings)) if failed == generation
-        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -516,7 +601,7 @@ mod tests {
             finish: Reply::Fail(ProviderError::Network),
             ..Script::default()
         };
-        driver.spawner = fake.spawner(failing, LONG);
+        set_speech(&mut driver, Ok(fake.speech(failing, LONG)));
 
         let failed = dictate(&mut driver, &fake).await;
 
@@ -528,7 +613,7 @@ mod tests {
             Some(&OrbCall::Show(OrbView::Error))
         );
         assert!(driver.jobs.is_empty());
-        driver.spawner = fake.spawner(Script::default(), LONG);
+        set_speech(&mut driver, Ok(fake.speech(Script::default(), LONG)));
         let next = dictate(&mut driver, &fake).await;
         assert_eq!(driver.output.inserted, [(next, transcript())]);
     }
@@ -540,7 +625,7 @@ mod tests {
             finish: Reply::Never,
             ..Script::default()
         };
-        driver.spawner = fake.spawner(pending, LONG);
+        set_speech(&mut driver, Ok(fake.speech(pending, LONG)));
         let generation = dictate(&mut driver, &fake).await;
         assert_eq!(fake.log.take(), [Call::Finish]);
 
@@ -596,13 +681,15 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_toggle_change_after_the_capture_starts_applies_only_to_later_generations() {
+    async fn a_settings_change_after_the_key_press_applies_only_to_later_generations() {
         let (mut driver, fake) = driver();
-        let toggle = Rc::clone(&driver.spawner.correction_on);
 
         driver.handle(Event::DictationKeyDown);
+        set_speech(
+            &mut driver,
+            Ok(fake.corrected_speech(Script::default(), LONG)),
+        );
         fire_only_timer(&mut driver);
-        toggle.set(true);
         driver.handle(Event::DictationKeyUp);
         deliver(&mut driver, &fake).await;
         let first = driver.output.targets[0];
@@ -615,7 +702,7 @@ mod tests {
         let second = release(&mut driver);
         until_the_correction_waits().await;
         assert_eq!(fake.chat.open(), 1);
-        toggle.set(false);
+        set_speech(&mut driver, Ok(fake.speech(Script::default(), LONG)));
         deliver(&mut driver, &fake).await;
         driver.handle(Event::InsertDone(second, InsertOutcome::Landed));
 
@@ -640,7 +727,10 @@ mod tests {
         ];
         for cancel in cancels {
             let (mut driver, fake) = driver();
-            driver.spawner.correction_on.set(true);
+            set_speech(
+                &mut driver,
+                Ok(fake.corrected_speech(Script::default(), LONG)),
+            );
             fake.chat.answer(Answer {
                 reply: Reply::Never,
                 ..Answer::default()
@@ -663,7 +753,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn corrections_that_end_in_reverse_order_paste_once_each_in_session_order() {
         let (mut driver, fake) = driver();
-        driver.spawner.correction_on.set(true);
+        set_speech(
+            &mut driver,
+            Ok(fake.corrected_speech(Script::default(), LONG)),
+        );
         for (delay, reply) in [(2, "Premier."), (1, "Second.")] {
             fake.chat.answer(Answer {
                 reply: Reply::After(Duration::from_secs(delay)),

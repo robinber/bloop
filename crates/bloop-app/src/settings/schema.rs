@@ -153,7 +153,7 @@ impl TryFrom<String> for PromptName {
 ///
 /// The line is the line of the value, or of the key. In `[transcriber]` and `[chat]`, an unknown key or a wrong type
 /// gives the line of the table header, because the parser reads these tables before it selects the provider.
-pub(super) fn parse(text: &str) -> Result<Settings, Invalid> {
+pub(crate) fn parse(text: &str) -> Result<Settings, Invalid> {
     let file: File = toml::from_str(text).map_err(|error| Invalid::Parse {
         line: error.span().and_then(|span| line(text, span.start)),
     })?;

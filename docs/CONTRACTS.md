@@ -1,6 +1,6 @@
 # Rust contracts
 
-Status: revision 25 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
+Status: revision 26 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
 and the transcription, chat, text step, and platform ports.
 It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
@@ -508,7 +508,7 @@ These events contain no header value and no body. The Bloop log records only the
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
 An invalid settings file of the user is `AppError::InvalidSettings`: `config.toml` or `dictionary.toml`, invalid or too large.
 Then each capture fails with the error view, as for a missing API key.
-Today, Bloop reads both files at start. From Phase 4 iteration 2, a fixed file applies from the next dictation, without restart.
+The settings hub reads both files at each dictation key press. Thus a fixed file applies from the next dictation, without restart.
 A missing or invalid prompt is also `InvalidSettings`, but only when the correction is on (owner decision B).
 From Phase 4 iteration 3, the menu shows each of these errors with its file, and with its line when it is known.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
@@ -553,33 +553,34 @@ pub struct Processed {
 `run` calls `process` and converts its result to the event. Thus the steps and the raw fallback exist one time.
 The evaluation tool calls `process`, because only the core creates a `Generation`.
 The correction toggle is the status menu item "Correct text". `bloop-app` keeps its state in `config.toml`, in the key `[refine] enabled`.
-At start, `bloop-app` reads the key and gives the state to `StatusMenu::new`. If the file or the key does not exist, the state is off.
+At start, the settings hub reads the key, and `bloop-app` gives the state to `StatusMenu::new`. If the file or the key does not exist, the state is off.
 An invalid file is `AppError::InvalidSettings`, as for the dictionary. The toggle then starts off.
-Each click writes the key with `toml_edit`, on the main thread. If the current file is invalid, Bloop does not change it and logs a warning.
-`bloop-app` keeps the toggle state on the main thread, not in the core.
-`Spawner::spawn` reads the state when the transcription task of a generation starts (`StartCapture`), and gives the value to the task.
+Each click writes the key through `Hub::set` with `toml_edit`, on the main thread. If the current file is invalid, Bloop does not change it and logs a warning.
+`bloop-app` keeps the settings on the main thread, not in the core. The settings snapshot of each generation contains the correction state.
 Thus a change affects only subsequent generations. It never changes an active capture or a running job.
-When the value is off, the task runs a pipeline without steps.
+When the correction is off, the task runs a pipeline without steps.
 When it is on, the task runs the correction step list with the prompt that `[refine] prompt` selects.
-`bloop-app` builds the chat model one time at start, with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
+The hub builds the chat model with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
 
 `Speech::correction` is a `Result<Correction, NoCorrection>`. Both types are in `bloop-app`.
 `Correction` owns the prompt name and the correction steps. Only the steps contain the prompt text.
-At start, `bloop-app` resolves the prompt first. Then it builds the chat model.
-It resolves the prompt also when the correction is off, because the toggle can change before the next start.
+When the correction is on, the hub resolves the prompt first. Then it gets the chat model.
+When the correction is off, the hub does not read the prompt.
 
+- `NoCorrection::Off`: "Correct text" is off. A job keeps the raw text without a warning.
 - `NoCorrection::ChatUnavailable`: the chat model is not available, for example without an API key.
-  A job with the correction on logs a warning and keeps the raw text.
-- `NoCorrection::InvalidPrompt`: the selected prompt is missing or not valid. The log at start gives the prompt name and the reason.
-  With the correction on, `Spawner::spawn` returns `Err(AppError::InvalidSettings)` before it starts a task.
-  Thus the capture fails with the error view (owner decision B). With the correction off, dictation operates.
+  A job logs a warning and keeps the raw text.
+- `NoCorrection::InvalidPrompt`: the correction is on, and the selected prompt is missing or not valid.
+  The log of the new settings snapshot gives the prompt name and the reason.
+  `Spawner::spawn` returns `Err(AppError::InvalidSettings)` before it starts a task.
+  Thus the capture fails with the error view (owner decision B). With the correction off, the value is `Off`, and dictation operates.
 
-Phase 4 changes these rules:
+The settings hub (Phase 4 iteration 2) applies these rules:
 
-- From iteration 2, `NoCorrection::Off` replaces the toggle cell. Thus `[refine] enabled` in the settings snapshot is the only toggle state.
+- `NoCorrection::Off` replaces the toggle cell. Thus `[refine] enabled` in the settings snapshot is the only toggle state.
   When the correction is off, the hub does not read the prompt.
-- From iteration 2, each generation uses the settings snapshot that the driver takes at `StartHoldTimer`.
-  At `StartCapture`, the driver gives the speech objects of that snapshot to `Spawner::spawn`. `Spawner` loses `speech` and `correction_on`.
+- Each generation uses the settings snapshot that the driver takes at `StartHoldTimer`.
+  At `StartCapture`, the driver gives the speech objects of that snapshot to `Spawner::spawn`. `Spawner` has no speech objects and no toggle cell.
 - The hub reuses the chat model while `[chat]` does not change. A prompt change builds a new `Correction` with the same chat model.
   The steps share the chat client through `Arc`.
 - `CORRECTION_LIMIT` stays a constant (owner decision A).
@@ -649,7 +650,7 @@ Tests must cover timeout to raw fallback, cancellation during correction, and co
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
-| Settings | Phase 3 captures the correction toggle when the transcription task of a generation starts (`StartCapture`). From Phase 4 iteration 2, the driver takes the settings snapshot at `StartHoldTimer`. The hold timer and `StartCapture` of that generation use it. A generation without its snapshot fails with `CaptureFailed(Internal)`. Changes never affect an active capture or a running job. |
+| Settings | The driver takes the settings snapshot at `StartHoldTimer`. The snapshot contains the hold threshold, the correction state, and the speech objects. The hold timer and `StartCapture` of that generation use it. A generation without its snapshot fails with `CaptureFailed(Internal)`. Changes never affect an active capture or a running job. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.

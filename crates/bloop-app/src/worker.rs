@@ -1,9 +1,7 @@
 //! Transcription task of one generation: reads the audio queue, streams it to the provider,
 //! applies the text steps, and sends the result event.
 
-use std::cell::Cell;
 use std::num::NonZeroU32;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,17 +38,17 @@ pub(crate) struct Speech {
 }
 
 impl Speech {
-    /// Returns the correction steps when `on` and when they are available.
+    /// Returns the correction steps when they are available.
     /// Logs the choice of the job, without text.
-    fn text_steps(&self, generation: Generation, on: bool) -> Option<&Pipeline> {
-        let correction = self.correction.as_ref().ok().filter(|_| on);
+    fn text_steps(&self, generation: Generation) -> Option<&Pipeline> {
+        let correction = self.correction.as_ref().ok();
         tracing::info!(
             ?generation,
-            correction = on,
+            correction = correction.is_some(),
             prompt = correction.map(|correction| correction.prompt.as_str()),
             "the text steps start"
         );
-        if on && let Err(reason) = &self.correction {
+        if let Err(reason @ NoCorrection::ChatUnavailable) = &self.correction {
             tracing::warn!(
                 ?generation,
                 ?reason,
@@ -81,6 +79,8 @@ impl Correction {
 /// Why the correction steps are not available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NoCorrection {
+    /// The "Correct text" menu item is off. A job keeps the raw transcript.
+    Off,
     /// The chat model is not available, for example without an API key.
     /// A job with the correction on keeps the raw transcript.
     ChatUnavailable,
@@ -144,33 +144,29 @@ impl Drop for Task {
 /// Starts the transcription task of each capture.
 pub(crate) struct Spawner {
     pub(crate) runtime: Handle,
-    /// The speech provider, or the error of each capture when speech is not available.
-    pub(crate) speech: Result<Arc<Speech>, AppError>,
     /// Receives the result event of each task.
     pub(crate) events: Arc<dyn EventSink>,
-    /// The state of the correction toggle in the status menu.
-    /// Each task reads it one time, when it starts. Thus a change affects only later generations.
-    pub(crate) correction_on: Rc<Cell<bool>>,
 }
 
 impl Spawner {
-    /// Opens a provider session and streams the samples of `reader`, at `rate` in Hz, to it.
-    /// The task applies the correction to its transcript when the toggle is on at this call.
+    /// Opens a provider session of `speech` and streams the samples of `reader`, at `rate` in Hz, to it.
+    /// `speech` comes from the settings snapshot of the generation. Thus a settings change never affects the task.
+    /// The task applies the correction to its transcript when `speech` has it.
     ///
     /// # Errors
     ///
     /// The error of `speech` when speech is not available: for example,
     /// `Provider(Unauthorized)` without an API key, or `InvalidSettings` with an invalid dictionary.
-    /// `InvalidSettings` when the toggle is on and the selected prompt is not valid.
+    /// `InvalidSettings` when the correction is on and the selected prompt is not valid.
     pub(crate) fn spawn(
         &self,
         generation: Generation,
         rate: NonZeroU32,
         reader: Reader,
+        speech: &Result<Arc<Speech>, AppError>,
     ) -> Result<Task, AppError> {
-        let speech = self.speech.clone()?;
-        let correction = self.correction_on.get();
-        if correction && matches!(speech.correction, Err(NoCorrection::InvalidPrompt)) {
+        let speech = speech.clone()?;
+        if matches!(speech.correction, Err(NoCorrection::InvalidPrompt)) {
             tracing::warn!(
                 ?generation,
                 "the prompt is not valid, the capture with the correction on fails"
@@ -181,7 +177,7 @@ impl Spawner {
         let end = reader.end_mark();
         let work = self
             .runtime
-            .spawn(transcribe(generation, rate, reader, speech, correction));
+            .spawn(transcribe(generation, rate, reader, speech));
         let abort = work.abort_handle();
         let report = self.runtime.spawn(async move {
             let event = match work.await {
@@ -207,7 +203,6 @@ async fn transcribe(
     rate: NonZeroU32,
     mut reader: Reader,
     speech: Arc<Speech>,
-    correction: bool,
 ) -> Event {
     let session = match stream(generation, rate, &mut reader, &speech).await {
         Ok(session) => session,
@@ -226,7 +221,7 @@ async fn transcribe(
                 language: speech.language.clone(),
             };
             let raw = Pipeline::new(Vec::new());
-            let pipeline = speech.text_steps(generation, correction).unwrap_or(&raw);
+            let pipeline = speech.text_steps(generation).unwrap_or(&raw);
             let output = pipeline.run(generation, transcript, &context).await;
             for report in &output.report {
                 tracing::info!(
@@ -380,7 +375,7 @@ mod tests {
         Answer, CORRECTED, Call, Fake, LONG, RATE, Recorder, Reply, Script, Sent, TEXT, TYPESET,
         chunk_lengths, pcm, samples, sent_audio, settle,
     };
-    use super::{Limits, NoCorrection, Spawner, Task};
+    use super::{Limits, NoCorrection, Speech, Task};
     use crate::prompts::NATURAL_LIGHT;
 
     const CAPACITY: usize = 16_000;
@@ -403,9 +398,10 @@ mod tests {
             let (writer, reader) = buffer::new(capacity);
             let fake = Fake::default();
             let generation = generation();
+            let speech = Ok(Arc::new(fake.speech(script, limits)));
             let task = fake
-                .spawner(script, limits)
-                .spawn(generation, rate, reader)
+                .spawner()
+                .spawn(generation, rate, reader, &speech)
                 .unwrap();
             let Fake {
                 log, rates, events, ..
@@ -443,10 +439,13 @@ mod tests {
         *generation
     }
 
-    /// Runs one capture without samples through `spawner` and returns its only event.
-    async fn job(fake: &Fake, spawner: &Spawner) -> Event {
+    /// Runs one capture of `speech` without samples and returns its only event.
+    async fn job(fake: &Fake, speech: Speech) -> Event {
         let (writer, reader) = buffer::new(CAPACITY);
-        let task = spawner.spawn(generation(), RATE, reader).unwrap();
+        let task = fake
+            .spawner()
+            .spawn(generation(), RATE, reader, &Ok(Arc::new(speech)))
+            .unwrap();
         task.end_capture();
         drop(writer);
         settle().await;
@@ -457,9 +456,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn with_the_correction_off_the_job_keeps_the_raw_transcript_without_a_chat_request() {
         let fake = Fake::default();
-        let spawner = fake.spawner(Script::default(), LONG);
 
-        let event = job(&fake, &spawner).await;
+        let event = job(&fake, fake.speech(Script::default(), LONG)).await;
 
         assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
         assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
@@ -468,14 +466,12 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn with_the_correction_on_the_job_gives_the_corrected_text_after_typography_and_trim() {
         let fake = Fake::default();
-        let spawner = fake.spawner(Script::default(), LONG);
-        spawner.correction_on.set(true);
         fake.chat.answer(Answer {
             text: "\nBonjour à toutes\u{a0}!\n",
             ..Answer::default()
         });
 
-        let event = job(&fake, &spawner).await;
+        let event = job(&fake, fake.corrected_speech(Script::default(), LONG)).await;
 
         assert_matches!(event, Event::TextReady(_, text) if text.as_str() == CORRECTED);
         assert_eq!(
@@ -507,11 +503,9 @@ mod tests {
         ];
         for answer in failures {
             let fake = Fake::default();
-            let spawner = fake.spawner(Script::default(), LONG);
-            spawner.correction_on.set(true);
             fake.chat.answer(answer);
 
-            let event = job(&fake, &spawner).await;
+            let event = job(&fake, fake.corrected_speech(Script::default(), LONG)).await;
 
             assert_matches!(
                 event,
@@ -527,10 +521,8 @@ mod tests {
         let fake = Fake::default();
         let mut speech = fake.speech(Script::default(), LONG);
         speech.correction = Err(NoCorrection::ChatUnavailable);
-        let spawner = fake.spawner_for(speech);
-        spawner.correction_on.set(true);
 
-        let event = job(&fake, &spawner).await;
+        let event = job(&fake, speech).await;
 
         assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
         assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
@@ -541,11 +533,11 @@ mod tests {
         let fake = Fake::default();
         let mut speech = fake.speech(Script::default(), LONG);
         speech.correction = Err(NoCorrection::InvalidPrompt);
-        let spawner = fake.spawner_for(speech);
-        spawner.correction_on.set(true);
         let (_writer, reader) = buffer::new(CAPACITY);
 
-        let result = spawner.spawn(generation(), RATE, reader);
+        let result = fake
+            .spawner()
+            .spawn(generation(), RATE, reader, &Ok(Arc::new(speech)));
 
         assert_eq!(result.err(), Some(AppError::InvalidSettings));
         settle().await;
@@ -554,16 +546,23 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn with_an_invalid_prompt_and_the_correction_off_the_job_keeps_the_raw_transcript() {
-        let fake = Fake::default();
-        let mut speech = fake.speech(Script::default(), LONG);
-        speech.correction = Err(NoCorrection::InvalidPrompt);
-        let spawner = fake.spawner_for(speech);
+    async fn the_speech_error_of_the_snapshot_fails_the_capture_before_its_task() {
+        for error in [
+            AppError::Provider(ProviderError::Unauthorized),
+            AppError::InvalidSettings,
+        ] {
+            let fake = Fake::default();
+            let (_writer, reader) = buffer::new(CAPACITY);
 
-        let event = job(&fake, &spawner).await;
+            let result = fake
+                .spawner()
+                .spawn(generation(), RATE, reader, &Err(error));
 
-        assert_matches!(event, Event::TextReady(_, text) if text.as_str() == TEXT);
-        assert_eq!(fake.chat.sent(), [] as [Sent; 0]);
+            assert_eq!(result.err(), Some(error));
+            settle().await;
+            assert_eq!(fake.rates.take(), [] as [NonZeroU32; 0], "{error:?}");
+            assert!(fake.events.take().is_empty(), "{error:?}");
+        }
     }
 
     #[tokio::test(start_paused = true)]

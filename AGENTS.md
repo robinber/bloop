@@ -102,6 +102,7 @@ Add or update tests when you change these surfaces:
 | `bloop-core/src/session.rs` | Unit tests: event sequences and expected commands, as `docs/CONTRACTS.md` requires |
 | `bloop-core/src/pipeline.rs` and `bloop-core/src/steps/` | Unit tests with fake providers: empty transcript, text steps, raw fallback |
 | Streaming ports and driver | Fake provider tests: ordered audio, finish, cancellation, full queue, failure, stale results |
+| `bloop-app/src/hub.rs` | Unit tests with temporary folders and a fake `SecretStore`: unchanged text, changed text, invalid files, chat model reuse, the write of a change |
 | `bloop-macos/src/paste.rs` and `bloop-macos/src/paste/clipboard.rs` | Manual checks: target check, one paste for each generation, clipboard restore |
 | `bloop-macos/src/keys.rs` | Manual checks: hold threshold, combinations, Escape blocking |
 

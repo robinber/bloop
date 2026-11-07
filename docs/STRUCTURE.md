@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 24 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 25 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -8,8 +8,8 @@ At start, `bloop-macos` reads the API key from Keychain and checks the microphon
 When the system is about to sleep, `bloop-macos` sends `SystemSleep` to the core.
 `bloop-providers` contains the Voxtral transcription adapter in the default `mistral` feature.
 Phase 3 adds optional correction, one toggle to the existing status menu, and the dictionary.
-Phase 4 iteration 1 adds the settings file: `bloop-app` reads all the settings from `config.toml` at start.
-Phase 4 adds the settings hub and general menu model. Phase 6 adds learning from fixes.
+Phase 4 iteration 1 adds the settings file. Iteration 2 adds the settings hub: `bloop-app` reads the files again at each dictation key press.
+Phase 4 adds the general menu model. Phase 6 adds learning from fixes.
 The [roadmap](ROADMAP.md#priorities) gives the priorities.
 
 ## Goals
@@ -170,20 +170,20 @@ src/
 
 ```text
 src/
-├── main.rs            Reads the settings and the API key, starts Tokio, builds objects, starts the AppKit run loop
+├── main.rs            Starts Tokio and the settings hub, builds objects, starts the AppKit run loop
 ├── settings/          Settings file (Phase 4 iteration 1)
-│   ├── mod.rs         load at start: the template and the prompts folder when missing; store of the correction state
+│   ├── mod.rs         Paths; prepare: the template and the prompts folder when missing; parse; the write of the correction state
 │   ├── schema.rs      Settings, its tables, the newtypes HoldMs, Language, and PromptName, parse
 │   ├── template.rs    The commented settings file with the default values
 │   └── edit.rs        The toml_edit change of one key
 ├── files.rs           read_bounded, write_if_missing, replace (Phase 4 iteration 1)
-├── hub.rs             Settings hub: file texts, parsed settings, snapshot, chat model reuse (Phase 4 iteration 2)
+├── hub.rs             Settings hub: file texts, parsed settings, snapshot, chat model reuse, HubSnapshots (Phase 4 iteration 2)
 ├── menu.rs            Menu builder: menu model, status lines, lists, and menu actions (Phase 4 iteration 3)
-├── dictionary.rs      Dictionary file: read (Phase 3), save and ignore a pair (Phase 6)
+├── dictionary.rs      Dictionary file: parse (Phase 3), size limit (Phase 4 iteration 2), save and ignore a pair (Phase 6)
 ├── prompts.rs         Built-in correction prompts, from prompts/natural-light.md (Phase 3);
 │                      resolves a name to a user file or a built-in prompt (Phase 4 iteration 1)
 ├── driver.rs          Driver: events to the core, commands to the ports;
-│                      Phase 4 iteration 2 adds the Snapshots trait and a settings snapshot for each generation
+│                      the Snapshots trait and a settings snapshot for each generation (Phase 4 iteration 2)
 ├── worker.rs          Transcription task of one generation: queue, conversion, provider session, pipeline, result event
 ├── logging.rs         tracing output to ~/Library/Logs/Bloop/bloop.log
 └── bin/eval/          Evaluation tool: one prompt and one model on the test set, with the real API (Phase 3)
@@ -235,10 +235,9 @@ event tap -> EventSink -> Driver -> Core::handle -> commands
 
 ## Settings and provider selection
 
-`settings/` reads `config.toml` at start, with the schema below. A change in the file applies at the next start.
-`settings/` writes `[refine] enabled` at each click of "Correct text".
-In Phase 3, `bloop-app` owns the correction toggle and captures its value for each generation at `StartCapture`.
-Phase 4 iteration 2 adds the settings hub. Then a change applies from the next dictation.
+`settings/` parses `config.toml` with the schema below. The settings hub reads the file at each dictation key press.
+Thus a change in the file applies from the next dictation.
+`settings/` writes `[refine] enabled` at each click of "Correct text", through `Hub::set`.
 
 Each key is optional. A missing key has the value below, which is its default value.
 Each table rejects unknown keys. A `schema` value other than 1 is an error.
@@ -275,14 +274,15 @@ prompt = "natural-light"      # A built-in prompt or a file of the prompts folde
   Thus only the line goes into the error type and the log.
 - `[refine] prompt` names a file of the prompts folder or a built-in prompt, without the `.md` extension.
   A file replaces the built-in prompt with the same name.
-- If `config.toml` does not exist at start, `settings::load` writes the template and creates the prompts folder.
+- If `config.toml` does not exist at start, `settings::prepare` writes the template and creates the prompts folder. `Hub::start` calls it.
   `template.rs` builds the template from its own tables and the provider texts. Thus it names no provider.
-- For an invalid file, `settings::load` returns the default values and `InvalidSettings`. Each capture fails, and the correction is off.
-- For a valid file, the log records the nonsecret values: the hold threshold, the language, the provider settings, the prompt name,
+- For an invalid file, each capture fails with `InvalidSettings`, the hold threshold has its default value, and the correction is off.
+- For each new snapshot, the log records the nonsecret values: the hold threshold, the language, the provider settings, the prompt name,
   and the correction state.
 - The dictionary has its own file, `dictionary.toml`, next to `config.toml`.
 - `files.rs` gives the file rules as `pub(crate)` functions: `read_bounded`, `write_if_missing`, and `replace`.
   Phase 6 writes the dictionary with the same functions.
+- The size limits are constants: `settings::LIMIT` (64 KiB), `prompts::LIMIT` (32 KiB), and `dictionary::LIMIT` (256 KiB).
 - The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the file rules, the errors, and the menu.
 
 The settings hub (Phase 4 iteration 2):
@@ -300,33 +300,38 @@ pub(crate) trait Snapshots {
 
 - `bloop-app` owns the settings. `Hub` in `hub.rs` keeps the file texts, the parsed settings, the chat model, and the current `Snapshot`.
 - `Hub` runs on the main thread only. All its methods take `&self`, and its `RefCell` stays inside it.
-  The driver adapter, the menu source, and the event handler of `main.rs` share it as `Rc<Hub>`.
-- `Hub::start` does the writes at start, reads all files and the keys, and builds the first snapshot.
-  It never fails: each error goes into the hub state.
-- `Hub::refresh` reads the three files with `read_bounded`. If each text equals its last text, it returns.
-  Else it parses the changed files and builds a new snapshot.
-- `Hub::set` writes one key for a `Change`: `Correction`, `Prompt`, `Model`, or `Hold`. Then it refreshes.
-  Thus one path builds each new snapshot. A refused write logs a warning.
+  The driver adapter and the toggle of `main.rs` share it as `Rc<Hub>`. From iteration 3, the menu source also shares it.
+- `Hub::start` writes the template when it is missing, reads the files and the keys, and builds the first snapshot.
+  It never fails: each error goes into the hub state. `main.rs` gives it `CORRECTION_LIMIT`.
+- `Hub::refresh` reads `config.toml` and `dictionary.toml` with `read_bounded`, and the selected prompt when the correction is on.
+  If each text and the prompt equal the last ones, the snapshot stays. Else the hub parses the changed files and builds a new snapshot.
+- `Hub::refresh` returns the current snapshot as `Option<Rc<Snapshot>>`. The value is `None` only for a failed borrow.
+- `Hub::set` writes one key for a `Change`. Then it refreshes. Thus one path builds each new snapshot. A refused write logs a warning.
+  Iteration 2 has `Change::Correction`. Iteration 4 adds `Prompt`, `Model`, and `Hold`.
 - `Driver` gets `Snapshots` as a fifth generic parameter, like the other ports. `HubSnapshots` implements it for the hub. Tests use a fake.
+- `HubSnapshots` refreshes the hub and gives the current snapshot. After a failed borrow, it gives its last snapshot.
 - At `StartHoldTimer`, the driver takes a snapshot, keeps it with the generation, and starts the timer with `snapshot.hold`.
 - At `StartCapture`, the driver gives `&snapshot.speech` of that generation to `Spawner::spawn`.
   A generation without its snapshot fails with `CaptureFailed(Internal)`. This is a bug guard.
 - `speech` is `Err(InvalidSettings)` when `config.toml` or `dictionary.toml` is invalid. It is `Err(Provider(Unauthorized))` without a key.
 - `Speech::correction` is a `Result<Correction, NoCorrection>`, with `NoCorrection::{Off, ChatUnavailable, InvalidPrompt}`.
   The [contracts](CONTRACTS.md#pipeline) give the effect of each value.
-- With invalid settings, `hold` has its default value.
+- With an invalid `config.toml`, `hold` has its default value. With an invalid `dictionary.toml`, `hold` comes from the settings.
 - The hub builds the transcriber again for each new snapshot. This only stores the settings and the key.
 - The hub builds the chat client again only when `ChatConfig` changes (`PartialEq`). `build_chat_model` does no I/O.
   A prompt change builds a new `Correction` with the same chat model.
-- Keys: `Hub::start` reads the key of each account that the start settings name.
+- Keys: `Hub::start` reads the key of each account that the start settings name. With invalid settings, it uses the default settings.
   A provider that the file names later, without a key read at start, is `Unauthorized` until the next start.
   Bloop does not read Keychain at the key press, because a read can wait for a dialog.
+- The keys are in `Hub`, outside its `RefCell`, because they do not change after start. Thus the status menu gets the key error without a borrow.
 - Each driver entry is a block on the main queue, and `MainSink::send` is always asynchronous.
   AppKit calls `menuNeedsUpdate:` and `menuAction:` from the run loop, between these blocks.
-- A hub borrow contains only file I/O, parsing, and object construction. It contains no AppKit call.
+- A hub borrow contains only file I/O, parsing, object construction, and log calls.
+  It contains no AppKit call, no `Scheduler::after`, and no `MainSink::send`. The hub returns each `Rc` after the borrow ends.
   Thus a failed `try_borrow_mut` is a bug. Bloop logs it at `error!` and never panics.
-  Then the driver adapter uses its last snapshot, and the menu ignores the click or shows its last model.
+  Then the driver adapter uses its last snapshot. From iteration 3, the menu ignores the click or shows its last model.
 - The log records file names, error kinds, lines, and nonsecret values: models, prompt name, and hold. It never records file content.
+  The hub logs an invalid file only after a text change. Thus a key press without a change does not repeat the log.
 
 The `provider` field selects a variant of a tagged enum in `bloop-providers`:
 
@@ -441,17 +446,19 @@ Phase 4 tests in `bloop-app`:
   The provider tables: a missing table gives the default config; a table without `provider`; an unknown provider; an unknown key.
 - Files, in temporary folders with the `scratch_dir` pattern: `write_if_missing` writes one time and keeps an existing file byte for byte;
   `read_bounded` at the limit and one byte over it; prompt resolution (file, built-in, file over a built-in, missing, empty, too large).
-- Hub: an unchanged text builds no new snapshot (`Rc::ptr_eq`), and a changed text builds one; invalid files give `InvalidSettings`;
-  a prompt change keeps the chat model, and a `[chat]` change replaces it (`Arc::ptr_eq`, with the real `build_chat_model` and a dummy key).
-- Driver: the driver takes the snapshot at `StartHoldTimer`; a later change does not affect the generation;
-  a missing snapshot gives `CaptureFailed(Internal)`.
+- Hub, in temporary folders with a fake `SecretStore`: an unchanged text builds no new snapshot (`Rc::ptr_eq`);
+  a changed settings file, dictionary, or prompt file builds one; invalid, unreadable, or too large files give `InvalidSettings`;
+  a prompt change keeps the chat model, and a `[chat]` change replaces it (`Arc::ptr_eq`, with the real `build_chat_model` and a dummy key);
+  with the correction off, the hub does not read the prompt; `set` writes the key with its comments and does not change an invalid file;
+  no key at start gives `Unauthorized`; a failed borrow gives the last snapshot.
+- Driver: the driver takes the snapshot at `StartHoldTimer`, and its hold time starts the timer; a later change does not affect the generation;
+  a missing snapshot gives `CaptureFailed(Internal)` before the microphone starts.
 - Worker: `InvalidPrompt` with the correction on gives `Err(InvalidSettings)`; `Off` and `ChatUnavailable` give the raw text.
 - Menu: pure tests of the model builder (status lines, lists, the added current value, hidden items with invalid settings, action identifiers);
   the event filter for a refused key.
 
-Phase 4 changes these existing tests. Each iteration reports the change:
-`an_unknown_refine_key_is_an_error`, `a_new_file_gets_the_schema_and_the_refine_table`, `store_creates_the_folder_and_the_file`,
-the `parse` tests that expect a `bool`, and the `menu.rs` tests of `status` and `Toggle`. Iteration 3 moves the `menu.rs` tests to the builder.
+Phase 4 iterations 1 and 2 changed the settings, dictionary, worker, and driver tests. Each commit reports the changed tests.
+Iteration 3 moves the `menu.rs` tests of `status` and `Toggle` to the model builder.
 
 Phase 4 iteration 3 manual checks of the menu renderer: one `menuNeedsUpdate:` for each open, the checkmarks, ⌘Q, the tag guard,
 "Open config.toml…" with and without an application for `.toml` files, and "Open prompts folder…". Miri is not covered for `bloop-macos`.
@@ -496,9 +503,8 @@ The transcription uses `voxtral-mini-transcribe-realtime-3-0` with `target_strea
 The correction uses `mistral-medium-latest` with `reasoning_effort` `none` and temperature 0.
 Thus `main.rs` names no provider.
 `config.toml` gives these settings. A missing key or table keeps the default value.
-Phase 3 adds the correction toggle as runtime state. It does not require the settings hub.
-`settings/` keeps the toggle state in `config.toml` (`[refine] enabled`) before the hub exists.
-Phase 4 iteration 2 replaces the toggle state with the settings hub: `NoCorrection::Off` replaces the `correction_on` cell.
+The state of the correction toggle is `[refine] enabled` in `config.toml`. The settings hub reads it at each refresh.
+In the settings snapshot, `NoCorrection::Off` gives the off state (Phase 4 iteration 2).
 
 ## Work method
 

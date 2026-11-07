@@ -1,25 +1,24 @@
 //! The dictionary file `~/Library/Application Support/Bloop/dictionary.toml`.
 //!
-//! Bloop reads the file one time at start. A missing file gives an empty dictionary.
+//! The settings hub reads the file at each dictation key press. A missing file gives an empty dictionary.
 //! The errors and the log never contain the file content, because a parser message can quote an entry.
 
-use std::fs;
 use std::io;
-use std::path::Path;
 
 use bloop_core::dictionary::{Dictionary, DictionaryEntry};
-use bloop_core::error::AppError;
 use serde::Deserialize;
 use toml::Spanned;
 
-/// The path of the file in the home folder.
-const FILE: &str = "Library/Application Support/Bloop/dictionary.toml";
+use crate::files::FileError;
+
+/// The size limit of `dictionary.toml`, in bytes.
+pub(crate) const LIMIT: u64 = 256 * 1024;
 
 /// Why the dictionary file is invalid. It contains no file content.
 #[derive(Debug, PartialEq, Eq)]
-enum Invalid {
-    /// The home folder is unknown.
-    NoHome,
+pub(crate) enum Invalid {
+    /// The file is larger than [`LIMIT`].
+    TooLarge,
     /// The file exists, but Bloop cannot read it as UTF-8 text.
     Unreadable(io::ErrorKind),
     /// The parser rejected the file: syntax, value type, missing key, or unknown key.
@@ -27,6 +26,15 @@ enum Invalid {
     Parse { line: Option<usize> },
     /// The `written` value of an entry is empty or contains only whitespace.
     EmptyWritten { line: Option<usize> },
+}
+
+impl From<FileError> for Invalid {
+    fn from(error: FileError) -> Self {
+        match error {
+            FileError::TooLarge => Self::TooLarge,
+            FileError::Unreadable(kind) => Self::Unreadable(kind),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -43,44 +51,8 @@ struct Entry {
     written: Spanned<String>,
 }
 
-/// Reads the dictionary file and logs the number of entries or the error, never the entries.
-///
-/// # Errors
-///
-/// `InvalidSettings` when the file exists but is not a valid dictionary.
-pub(crate) fn load() -> Result<Dictionary, AppError> {
-    let result = std::env::home_dir()
-        .ok_or(Invalid::NoHome)
-        .and_then(|home| read(&home.join(FILE)));
-    match result {
-        Ok(Some(dictionary)) => {
-            tracing::info!(?dictionary, "the dictionary is ready");
-            Ok(dictionary)
-        }
-        Ok(None) => {
-            tracing::info!("the dictionary file does not exist, the dictionary is empty");
-            Ok(Dictionary::new(Vec::new()))
-        }
-        Err(error) => {
-            tracing::error!(
-                ?error,
-                "the dictionary file is invalid, each dictation fails until the file is fixed and Bloop starts again"
-            );
-            Err(AppError::InvalidSettings)
-        }
-    }
-}
-
-/// Reads and parses the file at `path`. Returns `None` when the file does not exist.
-fn read(path: &Path) -> Result<Option<Dictionary>, Invalid> {
-    match fs::read_to_string(path) {
-        Ok(text) => parse(&text).map(Some),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(Invalid::Unreadable(error.kind())),
-    }
-}
-
-fn parse(text: &str) -> Result<Dictionary, Invalid> {
+/// Returns the dictionary of a valid file. The error gives the line, never the entry or the parser message.
+pub(crate) fn parse(text: &str) -> Result<Dictionary, Invalid> {
     let file: File = toml::from_str(text).map_err(|error| Invalid::Parse {
         line: error.span().and_then(|span| line(text, span.start)),
     })?;
@@ -111,11 +83,7 @@ pub(crate) fn line(text: &str, offset: usize) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    use super::{Invalid, line, parse, read};
+    use super::{Invalid, line, parse};
 
     const VALID: &str = r#"
 [[entry]]
@@ -125,19 +93,6 @@ written = "objc2"
 heard = "comme Tabby"
 written = "comme Taby"
 "#;
-
-    fn scratch_dir(test: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "bloop-dictionary-{test}-{}-{nanos}",
-            std::process::id()
-        ));
-        fs::create_dir(&dir).unwrap();
-        dir
-    }
 
     fn parse_error(text: &str) -> Invalid {
         parse(text).map(|_| ()).unwrap_err()
@@ -161,37 +116,6 @@ written = "comme Taby"
     #[test]
     fn a_file_without_entries_gives_an_empty_dictionary() {
         assert_eq!(parse("").unwrap().written_forms(), [] as [String; 0]);
-    }
-
-    #[test]
-    fn a_missing_file_is_not_an_error() {
-        let dir = scratch_dir("missing");
-
-        assert!(read(&dir.join("dictionary.toml")).unwrap().is_none());
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn an_existing_file_is_parsed() {
-        let dir = scratch_dir("existing");
-        let path = dir.join("dictionary.toml");
-        fs::write(&path, VALID).unwrap();
-
-        let dictionary = read(&path).unwrap().unwrap();
-
-        assert_eq!(dictionary.written_forms(), ["objc2", "comme Taby"]);
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn a_file_that_cannot_be_read_is_an_error() {
-        let dir = scratch_dir("unreadable");
-
-        assert!(matches!(
-            read(&dir).map(|_| ()),
-            Err(Invalid::Unreadable(_))
-        ));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
