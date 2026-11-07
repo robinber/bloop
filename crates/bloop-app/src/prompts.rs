@@ -38,8 +38,14 @@ pub(crate) const NATURAL_LIGHT: BuiltIn = BuiltIn {
     text: include_str!("../../../prompts/natural-light.md"),
 };
 
+/// The prompt for technical dictation: the corrections of `natural-light`, and the written form of technical terms.
+const CODE: BuiltIn = BuiltIn {
+    name: "code",
+    text: include_str!("../../../prompts/code.md"),
+};
+
 /// The built-in prompts.
-const BUILT_IN: [BuiltIn; 1] = [NATURAL_LIGHT];
+const BUILT_IN: [BuiltIn; 2] = [NATURAL_LIGHT, CODE];
 
 /// Where a prompt comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +152,9 @@ mod tests {
     use std::io;
     use std::os::unix::ffi::OsStrExt as _;
 
-    use super::{LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, name_of, names, resolve};
+    use super::{
+        BUILT_IN, LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, name_of, names, resolve,
+    };
     use crate::files::tests::scratch_dir;
     use crate::settings::PromptName;
 
@@ -158,6 +166,44 @@ mod tests {
     fn the_prompt_names_the_delimiters_of_the_correction_request() {
         assert!(NATURAL_LIGHT.text.contains("`<transcript>` line"));
         assert!(NATURAL_LIGHT.text.contains("`</transcript>` line"));
+    }
+
+    #[test]
+    fn each_built_in_prompt_has_a_valid_unique_name_and_a_text_with_the_delimiters() {
+        let mut seen = Vec::new();
+        for prompt in &BUILT_IN {
+            assert!(
+                PromptName::try_from(prompt.name.to_owned()).is_ok(),
+                "{}",
+                prompt.name
+            );
+            assert!(!seen.contains(&prompt.name), "{}", prompt.name);
+            seen.push(prompt.name);
+            assert!(!prompt.text.trim().is_empty(), "{}", prompt.name);
+            assert!(
+                prompt.text.contains("`<transcript>` line"),
+                "{}",
+                prompt.name
+            );
+            assert!(
+                prompt.text.contains("`</transcript>` line"),
+                "{}",
+                prompt.name
+            );
+        }
+        assert_eq!(seen, ["natural-light", "code"]);
+    }
+
+    #[test]
+    fn each_built_in_name_selects_its_built_in_prompt_without_a_file() {
+        let dir = scratch_dir("prompt-built-ins");
+        for built_in in &BUILT_IN {
+            let prompt = resolve(&dir, &name(built_in.name)).unwrap();
+
+            assert_eq!(prompt, built_in.to_prompt(), "{}", built_in.name);
+            assert_eq!(prompt.source, Source::BuiltIn);
+        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -273,7 +319,10 @@ mod tests {
             fs::write(dir.join(file), "Corrige.\n").unwrap();
         }
 
-        assert_eq!(listed(&dir), ["Mail", "a_b-2", "dev", "natural-light"]);
+        assert_eq!(
+            listed(&dir),
+            ["Mail", "a_b-2", "code", "dev", "natural-light"]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -281,7 +330,7 @@ mod tests {
     fn without_the_folder_the_names_are_the_built_in_names() {
         let dir = scratch_dir("prompt-names-missing");
 
-        assert_eq!(listed(&dir.join("absent")), ["natural-light"]);
+        assert_eq!(listed(&dir.join("absent")), ["code", "natural-light"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 

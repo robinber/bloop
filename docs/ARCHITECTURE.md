@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 21 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 22 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -467,7 +467,7 @@ A refresh reads the files again at the dictation key press and each time the men
 
 The prompts:
 
-- The built-in prompts are in the binary. Today, the only built-in prompt is `natural-light`.
+- The built-in prompts are in the binary: `natural-light` for everyday text, and `code` for technical dictation.
 - The `prompts` folder contains only the prompts of the user. Bloop writes no prompt file.
 - `[refine] prompt = "x"` selects `prompts/x.md` when this file exists. Else it selects the built-in prompt `x`. Else the prompt is missing.
 - A user file with the name of a built-in prompt replaces it. This is an explicit act. The log then gives "file" as the source.
@@ -541,14 +541,15 @@ The settings hub of `bloop-app` keeps the file texts, the parsed settings, and t
   Without such an application, Bloop opens the folder in Finder. "Open prompts folder…" opens the folder.
 - The renderer adds "Quit Bloop" with ⌘Q after the model items, as today.
 
-The menu. In this example, `dev` is a prompt file of the user:
+The menu. In this example, `dev` is a prompt file of the user, and `code` and `natural-light` are built-in prompts:
 
 ```text
 Status lines: permissions, API key, and file errors, or "Ready: hold Right Command to dictate"
 ──────────
 ✓ Correct text
-  Prompt      ▸   ✓ natural-light
+  Prompt      ▸     code
                     dev
+                  ✓ natural-light
   Model       ▸   ✓ mistral-medium-latest
                     mistral-small-latest
   Hold delay  ▸     150 ms

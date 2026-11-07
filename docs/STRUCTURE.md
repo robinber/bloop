@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 27 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 28 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -35,7 +35,9 @@ bloop/
 │   ├── bloop-macos/           AppKit, event tap, orb, paste, menu, Keychain
 │   └── bloop-app/             Executable: settings, construction, driver
 ├── prompts/
+│   ├── code.md                Built-in correction prompt for technical dictation
 │   ├── natural-light.md       Built-in correction prompt (Phase 3)
+│   ├── test-set-code-fr.toml  French technical test set of the code prompt, with reserved validation samples
 │   └── test-set-fr.toml       French test set of the correction, with reserved validation samples (Phase 3)
 ├── bundle/
 │   └── Info.plist             Bundle metadata; LSUIElement for accessory mode
@@ -185,7 +187,7 @@ src/
 ├── menu.rs            Menu builder: AppMenu, menu model, status lines, menu actions (Phase 4 iteration 3), and lists (iteration 4)
 ├── dictionary.rs      Dictionary file: parse (Phase 3), size limit (Phase 4 iteration 2), commented empty template (iteration 3),
 │                      save and ignore a pair (Phase 6)
-├── prompts.rs         Built-in correction prompts, from prompts/natural-light.md (Phase 3);
+├── prompts.rs         Built-in correction prompts, from prompts/natural-light.md (Phase 3) and prompts/code.md;
 │                      resolves a name to a user file or a built-in prompt (Phase 4 iteration 1); the prompt names (iteration 4)
 ├── driver.rs          Driver: events to the core, commands to the ports;
 │                      the Snapshots trait and a settings snapshot for each generation (Phase 4 iteration 2)
@@ -510,7 +512,8 @@ This is an initial value, not measured. It stays a constant in Phase 4 (owner de
 The hold threshold and the language are settings: `[dictation] hold_ms`, 220 ms by default, and `[dictation] language`, `fr` by default.
 The word list comes from the dictionary file.
 
-The default correction prompt is `natural-light`. `prompts.rs` puts the file in the binary with `include_str!`.
+The default correction prompt is `natural-light`. The built-in prompt `code` is for technical dictation.
+`prompts.rs` puts each prompt file in the binary with `include_str!`.
 `prompts.rs` keeps a table of the built-in prompts. It resolves a name to a user file or to a built-in prompt.
 
 The default provider settings come from `TranscriberConfig::default()` and `ChatConfig::default()` in `bloop-providers`.

@@ -113,14 +113,25 @@ In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line o
 
 ### Prompts
 
-The correction sends a prompt to the chat model. The built-in prompt is `natural-light`.
+The correction sends a prompt to the chat model. Bloop has two built-in prompts:
+
+| Prompt | Use |
+| --- | --- |
+| `natural-light` | The default prompt, for everyday text. It adds punctuation, removes hesitations and stutters, and applies spoken corrections. It keeps the spoken words. |
+| `code` | Technical dictation, for example to a coding agent or a terminal. It applies the same corrections and writes technical terms in their usual form. |
+
+`code` writes a spoken symbol as the symbol in technical text: "point", "slash", "tiret", "underscore", "arobase", "dièse", and "deux points".
+For example, "config point toml" becomes `config.toml`, "tiret tiret workspace" becomes `--workspace`, and "contact arobase exemple point org" becomes `contact@exemple.org`.
+If the dictation is only a command, `code` writes it without a capital letter and without a final period.
+Select the prompt in the **Prompt** submenu.
+
 Bloop creates the folder `~/Library/Application Support/Bloop/prompts/` at start. It contains only your prompts.
 Select **Open prompts folder…** in the menu to open it.
 
 To use your own prompt:
 
 1. Write the prompt in a file of the prompts folder, for example `dev.md`.
-   To start from the built-in prompt, copy `prompts/natural-light.md` of this repository.
+   To start from a built-in prompt, copy `prompts/natural-light.md` or `prompts/code.md` of this repository.
 2. Select **dev** in the **Prompt** submenu, or set `prompt = "dev"` in `[refine]`.
 
 The next dictation uses the prompt. A change in the prompt file also applies from the next dictation.
@@ -137,6 +148,12 @@ It writes each sample, its final text, and a summary to the terminal.
 
 ```sh
 cargo run --bin eval -- --prompt prompts/natural-light.md
+```
+
+The technical French test set `prompts/test-set-code-fr.toml` is for the `code` prompt. Select it with `--set`:
+
+```sh
+cargo run --bin eval -- --set prompts/test-set-code-fr.toml --prompt prompts/code.md
 ```
 
 - Without `--validation`, the tool runs the samples that are not reserved. With `--validation`, it runs only the reserved samples.

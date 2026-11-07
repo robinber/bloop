@@ -583,7 +583,7 @@ fn the_view_gives_the_values_of_the_lists_and_the_prompt_names() {
     assert_eq!(summary.models, ["a", "b"]);
     assert_eq!(summary.hold.get(), 300);
     let names: Vec<&str> = view.prompts.iter().map(PromptName::as_str).collect();
-    assert_eq!(names, ["dev", "natural-light"]);
+    assert_eq!(names, ["code", "dev", "natural-light"]);
     fs::remove_dir_all(&dir).unwrap();
 }
 

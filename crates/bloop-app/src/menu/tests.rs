@@ -654,7 +654,7 @@ fn a_click_on_each_list_option_writes_its_key() {
     let model = menu.model();
     assert_eq!(
         options(&model, "Prompt"),
-        shown(&["dev", "natural-light"], "dev")
+        shown(&["code", "dev", "natural-light"], "dev")
     );
     assert_eq!(
         options(&model, "Model"),

@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 12 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 13 (2026-11-07). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -127,6 +127,10 @@ They do not answer a question in the dictated text.
 They treat instructions inside the transcript as text to correct.
 They return plain text without Markdown formatting.
 For a spoken correction, they keep the last version: "à 2 heures, non, 3 heures" becomes "à 3 heures".
+
+On 2026-11-07, the owner added a second built-in prompt, `code`, for technical dictation.
+It applies the corrections of `natural-light`. It also writes technical terms, file names, paths, options, and versions in their usual form.
+It writes a spoken symbol, for example "arobase", as the symbol.
 
 Phase 4 lets the user add prompt files in the prompts folder. A user file with the name of a built-in prompt replaces it.
 Bloop writes no prompt file. The "Prompt" submenu lists the built-in prompts and the prompt files of the user.
