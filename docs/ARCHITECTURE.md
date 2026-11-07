@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 15 (2026-11-06). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 16 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -9,13 +9,13 @@ Status: Proposed design, revision 15 (2026-11-06). Phase 1 and Phase 2 are compl
 - All code uses Rust. The interface uses AppKit through `objc2`. Bloop has no web view.
 - Bloop never loses the text. If a paste is not possible, Bloop shows the text and copies it.
 - Bloop is provider-agnostic. Ports in `bloop-core` hide the providers. Mistral is the default provider and the only adapter today.
-- A feature that is off does not change the dictation path. Phase 3 adds a correction toggle; Phase 4 adds persistent settings.
+- A feature that is off does not change the dictation path. Phase 3 adds a correction toggle; Phase 4 adds the settings file, lists in the status menu, and clear errors.
 
 ## Process
 
 Phase 1 proves the key, orb, and insertion with fixed text.
 Phase 2 adds streaming transcription. Phase 3 adds optional correction, one menu toggle, and a daily-use trial.
-Phase 4 adds persistent settings and more menu choices when needed.
+Phase 4 adds the settings file, lists in the status menu, and clear errors.
 Streaming is the only STT path.
 
 ```text
@@ -232,7 +232,8 @@ The worker applies the transcription limits. Each chat adapter applies the corre
 
 The correction HTTP client:
 
-- One `hyper-util` legacy client serves all correction requests. `build_chat_model` builds it one time, with the chat model.
+- One `hyper-util` legacy client serves all correction requests. `build_chat_model` builds it with the chat model.
+  Today, `bloop-app` builds the chat model one time at start. From Phase 4 iteration 2, it builds it again only when `[chat]` changes.
 - It uses `hyper-tls` with `native-tls`. The TLS handshake offers `h2` and `http/1.1` through ALPN.
   The client uses HTTP/2 when the server selects `h2`, and HTTP/1.1 otherwise.
 - The TCP connection limit is 5 s. If the host has more than one address, each address gets an equal part of this limit.
@@ -421,40 +422,149 @@ Each click writes the key with the `toml_edit` rule below. If the file is invali
 An invalid `config.toml` has the same effect as an invalid dictionary: each capture fails with the error view.
 `bloop-app` captures its value when the transcription task of a generation starts (`StartCapture`).
 A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
-Phase 4 adds the design below. Prompt and model submenus depend on useful alternatives from the evaluation.
+Phase 4 adds the design below. The owner validated it on 2026-11-07.
+The [roadmap](ROADMAP.md#phase-4-settings-and-status-menu) gives the iterations. Until an iteration is complete, the Phase 3 behavior above stays.
+
+### Settings file
 
 - `bloop-app` owns the settings. The core does not know them.
-- The settings file is `~/Library/Application Support/Bloop/config.toml`. The prompt files are in the `prompts` folder next to it.
-- The user and Bloop both edit `config.toml`. For a menu change, Bloop changes one key with `toml_edit`.
-  Bloop writes a temporary file and renames it. Thus the comments and the other keys stay.
-  The "Correct text" toggle uses this rule now for `[refine] enabled`.
-- At the dictation key press and when the menu opens, Bloop reads a file again if its modification time changed.
-  Bloop does not watch the files.
-- At the first start, Bloop writes a commented template, an empty dictionary, and the default prompts. If a default prompt file is missing, Bloop writes it again.
-- Each generation uses the settings snapshot that exists when the core creates it.
-  Thus a change never affects an active capture or a running job.
-- If the settings are invalid or the selected prompt is missing, the menu shows the error and its line. A capture then fails with the error view.
-- `bloop-app` builds the menu content as a data model. `bloop-macos` renders the model each time the menu opens (`menuNeedsUpdate:`).
-  Thus a new feature does not change AppKit code.
-- A click in the menu bar during a capture is other input. Thus it cancels the capture.
-- When a provider refuses the API key, the status icon changes and the menu shows a status line.
+- The settings file is `~/Library/Application Support/Bloop/config.toml`. The user and Bloop both edit it.
+- Each key is optional. A missing key has its default value: the value that Bloop uses today.
+- Each table rejects unknown keys. A `schema` value other than 1 is an error.
+- An error gives the line of the key, or of its table. It never gives the value, because the parser message can quote it.
+- The [code structure](STRUCTURE.md#settings-and-provider-selection) gives the keys and their limits.
 
-The planned menu:
+The write rule:
+
+- For a menu change, Bloop reads the current file and validates it with the parser.
+  Then it changes one key with `toml_edit`. The comments and the other keys stay.
+- Bloop writes the new text to `config.toml.tmp`, syncs it, and renames it to `config.toml`.
+  Thus Bloop never truncates an existing file, and the old file stays valid after a crash.
+- If the current file is invalid, Bloop does not change it.
+- If the file is missing, the change starts from the template (from Phase 4 iteration 1). Today, it starts from `schema = 1`.
+- The "Correct text" toggle uses this rule now for `[refine] enabled`.
+
+### Files and prompts
+
+All files are in the folder `~/Library/Application Support/Bloop/`.
+A refresh reads the files again, at the dictation key press (from Phase 4 iteration 2) and when the menu opens (from iteration 3).
+
+| File | At start, when missing | Read | Written by Bloop | Size limit |
+| --- | --- | --- | --- | --- |
+| `config.toml` | Bloop writes the commented template, with `enabled = false` | At each refresh | One key for each menu choice | 64 KiB |
+| `prompts/` | Bloop creates the folder | At each menu open, for the list of names | Never | — |
+| `prompts/<name>.md` | — | The selected prompt, at each refresh when the correction is on | Never | 32 KiB |
+| `dictionary.toml` | Bloop writes a commented empty dictionary (from Phase 4 iteration 3) | At each refresh | Never in Phase 4 | 256 KiB |
+
+- Bloop writes a file at start only when the file does not exist. It never rewrites or migrates an existing file.
+- The current file of the owner stays valid. It has no comments. To get the commented template, the owner deletes the file.
+- If a write at start fails, Bloop logs a warning with the error kind. Then it continues with the default values.
+- Bloop reads each file with its size limit. It stops the read one byte after the limit. A larger file is invalid.
+
+The prompts:
+
+- The built-in prompts are in the binary. Today, the only built-in prompt is `natural-light`.
+- The `prompts` folder contains only the prompts of the user. Bloop writes no prompt file.
+- `[refine] prompt = "x"` selects `prompts/x.md` when this file exists. Else it selects the built-in prompt `x`. Else the prompt is missing.
+- A user file with the name of a built-in prompt replaces it. This is an explicit act. The log then gives "file" as the source.
+- Thus a revised built-in prompt reaches the application at the next build. The application and the evaluation tool use the same text.
+- A prompt is valid when it is UTF-8, it is not empty after trim, and it is within its size limit.
+- A prompt name contains 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. Thus a setting cannot point outside the prompts folder.
+
+### Refresh and settings snapshot
+
+From Phase 4 iteration 2, the settings hub of `bloop-app` keeps the file texts, the parsed settings, and the current snapshot.
+Until then, Bloop reads the files at start only, and a change applies at the next start.
+
+- At the dictation key press (from iteration 2) and when the menu opens (from iteration 3), the hub reads `config.toml`, `dictionary.toml`,
+  and the selected prompt file when the correction is on.
+- The hub compares each text with its last text. If no text changed, the current snapshot stays.
+  Else the hub parses the changed files and builds a new snapshot.
+- Bloop does not use the modification time and does not watch the files. A text comparison is deterministic.
+- The expected cost of a refresh is less than 1 ms for three small files. This is an estimate, not a measurement.
+- A settings snapshot contains the hold threshold and the speech objects: the transcriber, the correction, the language, and the word list.
+  When speech is not available, the snapshot contains the error of each capture instead.
+- When the core creates a generation (`StartHoldTimer`), the driver takes the snapshot. The hold timer and the capture of that generation use it.
+  Thus a change never affects an active capture or a running job.
+- The hub builds the transcriber again for each new snapshot. This only stores the settings and the key.
+- The hub builds the chat model again only when `[chat]` changes. A prompt change keeps the chat model and its connection pool.
+- Bloop reads the API keys one time at start. It never reads Keychain at the key press, because a read can wait for a dialog.
+  A provider that the file names later, without a key read at start, is `Unauthorized` until the next start.
+- A menu choice writes one key with the write rule. Then the hub refreshes. The change applies from the next dictation.
+- A change in an editor applies from the next dictation, without restart. A new API key still needs a restart.
+- A click in the menu bar during a capture is other input. Thus it cancels the capture.
+
+### Errors and effects
+
+| Condition | Captures | Status line | Menu writes |
+| --- | --- | --- | --- |
+| `config.toml` invalid or too large | Fail with the error view | `config.toml: invalid setting, line N`. It opens the file. | Refused |
+| Selected prompt missing, empty, too large, or not UTF-8 | Correction on: fail with the error view. Correction off: dictation operates. | With the correction on: `Prompt "name": not found` or `Prompt "name": not valid`. It opens the folder. | Allowed |
+| `dictionary.toml` invalid or too large | Fail with the error view | `dictionary.toml: invalid entry, line N`. It opens the file. | Allowed |
+| No API key at start | Fail with `Unauthorized`, as today | As today, with "Then open Bloop again" | Allowed |
+| API key refused by the provider | That capture fails | "The provider refused the API key", then "Then open Bloop again" | Allowed |
+| Correction fails or times out | Raw text, as today | None | — |
+| Write at start fails | Default values | None. The log has a warning. | — |
+
+- A fixed file applies from the next dictation, without restart. A new API key is the exception.
+- A missing or invalid prompt affects only the correction (owner decision B). A feature that is off does not change the dictation path.
+  With the correction on, the capture fails. Bloop does not silently paste the raw text.
+- A file error gives the file and the line. It never gives the file content.
+- Bloop tracks a refused key from the transcription only. The event handler of `main.rs` sees each event before the driver.
+- An event with `ProviderError::Unauthorized` sets the refused key state when Bloop read a key at start. Else the menu shows the missing key line.
+- The refused key line stays until the restart, because Bloop reads the key at start only.
+- Bloop does not track a refusal of the chat request alone. Today, the chat provider and the speech provider use the same account.
+- The status icon does not change. The status lines show each problem.
+
+### Menu
+
+From Phase 4 iteration 3, `bloop-app` builds the menu content as a data model.
+`bloop-macos` renders the model each time the menu opens (`menuNeedsUpdate:`). Thus a new feature does not change AppKit code.
+
+- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings, the errors, and the prompt names.
+- The prompt names are the built-in names and the valid `.md` file names of the prompts folder, sorted and without duplicates.
+  Bloop skips a file name that is not UTF-8.
+- "Prompt" lists the prompt names. "Model" lists `[chat] models`. "Hold delay" lists 150, 220, 300, and 400 ms (Phase 4 iteration 4).
+- If the current value is not in its list, the list adds it as the selected option. Thus the menu always shows the current value.
+- With invalid settings, the menu shows the status line and hides "Correct text" and the three submenus.
+- A missing permission line opens the related System Settings pane, as today.
+- When nothing needs action, the status line is "Ready: hold Right Command to dictate", as today.
+- "Open config.toml…" and "Open dictionary…" open the file in the application for `.toml` files.
+  Without such an application, Bloop opens the folder in Finder. "Open prompts folder…" opens the folder.
+- The renderer adds "Quit Bloop" with ⌘Q after the model items, as today.
+
+The planned menu. In this example, `dev` is a prompt file of the user:
 
 ```text
-Status lines: permissions, API key, settings errors
+Status lines: permissions, API key, and file errors, or "Ready: hold Right Command to dictate"
 ──────────
 ✓ Correct text
-  Prompt ▸        natural-light, natural-full, prompts of the user
-  Model ▸         the models of the configured chat provider
+  Prompt      ▸   ✓ natural-light
+                    dev
+  Model       ▸   ✓ mistral-medium-latest
+                    mistral-small-latest
+  Hold delay  ▸     150 ms
+                  ✓ 220 ms
+                    300 ms
+                    400 ms
 ──────────
 Copy last result
 Open config.toml…
-Open dictionary…
 Open prompts folder…
+Open dictionary…
 ──────────
 Quit Bloop
 ```
+
+### Known limits
+
+- A new API key, or a provider that needs another key, needs a restart.
+- If a hand edit and a menu click occur at the same time, the last write wins.
+- After a menu write, a `config.toml` that is a symbolic link becomes a regular file. CRLF line ends become LF.
+- An existing `config.toml` keeps its form. Bloop adds no comments to it.
+- Phase 6 writes the dictionary with the same file rules, through a change on the hub. The next refresh reads the new file.
+- The optional dictation key choice reaches the event tap through the event handler of `main.rs`, which owns the tap.
+- A second chat provider needs its own refused key state.
 
 ## Dictionary and learning from fixes
 
@@ -472,7 +582,7 @@ written = "comme Taby"
 
 - Each entry must have a `written` value that is not empty and does not contain only whitespace. `heard` is optional.
   An unknown key makes the file invalid.
-- Phase 3 reads the dictionary at start. From Phase 4, the hub reads it again at the dictation key press if it changed.
+- Phase 3 reads the dictionary at start. From Phase 4 iteration 2, the hub reads it again at each refresh and parses it again if its text changed.
 - If the file does not exist, the dictionary is empty. This is not an error.
 - The written forms go to the speech provider in `TranscriptionOptions::vocabulary`, in file order and one time each.
   The Mistral adapter sends them as `context_bias`.
@@ -480,7 +590,7 @@ written = "comme Taby"
 - The pairs (entries with `heard`) have no effect for now. The owner parked this task on 2026-11-06.
   Pairs in the correction prompt failed in the evaluation. The [roadmap](ROADMAP.md) gives the findings and a proposed design.
 - Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
-- If the dictionary file is invalid, each capture fails with the error view. From Phase 4, the menu also shows the error.
+- If the dictionary file is invalid, each capture fails with the error view. From Phase 4 iteration 3, the menu also shows the error and its line.
 - For an invalid file, the log gives the line of the error when it is known.
   The log never contains the file content or the parser message, because the message can quote an entry.
 - For a valid file, the log gives only the number of entries.
@@ -516,9 +626,12 @@ Phase 6 adds learning from fixes:
   The hash is FNV-1a with 64 bits over the prompt text as sent. It identifies a prompt revision. It is not a security function.
 - The log does not contain audio, text, or credentials.
 - The settings file is `~/Library/Application Support/Bloop/config.toml`.
-- The settings file contains nonsecret settings only: key, hold threshold, language, streaming delay, models, correction state, and prompt name.
-- Without the settings file, Bloop writes a template with the default values (Phase 4).
-- The prompt files are in `~/Library/Application Support/Bloop/prompts/`. They contain no dictated text.
+- The settings file contains nonsecret settings only: hold threshold, language, providers, models, streaming delay, correction state, and prompt name.
+  The dictation key comes with the optional key iteration of Phase 4.
+- From Phase 4 iteration 1, Bloop writes a commented template with the default values when the settings file is missing at start.
+- The prompt files of the user are in `~/Library/Application Support/Bloop/prompts/` (Phase 4). They contain no dictated text.
+- For the settings, the log records file names, error kinds, lines, and nonsecret values: models, prompt name, and hold threshold.
+  It never records the file content.
 - The dictionary file contains the user words and the saved or ignored pairs. It contains no other dictated text.
 
 ## Bundle and permissions

@@ -1,11 +1,11 @@
 # Rust contracts
 
-Status: revision 23 (2026-11-06). `bloop-core` implements the session state machine, the domain data, the error enums,
+Status: revision 24 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
 and the transcription, chat, text step, and platform ports.
 It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
 The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
 The text step and pipeline signatures follow the Phase 3 design of 2026-11-05.
-`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model is a Phase 4 proposal.
+`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model follows the Phase 4 design of 2026-11-07.
 Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
 
 All types and traits in this document are in `bloop-core`.
@@ -376,54 +376,54 @@ pub trait SecretStore {
 
 ## Menu model
 
-Phase 4 proposal. Review these types before the menu adapter.
+Phase 4 design of 2026-11-07. Phase 4 iteration 3 implements it. Until then, `bloop-macos/src/menu.rs` builds fixed items.
 These plain data types go in `ports/platform.rs`. `bloop-app` builds the model, and `bloop-macos` renders it.
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActionId(pub u32);
+pub struct ActionId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StatusIcon {
-    Ready,
-    Attention,
-}
-
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuModel {
-    pub icon: StatusIcon,
     pub items: Vec<MenuItem>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
-    Status { title: String, action: Option<ActionId> },
-    Action { title: String, action: ActionId, enabled: bool },
-    Toggle { title: String, action: ActionId, checked: bool, enabled: bool },
+    Status { title: String },
+    Action { title: String, action: ActionId },
+    Toggle { title: String, action: ActionId, checked: bool },
     Choice { title: String, options: Vec<ChoiceOption> },
     Separator,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChoiceOption {
     pub title: String,
     pub action: ActionId,
     pub selected: bool,
 }
 
+/// Main thread only. AppKit calls both methods; they must not panic.
 pub trait MenuSource {
     fn model(&self) -> MenuModel;
     fn activate(&self, action: ActionId);
 }
-
-pub trait StatusItem {
-    fn set_icon(&mut self, icon: StatusIcon);
-}
 ```
 
-- `bloop-macos` calls `MenuSource::model` each time the menu opens, and rebuilds the items.
-- A `Choice` is a submenu with one selected option.
-- An `ActionId` is valid only in the model that contains it. `bloop-app` ignores an unknown identifier.
-- `MenuSource` and `StatusItem` run on the main thread. They have no `Send` bound.
+- `bloop-macos` calls `MenuSource::model` each time the menu opens (`menuNeedsUpdate:`). Then it removes all items and renders the model.
+- `MenuSource::activate` receives the action of a click.
+- A `Status` item gives information only. It has no action, thus AppKit disables it. A status line that opens something is an `Action`.
+- A `Choice` is an item with a submenu. Each option has a checkmark state.
+- `ActionId(n)` is the index of the action in the list that `bloop-app` builds with the model.
+  It is valid only in that model. `bloop-app` logs an unknown identifier at `error!` and ignores it.
+- Each item with an action uses one selector, `menuAction:`. The item tag is `ActionId + 1`. Thus the default tag 0 never starts an action.
+- `tag_of(ActionId) -> Option<isize>` and `action_of(isize) -> Option<ActionId>` are pure functions in `bloop-macos`.
+  They use `checked_add`, `checked_sub`, and `try_from`. A failed conversion logs at `error!` and ignores the click.
+- The renderer adds a separator and "Quit Bloop" after the model items. "Quit Bloop" is not in the model.
+- `MenuSource` runs on the main thread. It has no `Send` bound.
 - AppKit calls `MenuSource` from Objective-C. Thus its methods must not panic.
-- When the status changes, `bloop-app` calls `StatusItem::set_icon`. The menu content changes at the next open.
+- The menu model has no status icon. The status icon does not change: the status lines show each problem.
 
 ## Learning from fixes
 
@@ -506,8 +506,11 @@ Bloop installs no `log` bridge. A future bridge must turn off the `tungstenite` 
 Most of these events are at debug and trace levels. Some warnings report a problem with a socket option, the protocol, or a stream limit.
 These events contain no header value and no body. The Bloop log records only the info level and higher.
 A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
-An invalid settings file of the user, for example the dictionary, is `AppError::InvalidSettings`.
-Bloop reads the dictionary at start. If it is invalid, each capture fails with the error view, as for a missing API key.
+An invalid settings file of the user is `AppError::InvalidSettings`: `config.toml` or `dictionary.toml`, invalid or too large.
+Then each capture fails with the error view, as for a missing API key.
+Today, Bloop reads both files at start. From Phase 4 iteration 2, a fixed file applies from the next dictation, without restart.
+From Phase 4 iteration 1, a missing or invalid prompt is also `InvalidSettings`, but only when the correction is on (owner decision B).
+From Phase 4 iteration 3, the menu shows each of these errors with its file, and with its line when it is known.
 `CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
 If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
 If the transcription task panics, the worker sends `CaptureFailed` with `AppError::Internal`.
@@ -559,13 +562,31 @@ Thus a change affects only subsequent generations. It never changes an active ca
 When the value is off, the task runs a pipeline without steps. When it is on, the task runs the correction step list with the `natural-light` prompt.
 `bloop-app` builds the chat model one time at start, with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
 The chat model can be unavailable, for example without an API key. Then a job with the correction on logs a warning and runs the pipeline without steps.
-Phase 4 builds the list from the full settings snapshot. The steps share the chat client through `Arc`.
+
+Phase 4 changes these rules:
+
+- From iteration 1, the correction uses the prompt that `[refine] prompt` selects. `Correction` owns the prompt name and text.
+- From iteration 1, `Speech::correction` is a `Result<Correction, NoCorrection>`. `NoCorrection` is a `bloop-app` type.
+- `NoCorrection::ChatUnavailable`: the chat model is not available. A job with the correction on logs a warning and keeps the raw text, as today.
+- `NoCorrection::InvalidPrompt`: the selected prompt is missing or not valid.
+  With the correction on, `Spawner::spawn` returns `Err(AppError::InvalidSettings)`, and the capture fails (owner decision B).
+- From iteration 2, `NoCorrection::Off` replaces the toggle cell. Thus `[refine] enabled` in the settings snapshot is the only toggle state.
+  When the correction is off, the hub does not read the prompt.
+- From iteration 2, each generation uses the settings snapshot that the driver takes at `StartHoldTimer`.
+  At `StartCapture`, the driver gives the speech objects of that snapshot to `Spawner::spawn`. `Spawner` loses `speech` and `correction_on`.
+- The hub reuses the chat model while `[chat]` does not change. A prompt change builds a new `Correction` with the same chat model.
+  The steps share the chat client through `Arc`.
+- `CORRECTION_LIMIT` stays a constant (owner decision A).
 
 The worker runs this pipeline only after `finish` returns the complete transcript.
 The worker builds the `StepContext` from the language of the dictation.
 Before the steps, the worker logs one `info` line for each job: the correction value and, when it is on, the prompt name.
 The worker logs each `StepReport` at the `info` level: the step name and the `Debug` output of the result.
-From Phase 4, a `ProviderError::Unauthorized` in the report goes to the menu status.
+From Phase 4 iteration 3, an event with `ProviderError::Unauthorized` from the transcription sets the refused key line in the menu.
+This applies when Bloop read a key at start. Else the menu shows the missing key line.
+The event handler of `main.rs` reads each event before the driver. The driver does not change for this rule.
+The line stays until the restart, because Bloop reads the key at start only.
+A refusal of the chat request alone is not tracked: today, the chat provider and the speech provider use the same account.
 The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
 and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
 
@@ -622,7 +643,7 @@ Tests must cover timeout to raw fallback, cancellation during correction, and co
 | Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
 | Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
 | Step failure | The log records the step name and the reason. It does not record the text. |
-| Settings | Phase 3 captures the correction toggle when the transcription task of a generation starts (`StartCapture`). Phase 4 captures the full settings snapshot. Changes never affect an active capture or a running job. |
+| Settings | Phase 3 captures the correction toggle when the transcription task of a generation starts (`StartCapture`). From Phase 4 iteration 2, the driver takes the settings snapshot at `StartHoldTimer`. The hold timer and `StartCapture` of that generation use it. A generation without its snapshot fails with `CaptureFailed(Internal)`. Changes never affect an active capture or a running job. |
 | Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
 
 These requirements need unit tests. Trait signatures alone do not enforce them.

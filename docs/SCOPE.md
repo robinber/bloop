@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 11 (2026-11-06). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 12 (2026-11-07). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -23,7 +23,7 @@ A feature that is off does not change the dictation path. Low latency stays a pr
 - Streaming is the only STT path. Audio goes to the provider while capture continues.
 - Phase 1 proves the key, orb, and insertion with fixed text. Phase 2 adds streaming. Phase 3 adds the optional correction.
 - Phase 3 adds a correction toggle and validates daily use. Bloop keeps the toggle state in `config.toml`.
-- Phase 4 adds persistent settings and more menu choices when needed.
+- Phase 4 adds the settings file, lists in the status menu, and clear errors.
 - A dictionary gives the written form of names and terms (Phase 3).
   After the user edits a pasted text, Bloop proposes new entries (Phase 6).
 - The user holds Right Command to speak.
@@ -99,15 +99,15 @@ Phase 2 measured the transcription completion time after key release. Phase 3 me
 | Orb | Native panel at the bottom center of the screen. It never takes keyboard focus. It closes when capture ends. |
 | Audio | System default microphone, or the built-in microphone when the default input is a Bluetooth device; bounded queues in memory; no maximum capture duration |
 | Network | One transcription stream during capture; one correction request after the complete transcript, when the correction is on |
-| Correction | Off by default; one prompt file that the menu selects; raw transcript if the correction fails |
+| Correction | Off by default; one prompt that the menu selects (Phase 4); raw transcript if the correction fails |
 | Dictionary | One file. The written forms go to the transcription. The pairs have no effect for now (parked on 2026-11-06). Bloop asks before each new entry (Phase 6). |
 | Target check | Same frontmost application and no new click or key press since capture ended |
 | Insertion | Command-V with a clipboard item that the target reads on demand |
 | Clipboard | Restore the previous content after the target reads the text |
 | Fallback | Show the text in the orb card and keep it in the clipboard |
 | Recovery | Menu item "Copy last result" until a newer result replaces it |
-| Interface | Menu bar item only; no Dock icon; no settings window; correction toggle in Phase 3, more choices in Phase 4 |
-| Settings | One TOML file that the user and Bloop edit (Phase 4); prompt files that the user can edit |
+| Interface | Menu bar item only; no Dock icon; no settings window; correction toggle (Phase 3); prompt, model, and hold delay lists (Phase 4) |
+| Settings | One TOML file that the user and Bloop edit (Phase 4); built-in prompts in the application, plus prompt files of the user (Phase 4). A user file with the name of a built-in prompt replaces it. |
 | Credentials | The API key of each provider in macOS Keychain; the account is the provider name |
 | Latency target | Median of 1.5 seconds or less from key release to paste command, with the correction on |
 
@@ -128,8 +128,9 @@ They treat instructions inside the transcript as text to correct.
 They return plain text without Markdown formatting.
 For a spoken correction, they keep the last version: "à 2 heures, non, 3 heures" becomes "à 3 heures".
 
-Phase 4 lets the user edit and add prompt files. A menu choice is added when alternative prompts are useful.
-A prompt can ask for line breaks and lists. The default prompts do not ask for them.
+Phase 4 lets the user add prompt files in the prompts folder. A user file with the name of a built-in prompt replaces it.
+Bloop writes no prompt file. The "Prompt" submenu lists the built-in prompts and the prompt files of the user.
+A prompt can ask for line breaks and lists. The built-in prompts do not ask for them.
 
 A text step in the code applies the French typography after the correction:
 
@@ -151,7 +152,7 @@ These items have no phase yet.
 - Text formatting: paragraphs, and lists with `- `. The model applies it from the structure of the speech or from spoken commands.
   A toggle in the "Prompt" submenu turns it on. The owner starts this work when needed.
 - Automatic start at login.
-- Other dictation keys.
+- Other dictation keys. The optional last item of Phase 4 adds a choice of modifier keys only. Other keys have no phase yet.
 - Support for keyboard layouts that move the V key.
 - A settings window.
 

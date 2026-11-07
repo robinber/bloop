@@ -72,6 +72,8 @@ These are explicit owner decisions, not hypothetical reuse:
   - `IsSecureEventInputEnabled`, Accessibility and Input Monitoring permission checks, Keychain access,
     and the main dispatch queue.
   - The AVFoundation microphone authorization status and request (approved on 2026-11-02).
+  - The menu delegate in `bloop-macos/src/menu.rs`: `unsafe impl NSMenuDelegate` (`menuNeedsUpdate:`), one menu action selector
+    `menuAction:` with item tags, and submenus (approved on 2026-11-07, for Phase 4 iteration 3).
 - Each module that contains `unsafe` carries `#![expect(unsafe_code, reason = "...")]`.
 - All other crates add `#![forbid(unsafe_code)]` at their root.
 - `unsafe` outside these surfaces needs new approval.

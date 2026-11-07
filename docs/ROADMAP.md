@@ -1,6 +1,7 @@
 # Roadmap
 
-Status: Design revision 15. Phase 1 and Phase 2 are complete. Phase 3 is next. Later phases depend on daily use.
+Status: Design revision 16 (2026-11-07). Phase 1 and Phase 2 are complete.
+On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -17,9 +18,9 @@ A feature that is off does not change the dictation path. Phase 3 adds one corre
 
 | Priority | Work | Reason to start |
 | --- | --- | --- |
-| Now | Phase 3: one correction prompt, raw fallback, a toggle, the dictionary, and daily use | Prove that correction reduces manual edits at an acceptable delay. Names and terms need their written form from the start. |
-| Next if needed | Phase 5: capture at key press | First-word loss still interrupts daily use. Do this before advanced settings. |
-| Next | Phase 4: persistent settings and clear errors | Keep the settings used during the Phase 3 trial. Add choices only when needed. |
+| Scope complete | Phase 3: one correction prompt, raw fallback, a toggle, the dictionary, and daily use | Prove that correction reduces manual edits at an acceptable delay. Names and terms need their written form from the start. On 2026-11-06, the owner declared the functional scope complete. |
+| Now | Phase 4: settings file, lists in the status menu, and clear errors | The owner decided its interface on 2026-11-06 and validated its design on 2026-11-07. Frequent choices go in the menu. A file change applies without restart. |
+| Next if needed | Phase 5: capture at key press | First-word loss still interrupts daily use. Check the loss again after Phase 4 iteration 2. |
 | After Phase 4 | Phase 6: learn from fixes | The owner saves a correction from the field with one click. The file writes come from Phase 4. |
 | Later | Phase 7: sounds, other audio, and input choices | A specific daily-use problem justifies one feature. |
 | Later | Phase 8: other Accessibility features | Define one concrete need before designing or implementing a feature. |
@@ -243,7 +244,8 @@ Measured on the reference Mac (macOS 27) with Voxtral, silent captures, on 2026-
 
 ## Phase 3: Optional correction and dictionary
 
-Priority: now. Deliver one correction that the owner can use in the usual applications.
+Priority: functional scope complete (owner decision on 2026-11-06). The open items below stay open.
+Deliver one correction that the owner can use in the usual applications.
 Start with the Mistral chat provider and `natural-light`. Keep `natural-full` as a later option.
 The first corrections used `mistral-small-latest`. From 2026-11-06, the correction uses `mistral-medium-latest` (owner decision after the evaluation below).
 One status menu toggle turns the correction on or off for subsequent dictations. Bloop keeps the toggle state in `config.toml`.
@@ -391,38 +393,93 @@ These items do not block Phase 3 completion. Start one only when the measurement
 
 ## Phase 4: Settings and status menu
 
-Priority: after the Phase 3 trial. Start with settings that the trial shows are useful.
-First-word loss can move Phase 5 ahead of this phase.
-Bloop and the user edit one settings file. The status menu turns features on and off.
+Priority: now. Bloop and the user edit one settings file. The status menu shows the frequent choices as lists.
 The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the design.
 
-- [ ] Get the owner approval for `NSMenuDelegate` and the menu action selector in the "status item and menu" surface.
-  Record it in `AGENTS.md`.
-- [ ] Add the settings schema to `bloop-app`, with default values, `schema = 1`, and errors that give the line.
-- [ ] At the first start, write a commented `config.toml` template, an empty dictionary, and the default prompt files.
-- [ ] Write a menu change with `toml_edit` to a temporary file. Then rename the file. Keep the comments and the other keys.
-  On 2026-11-06, the "Correct text" toggle uses this rule for `[refine] enabled`.
-- [ ] Add the settings hub. At the dictation key press and when the menu opens, read the changed files again:
-  settings, prompts, and dictionary.
-- [ ] Give each generation the settings snapshot that exists when the core creates it. Remove the temporary constants in `main.rs`.
-- [ ] Build the chat client one time. Build the step list of each snapshot from the selected prompt and model.
-- [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
-- [x] Persist the existing "Correct text" toggle in `config.toml` (`[refine] enabled`).
-- [ ] Add "Open config.toml…", "Open dictionary…", and "Open prompts folder…".
-- [ ] Add the "Prompt" and "Model" submenus when alternatives from the Phase 3 evaluation justify them.
-  The second default prompt and model choices do not block the first settings delivery.
-- [ ] Select the speech provider and the chat provider in `config.toml`. Add a menu choice when a second adapter exists.
-- [ ] Show the status lines: missing permissions, missing or refused API key, and invalid settings, prompt, or dictionary.
-- [ ] When a provider refuses the API key (401 or 403) in a request, show it in the menu.
-- [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.
+Owner decisions on 2026-11-06:
 
-Acceptance:
+- The functional scope is complete. Phase 4 adds configuration and user experience only. The dictation path does not change.
+- The interface is the status menu and `config.toml`. The frequent choices are lists in the menu: prompt, correction model, and hold delay.
+  The other settings are in the file.
+- Bloop has no settings window.
+- The dictation key choice is optional and comes last. It accepts modifier keys only.
+
+Owner decisions on 2026-11-07, each one as the design recommended:
+
+- A. The correction time limit stays a constant of 8 s. Nobody requested a change, it is not measured, and it caused no problem.
+- B. A missing or invalid prompt affects only the correction. With "Correct text" on, the capture fails with the error view.
+  Bloop does not silently paste the raw text. With "Correct text" off, dictation operates.
+- C. The built-in prompts stay in the application. The prompts folder holds the prompts of the owner.
+  A file with the name of a built-in prompt replaces it.
+- E. The menu delegate for iteration 3 is approved in the "status item and menu" surface. `AGENTS.md` records the scope.
+
+Each iteration leaves Bloop usable all day. The owner tests each iteration before the next one starts.
+
+### Iteration 0: design
+
+Iteration 0 records the validated design in the documents, with the owner decisions and the approval.
+
+- [x] Get the owner approval for `NSMenuDelegate` and the menu action selector in the "status item and menu" surface.
+  Record it in `AGENTS.md`. Approved on 2026-11-07.
+
+### Iteration 1: settings file at start
+
+The menu does not change. A change in the file applies at the next start.
+
+- [x] Persist the existing "Correct text" toggle in `config.toml` (`[refine] enabled`).
+- [ ] Add the settings schema to `bloop-app`, with default values and `schema = 1`. Each error gives the line of the key or of its table.
+- [ ] Add `Deserialize` under the vendor feature, `Clone`, `PartialEq`, the `[chat] models` list, and `template()` to the provider configs.
+- [ ] Add `files.rs`: the bounded read, the write of a missing file, and the atomic replace.
+- [ ] At the first start, write the commented `config.toml` template with `enabled = false`, and create the prompts folder.
+  Do not change an existing file.
+- [ ] Select the prompt from a user file of the prompts folder, else from the built-in prompts.
+  Add `NoCorrection::{ChatUnavailable, InvalidPrompt}`.
+- [ ] Replace `HOLD` and `LANGUAGE` with settings. Keep `CORRECTION_LIMIT` as a constant.
+- [ ] Select the speech provider and the chat provider in `config.toml`. Add a menu choice when a second adapter exists.
+
+### Iteration 2: hub and settings snapshot
+
+The menu does not change yet. After a hand edit of `[refine] enabled`, the checkmark can be wrong until iteration 3.
+
+- [ ] Add the settings hub. At the dictation key press, read the files again: settings, selected prompt, and dictionary.
+  Compare the text, not the modification time.
+- [ ] Give each generation the settings snapshot that exists when the core creates it (`StartHoldTimer`). Add the `Snapshots` trait to the driver.
+- [ ] Build the chat model again only when `[chat]` changes. Build the correction of each snapshot from the selected prompt and the chat model.
+- [ ] Replace the toggle cell with `NoCorrection::Off`. The toggle writes its key through the hub.
+- [ ] `Hub::set` writes one key with the write rule, then refreshes. Today, the "Correct text" toggle uses this rule for `[refine] enabled`.
+
+### Iteration 3: menu model
+
+- [ ] Add the menu model types to `bloop-core`. Render the model in `bloop-macos` each time the menu opens.
+- [ ] Build the model in `bloop-app` with the items of today. Refresh the settings when the menu opens.
+- [ ] Show the status lines: missing permissions, missing or refused API key, and invalid settings, prompt, or dictionary.
+- [ ] If the provider refuses the API key (401 or 403) for a transcription, show it in the menu. The line stays until the restart.
+- [ ] Add "Open config.toml…", "Open prompts folder…", and "Open dictionary…".
+- [ ] At the first start, write a commented empty `dictionary.toml`.
+- [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.
+- [ ] Do the manual checks of the menu renderer in the [code structure](STRUCTURE.md#tests).
+  Add `bloop-macos/src/menu.rs` to the critical surfaces of `AGENTS.md`.
+
+### Iteration 4: lists
+
+- [ ] Add the "Prompt", "Model", and "Hold delay" submenus. Each choice writes one key.
+  The owner decided these lists on 2026-11-06. Only `bloop-app` changes.
+
+### Iteration 5: dictation key (optional)
+
+- [ ] Select the dictation key in `config.toml`: modifier keys only. The change is in `keys.rs`.
+
+### Acceptance
 
 - A menu change applies from the next dictation. It does not change an active capture or a running job.
-- A change to `config.toml`, to a prompt file, or to the dictionary in an editor applies from the next dictation.
-- After a menu change, `config.toml` keeps its comments.
-- With invalid settings, a missing prompt, or an invalid dictionary, the menu shows the error and its line.
-  A capture fails with the error view.
+- A change to `config.toml`, to a prompt file, or to the dictionary in an editor applies from the next dictation, without restart.
+- Bloop reads the files again at the dictation key press and when the menu opens. A file without a change builds no new snapshot.
+- After a menu change, `config.toml` keeps its comments and its other keys.
+- With invalid settings or an invalid dictionary, the menu shows the error and its line. A capture fails with the error view.
+- With a missing or invalid prompt and the correction on, the menu shows the error, and a capture fails with the error view.
+  With the correction off, dictation operates.
+- A file over its size limit is invalid, and the menu shows the error. Bloop reads at most one byte over the limit.
+- The tag guard ignores a menu item with tag 0. A click that gives no valid action has no effect, and the log records it.
 - Check that the settings integration preserves the Phase 3 correction and raw paths.
 
 ## Phase 5: Capture at key press
