@@ -21,7 +21,7 @@ use super::{
     DRAIN_LIMIT, MAX_MESSAGE_SIZE, ServerEvent, Session, Text, TranscribeConfig, Transcriber,
     decode, unexpected,
 };
-use crate::test_log::Log;
+use crate::test_log::{Log, install_fallback};
 
 const KEY: &str = "test-key";
 const MODEL: &str = "voxtral-test";
@@ -578,6 +578,7 @@ fn the_debug_of_a_delta_event_shows_no_text() {
 #[test]
 fn provider_errors_and_unknown_event_types_never_enter_logs() {
     const PRIVATE: &str = "private-dictation-and-key-sentinel";
+    install_fallback();
     let log = Log::default();
     tracing::subscriber::with_default(log.clone(), || {
         let body = json!({

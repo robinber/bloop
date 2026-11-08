@@ -232,7 +232,7 @@ mod tests {
 
     use super::{Chat, ChatConfig};
     use crate::http;
-    use crate::test_log::Log;
+    use crate::test_log::{Log, install_fallback};
 
     const KEY: &str = "test-key";
     const MODEL: &str = "mistral-test";
@@ -490,6 +490,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_finish_reason_is_logged_only_as_a_local_category() {
         const PRIVATE: &str = "private-dictation-and-key-sentinel";
+        install_fallback();
         let log = Log::default();
 
         let reply = complete(200, completion(&json!(TEXT), &json!(PRIVATE)))
@@ -557,6 +558,7 @@ mod tests {
     #[tokio::test]
     async fn an_http_error_body_never_enters_logs() {
         const PRIVATE: &str = "private-dictation-and-key-sentinel";
+        install_fallback();
         let log = Log::default();
         let body = json!({ "message": PRIVATE, "type": PRIVATE, "code": PRIVATE }).to_string();
 

@@ -1,7 +1,7 @@
 //! Captures provider log fields for privacy regression tests.
 
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
 
 use tracing::field::{Field, Visit};
 use tracing::{Event, Metadata, Subscriber, span};
@@ -13,6 +13,16 @@ impl Log {
     pub(crate) fn text(&self) -> String {
         self.0.lock().unwrap().clone()
     }
+}
+
+/// Installs a global `Log` one time. Without it, a thread without a subscriber can register a callsite first,
+/// and the callsite then keeps `Interest::never()`, also for the scoped `Log` of a privacy test.
+pub(crate) fn install_fallback() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        tracing::subscriber::set_global_default(Log::default())
+            .expect("no other global subscriber");
+    });
 }
 
 impl Subscriber for Log {
