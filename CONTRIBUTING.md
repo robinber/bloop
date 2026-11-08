@@ -12,7 +12,7 @@ Bloop is a Rust 2024 virtual workspace with five crates in `crates/`. The manife
 | `bloop-core` | Domain types, the session state machine, the text pipeline and steps, and the ports. No I/O, no async runtime, no platform API. Its only external dependency is `secrecy`. |
 | `bloop-audio` | Microphone capture with `cpal`, the input device choice, the bounded sample queue, and the conversion to 16 kHz. |
 | `bloop-providers` | The AI provider adapters. One module and one Cargo feature for each vendor. `mistral` is the default feature. |
-| `bloop-macos` | AppKit integration: application, event tap, orb, paste and clipboard, status menu, permissions, Keychain, and sleep observer. The only crate with `unsafe` code. |
+| `bloop-macos` | AppKit integration: application, event tap, orb, paste and clipboard, status menu, permissions, Keychain, sleep observer, and workspace: the frontmost and open applications, file and folder opening, and the application panel. The only crate with `unsafe` code. |
 | `bloop-app` | The application: settings, hub, driver, worker, menu model, logging, and the `eval` tool. |
 
 `bloop-app` has two binaries: `bloop-app`, the application and `default-run`, and `eval`, the correction evaluation tool.

@@ -180,7 +180,7 @@ Invariants, enforced by `Paster`, `TextProvider`, and `paste/clipboard.rs`:
 - Without a clipboard snapshot, Bloop leaves the text as a normal clipboard item (`finalize_without_a_saved_clipboard_leaves_the_text_as_a_normal_item`).
 - Cancellation suppresses the result event. The read and the restore still follow their steps (`a_cancel_keeps_the_restore_and_drops_the_result`).
 - Abandoning a transaction restores one time and stops its timers (`abandoning_a_transaction_restores_once_and_stops_its_timers`).
-- The snapshot is limited to 64 items and 64 MiB. Above a limit, or when macOS cannot list the items, no snapshot exists and automatic restoration is unavailable. A type that cannot be read is left out, and the other types are restored (`save_within_*` tests).
+- The snapshot is limited to 64 items and 64 MiB (`MAX_SAVED_ITEMS`, `MAX_SAVED_BYTES`). Above a limit, no snapshot exists and automatic restoration is unavailable (`save_within_*` tests). The same applies when macOS cannot list the items. A type that cannot be read is left out, and the other types are restored. No test covers these two cases.
 - The latest result stays in memory for **Copy last result** until a newer result replaces it or the process exits (core `last_result`; `session/tests.rs`: `copy_last_result_copies_the_last_inserted_text`).
 
 The target check does not inspect the focused field. The paste uses key code 9, the V key on the QWERTY and AZERTY layouts.
@@ -188,7 +188,7 @@ Forced termination or a crash cannot guarantee the restoration.
 
 ## Orb
 
-The orb (`bloop-macos/src/orb/`) is a borderless, nonactivating `NSPanel` at the bottom center of the screen that contains the mouse pointer, 16 points above the visible frame. It never takes the focus.
+The orb (`bloop-macos/src/orb/`) is a borderless, nonactivating `NSPanel` at the bottom center of the visible frame of the screen that contains the mouse pointer, 16 points above the bottom edge of that frame (`BOTTOM_MARGIN` in `orb/panel.rs`). It never takes the focus.
 The listening view shows the icon of the frontmost application and seven bars that follow the level meter every 33 ms. The error view shows red bars for 1 s. The card shows the first 240 characters of the final text, with `…` when the text is longer, for 8 s.
 Each view change starts a new timer epoch, so the timers of a previous view have no effect (`orb/mod.rs` tests).
 
