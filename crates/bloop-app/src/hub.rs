@@ -1,7 +1,9 @@
 //! The settings hub: the settings files, the objects built from them, and the settings snapshot of the next generation.
 //!
 //! At each dictation key press and each time the status menu opens, the hub reads `config.toml`,
-//! `dictionary.toml`, and the selected prompt when the correction is on. It compares each text with its last text.
+//! `dictionary.toml`, and one prompt when the correction is on. It compares each text with its last text.
+//! At a key press, the prompt is the prompt whose list contains the frontmost application, else the selected prompt.
+//! When the menu opens, it is the selected prompt.
 //! It builds a new snapshot only after a change, and it builds the chat model again only when `[chat]` changes.
 //! It reads the API keys one time at start, because a Keychain read can wait for a dialog.
 //! It keeps the refused key state until the next start.
@@ -44,6 +46,9 @@ pub(crate) struct View {
     pub(crate) settings: Result<Summary, settings::Invalid>,
     /// The selected prompt and why it is not available. It is `None` when the prompt is valid or the correction is off.
     pub(crate) prompt: Option<(PromptName, PromptError)>,
+    /// Each other prompt that a non-empty application list routes to, and why it is not available.
+    /// It is empty when these prompts are valid or the correction is off.
+    pub(crate) routed: Vec<(PromptName, PromptError)>,
     /// Why `dictionary.toml` is invalid. It is `None` when the dictionary is valid.
     pub(crate) dictionary: Option<dictionary::Invalid>,
     /// `true` after the provider refused the API key that `Hub::start` read.
@@ -95,9 +100,30 @@ struct State {
     settings: Result<Settings, settings::Invalid>,
     /// The written forms of `dictionary`. The hub parses them again only when `dictionary` changes.
     vocabulary: Result<Vec<String>, dictionary::Invalid>,
-    /// The selected prompt. It is `None` when the settings are invalid or the correction is off:
-    /// then the hub does not read it.
-    prompt: Option<Result<Prompt, PromptError>>,
+    /// The prompt of the last refresh: its name, and the prompt or why it is not available.
+    /// It is `None` when the settings are invalid or the correction is off: then the hub reads no prompt.
+    prompt: Option<NamedPrompt>,
+}
+
+/// A prompt name, and the prompt or why it is not available.
+type NamedPrompt = (PromptName, Result<Prompt, PromptError>);
+
+/// How a refresh chose its prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// The list of the prompt contains the frontmost application.
+    App,
+    /// No list contains the frontmost application: the prompt is the selected prompt.
+    Default,
+}
+
+impl Route {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::App => "app",
+            Self::Default => "default",
+        }
+    }
 }
 
 impl Hub {
@@ -115,7 +141,7 @@ impl Hub {
             Err(_) => Keys::read(&Settings::default(), secrets),
         };
         let state = State {
-            prompt: read_prompt(&settings, &paths.prompts),
+            prompt: read_prompt(&settings, &paths.prompts, None).map(|(_, prompt)| prompt),
             settings,
             vocabulary: parse_dictionary(&dictionary),
         };
@@ -137,14 +163,25 @@ impl Hub {
         }
     }
 
-    /// Reads the files again and returns the current snapshot. The snapshot is new only when a text changed.
+    /// Reads the files again and returns the snapshot of a dictation in the application `app`, a bundle identifier.
+    /// The prompt is the prompt whose list contains `app`, else the selected prompt.
+    /// The snapshot is new only when a text or the prompt changed.
+    /// With the correction on, it logs the prompt name, how the hub chose it, and `app`.
     /// Returns `None` only when the hub is already borrowed, which is a bug.
-    pub(crate) fn refresh(&self) -> Option<Rc<Snapshot>> {
+    pub(crate) fn refresh(&self, app: Option<&str>) -> Option<Rc<Snapshot>> {
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
             tracing::error!("the settings hub is already in use, the refresh does not occur");
             return None;
         };
-        inner.refresh(&self.paths, &self.keys, self.limit);
+        let route = inner.refresh(&self.paths, &self.keys, self.limit, app);
+        if let (Some(route), Some((name, _))) = (route, &inner.state.prompt) {
+            tracing::info!(
+                prompt = name.as_str(),
+                route = route.as_str(),
+                app,
+                "the dictation prompt is chosen"
+            );
+        }
         Some(Rc::clone(&inner.snapshot))
     }
 
@@ -156,11 +193,15 @@ impl Hub {
             tracing::error!("the settings hub is already in use, the menu shows its last state");
             return None;
         };
-        inner.refresh(&self.paths, &self.keys, self.limit);
+        inner.refresh(&self.paths, &self.keys, self.limit, None);
         let state = &inner.state;
-        let prompt = match (&state.settings, &state.prompt) {
-            (Ok(settings), Some(Err(error))) => Some((settings.refine.prompt.clone(), *error)),
+        let prompt = match &state.prompt {
+            Some((name, Err(error))) => Some((name.clone(), *error)),
             _ => None,
+        };
+        let routed = match &state.settings {
+            Ok(settings) if settings.refine.enabled => routed_errors(settings, &self.paths.prompts),
+            _ => Vec::new(),
         };
         Some(View {
             settings: match &state.settings {
@@ -174,6 +215,7 @@ impl Hub {
                 Err(error) => Err(*error),
             },
             prompt,
+            routed,
             dictionary: state.vocabulary.as_ref().err().copied(),
             key_refused: self.key_refused.get(),
             prompts,
@@ -199,7 +241,11 @@ impl Hub {
         if let Err(error) = settings::write(&self.paths.config, change) {
             tracing::warn!(?error, "the settings file is not changed");
         }
-        self.refresh();
+        let Ok(mut inner) = self.inner.try_borrow_mut() else {
+            tracing::error!("the settings hub is already in use, the refresh does not occur");
+            return;
+        };
+        inner.refresh(&self.paths, &self.keys, self.limit, None);
     }
 
     /// Returns the error of the transcription API key that `start` read, for the status menu.
@@ -222,8 +268,15 @@ impl Hub {
 }
 
 impl Inner {
-    /// Reads the files and builds a new snapshot when a text changed.
-    fn refresh(&mut self, paths: &Paths, keys: &Keys, limit: Duration) {
+    /// Reads the files and the prompt of the application `app`, and builds a new snapshot when a text
+    /// or the prompt changed. Returns how it chose the prompt, or `None` when it read no prompt.
+    fn refresh(
+        &mut self,
+        paths: &Paths,
+        keys: &Keys,
+        limit: Duration,
+        app: Option<&str>,
+    ) -> Option<Route> {
         let config = files::read_bounded(&paths.config, settings::LIMIT);
         let dictionary = files::read_bounded(&paths.dictionary, dictionary::LIMIT);
         let config_changed = config != self.config;
@@ -236,12 +289,12 @@ impl Inner {
             self.state.vocabulary = parse_dictionary(&dictionary);
             self.dictionary = dictionary;
         }
-        let prompt = read_prompt(&self.state.settings, &paths.prompts);
-        if !config_changed && !dictionary_changed && prompt == self.state.prompt {
-            return;
+        let (route, prompt) = read_prompt(&self.state.settings, &paths.prompts, app).unzip();
+        if config_changed || dictionary_changed || prompt != self.state.prompt {
+            self.state.prompt = prompt;
+            self.snapshot = Rc::new(build(&self.state, &mut self.chat, keys, limit));
         }
-        self.state.prompt = prompt;
-        self.snapshot = Rc::new(build(&self.state, &mut self.chat, keys, limit));
+        route
     }
 }
 
@@ -333,16 +386,35 @@ fn dictionary_error(error: dictionary::Invalid) -> dictionary::Invalid {
     error
 }
 
-/// Reads the selected prompt when the settings are valid and the correction is on. Else it returns `None`.
+/// Reads the prompt of the application `app` when the settings are valid and the correction is on:
+/// the prompt whose list contains `app`, else the selected prompt. Else it returns `None`.
 fn read_prompt(
     settings: &Result<Settings, settings::Invalid>,
     folder: &Path,
-) -> Option<Result<Prompt, PromptError>> {
+    app: Option<&str>,
+) -> Option<(Route, NamedPrompt)> {
     let settings = settings
         .as_ref()
         .ok()
         .filter(|settings| settings.refine.enabled)?;
-    Some(prompts::resolve(folder, &settings.refine.prompt))
+    let lists = prompts::app_lists(settings);
+    let (route, name) = match prompts::route(&lists, app) {
+        Some(name) => (Route::App, name),
+        None => (Route::Default, &settings.refine.prompt),
+    };
+    Some((route, (name.clone(), prompts::resolve(folder, name))))
+}
+
+/// Returns why each prompt that a non-empty list routes to is not available, except the selected prompt.
+fn routed_errors(settings: &Settings, folder: &Path) -> Vec<(PromptName, PromptError)> {
+    prompts::app_lists(settings)
+        .into_iter()
+        .filter(|(name, apps)| !apps.is_empty() && *name != settings.refine.prompt)
+        .filter_map(|(name, _)| {
+            let error = prompts::resolve(folder, &name).err()?;
+            Some((name, error))
+        })
+        .collect()
 }
 
 /// Builds the snapshot of `state`. It uses the chat model of `chat` again when its settings did not change.
@@ -382,7 +454,7 @@ fn build(
     let prompt = state
         .prompt
         .as_ref()
-        .and_then(|prompt| prompt.as_ref().ok());
+        .and_then(|(_, prompt)| prompt.as_ref().ok());
     tracing::info!(
         hold_ms = settings.dictation.hold_ms.get(),
         language = settings.dictation.language.as_str(),
@@ -403,22 +475,22 @@ fn build(
 /// Returns the correction of valid `settings` with `prompt`, or why it is not available.
 fn correction(
     settings: &Settings,
-    prompt: Option<&Result<Prompt, PromptError>>,
+    prompt: Option<&NamedPrompt>,
     chat: &mut Option<(ChatConfig, Arc<dyn ChatModel>)>,
     keys: &Keys,
     limit: Duration,
 ) -> Result<Correction, NoCorrection> {
     let prompt = match prompt {
         None => return Err(NoCorrection::Off),
-        Some(Err(error)) => {
+        Some((name, Err(error))) => {
             tracing::error!(
-                prompt = settings.refine.prompt.as_str(),
+                prompt = name.as_str(),
                 ?error,
-                "the prompt is not valid, each dictation with the correction on fails until it is fixed"
+                "the prompt is not valid, each dictation with this prompt fails until it is fixed"
             );
             return Err(NoCorrection::InvalidPrompt);
         }
-        Some(Ok(prompt)) => prompt,
+        Some((_, Ok(prompt))) => prompt,
     };
     let model = chat_model(&settings.chat, chat, keys, limit)?;
     Ok(Correction::new(model, prompt.clone()))
@@ -451,17 +523,20 @@ fn chat_model(
     Ok(model)
 }
 
-/// The settings snapshots of the driver: the snapshot of the hub after a refresh.
+/// The settings snapshots of the driver: the snapshot of the hub after a refresh for the frontmost application.
 pub(crate) struct HubSnapshots {
     hub: Rc<Hub>,
+    /// Returns the bundle identifier of the frontmost application. It runs before the hub borrow.
+    frontmost: Box<dyn Fn() -> Option<String>>,
     /// The last snapshot, for a failed refresh. Before the first refresh, it fails each capture with `Internal`.
     last: Rc<Snapshot>,
 }
 
 impl HubSnapshots {
-    pub(crate) fn new(hub: Rc<Hub>) -> Self {
+    pub(crate) fn new(hub: Rc<Hub>, frontmost: Box<dyn Fn() -> Option<String>>) -> Self {
         Self {
             hub,
+            frontmost,
             last: Rc::new(Snapshot {
                 hold: HoldMs::default().duration(),
                 speech: Err(AppError::Internal),
@@ -472,7 +547,8 @@ impl HubSnapshots {
 
 impl Snapshots for HubSnapshots {
     fn snapshot(&mut self) -> Rc<Snapshot> {
-        if let Some(snapshot) = self.hub.refresh() {
+        let app = (self.frontmost)();
+        if let Some(snapshot) = self.hub.refresh(app.as_deref()) {
             self.last = snapshot;
         }
         Rc::clone(&self.last)

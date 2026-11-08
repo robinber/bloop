@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use crate::dictionary;
 use crate::files::{self, FileError};
-pub(crate) use schema::{HoldMs, PromptName, Settings, parse};
+pub(crate) use schema::{AppId, HoldMs, PromptName, Settings, parse};
 
 /// The settings folder in the home folder.
 const FOLDER: &str = "Library/Application Support/Bloop";

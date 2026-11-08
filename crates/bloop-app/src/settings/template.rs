@@ -13,10 +13,16 @@ hold_ms = 220                 # The hold time of the dictation key before the re
 language = "fr"               # The language of the dictation: two lowercase ASCII letters.
 "#;
 
-/// The `[refine]` table.
+/// The `[refine]` table, and the `[refine.apps]` table in comments.
 const REFINE: &str = r#"[refine]
 enabled = false               # The correction by the chat model: "Correct text" in the menu.
 prompt = "natural-light"      # A built-in prompt, or a file of the prompts folder without ".md".
+
+# The prompt of each application, by bundle identifier. Another application uses "prompt".
+# "code" and "natural-light" have built-in lists. A key replaces the built-in list of its prompt.
+# [refine.apps]
+# code = ["com.apple.Terminal", "com.mitchellh.ghostty"]
+# natural-light = ["com.apple.MobileSMS", "net.whatsapp.WhatsApp"]
 "#;
 
 /// Returns the commented settings file with the default values.
@@ -39,6 +45,17 @@ mod tests {
     #[test]
     fn the_template_parses_to_the_default_settings() {
         assert_eq!(parse(&template()), Ok(Settings::default()));
+    }
+
+    #[test]
+    fn the_commented_apps_table_parses_without_its_comment_marks() {
+        let text = template();
+        let start = text.find("# [refine.apps]").unwrap();
+        let uncommented = format!("{}{}", &text[..start], text[start..].replace("# ", ""));
+
+        let settings = parse(&uncommented).unwrap();
+
+        assert_ne!(settings.refine.apps, Settings::default().refine.apps);
     }
 
     #[test]

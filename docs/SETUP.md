@@ -17,7 +17,7 @@ At the first start, Bloop writes a commented `config.toml` with the default valu
 It never changes an existing file at start. To get a commented file again, delete it, then quit and open Bloop again.
 
 Bloop reads `config.toml` and `dictionary.toml` again at each dictation key press and each time the status menu opens.
-It reads the selected prompt when the correction is on. A change applies from the next dictation, without a restart.
+When the correction is on, it also reads the prompt of the dictation: the prompt of the application in front at the key press, or the selected prompt. A change applies from the next dictation, without a restart.
 A dictation that already started keeps the settings of its key press.
 
 A file over its size limit, a file that is not UTF-8 text, or a file with an error prevents dictation until you fix it.
@@ -40,7 +40,8 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | The models that the **Model** submenu lists. |
 | `[chat] reasoning_effort` | `"none"` | The `reasoning_effort` value of the chat request. The provider checks the value. |
 | `[refine] enabled` | `false` | The state of **Correct text**. |
-| `[refine] prompt` | `"natural-light"` | The correction prompt: a built-in name, or a file of the prompts folder without `.md`. 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. The **Prompt** submenu selects it. |
+| `[refine] prompt` | `"natural-light"` | The default correction prompt: a built-in name, or a file of the prompts folder without `.md`. 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. The **Prompt** submenu selects it. |
+| `[refine.apps]` | The built-in lists | The applications of each prompt: one key for each prompt name, with a list of bundle identifiers. A bundle identifier has 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`. See [Prompt by application](#prompt-by-application). |
 
 The sampling temperature of the correction is 0. The file cannot change it.
 Model identifiers and provider options go to the API as they are. A valid file does not guarantee that the provider accepts them.
@@ -59,6 +60,7 @@ Each time you open the menu, the checkmarks show the values of the file, includi
 An invalid file shows one line in the menu and hides **Correct text** and the submenus:
 
 - `config.toml: invalid setting, line N` for a syntax error, a wrong type, a value out of its limits, an unknown key, or a `schema` other than `1`.
+  The same application in two lists of `[refine.apps]` also gives this error, with the line of the `[refine.apps]` header.
 - `config.toml: file too large` and `config.toml: file not readable`.
 
 In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table header. Select the line to open the file.
@@ -76,7 +78,7 @@ With `code`, "point", "slash", "tiret", "underscore" or "tiret du bas", "arobase
 For example, "package point json" becomes `package.json`, "tiret tiret workspace" becomes `--workspace`, and "arobase types slash node" becomes `@types/node`.
 When the whole dictation is a command line, `code` writes it without a capital letter and without a final period.
 
-The built-in prompt files are `prompts/natural-light.md` and `prompts/code.md` in this repository. Select the prompt in the **Prompt** submenu.
+The built-in prompt files are `prompts/natural-light.md` and `prompts/code.md` in this repository. Select the default prompt in the **Prompt** submenu.
 
 ### Your own prompt
 
@@ -87,8 +89,36 @@ A file with the name of a built-in prompt replaces it. The **Prompt** submenu li
 A change in a prompt file applies from the next dictation.
 
 A prompt file must contain UTF-8 text that is not only whitespace, with at most 32 KiB.
-When the selected prompt is missing or not valid and **Correct text** is on, each dictation fails, and the menu shows `Prompt "name": not found` or `Prompt "name": not valid`. Select the line to open the prompts folder.
-With **Correct text** off, Bloop does not read the prompt, and dictation operates.
+When the selected prompt is missing or not valid and **Correct text** is on, each dictation that uses it fails, and the menu shows `Prompt "name": not found` or `Prompt "name": not valid`. Select the line to open the prompts folder.
+With **Correct text** off, Bloop does not read a prompt, and dictation operates.
+
+### Prompt by application
+
+When **Correct text** is on, the application in front at the dictation key press selects the prompt. When the list of a prompt contains the bundle identifier of the application, the dictation uses that prompt.
+Another application uses the default prompt of the **Prompt** submenu. A browser uses the default prompt too: Bloop does not select a prompt by website.
+
+Two prompts have a built-in list:
+
+| Prompt | Applications |
+| --- | --- |
+| `code` | Terminal `com.apple.Terminal`, Ghostty `com.mitchellh.ghostty`, iTerm2 `com.googlecode.iterm2`, Warp `dev.warp.Warp-Stable`, Visual Studio Code `com.microsoft.VSCode`, Cursor `com.todesktop.230313mzl4w4u92`, Zed `dev.zed.Zed`, Xcode `com.apple.dt.Xcode`, Claude `com.anthropic.claudefordesktop` |
+| `natural-light` | Messages `com.apple.MobileSMS`, WhatsApp `net.whatsapp.WhatsApp`, Telegram `ru.keepcoder.Telegram`, Telegram Desktop `org.telegram.desktop`, Signal `org.whispersystems.signal-desktop` |
+
+To change the lists, add a `[refine.apps]` table to `config.toml`:
+
+```toml
+[refine.apps]
+code = ["com.apple.Terminal", "com.mitchellh.ghostty"]
+mail = ["com.apple.mail"]
+```
+
+- A key replaces the built-in list of its prompt, even with an empty list. A prompt without a key keeps its built-in list.
+- A key can name your own prompt, such as `mail` for `prompts/mail.md`.
+- An application in a key leaves the built-in lists. The same application in two keys is an error. An application repeated in one list counts one time.
+
+To find the bundle identifier of an application, dictate one time in it, then search the log for `the target is recorded`. The line gives `bundle_id`.
+
+When the prompt of a list is missing or not valid and **Correct text** is on, each dictation in its applications fails, and the menu shows `Prompt "name": not found` or `Prompt "name": not valid`. The other applications operate.
 
 ## Dictionary
 
@@ -145,7 +175,7 @@ Bloop records with the default input device. When the default input is a Bluetoo
 Bloop writes its log to `~/Library/Logs/Bloop/bloop.log`.
 At start, a file larger than 5 MiB moves to `bloop.log.1` and replaces the previous backup. The active file can grow beyond 5 MiB until the next start.
 
-The log contains the events and commands of each dictation, durations, sample and character counts, the nonsecret settings of each snapshot, the name and bundle identifier of the application in front at key release, controlled error categories and HTTP status codes, and the location of a panic.
+The log contains the events and commands of each dictation, durations, sample and character counts, the nonsecret settings of each snapshot, the bundle identifier of the application in front at key press and the prompt that it selects when **Correct text** is on, the name and bundle identifier of the application in front at key release, controlled error categories and HTTP status codes, and the location of a panic.
 It never contains audio, transcript text, prompt text, dictionary entries, file content, or the API key.
 
 ## Troubleshooting
@@ -159,3 +189,4 @@ It never contains audio, transcript text, prompt text, dictionary entries, file 
 - **Nothing happens when I hold Right Command.** Check the menu for a missing permission or a refused event tap. Wait for the indicator before you speak: the recording starts after the hold delay. Right Command with another key is a shortcut, not a dictation.
 - **The paste went to another field.** Bloop checks the application in front, not the focused field. Click in the target field before you hold the key.
 - **A Bluetooth headset is connected.** Bloop records with the built-in microphone, not the headset.
+- **The dictation used the prompt of another application.** The prompt comes from the application in front at the key press. A swipe to another Space, or an application that comes to the front during the dictation, does not change it. Bring the target application to the front before you hold the key.

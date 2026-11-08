@@ -1,7 +1,7 @@
-//! The correction prompts: the built-in prompts and the prompt files of the user.
+//! The correction prompts: the built-in prompts, the prompt files of the user, and the applications of each prompt.
 //! The log names a prompt and its source, never its text.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
@@ -9,7 +9,7 @@ use std::io;
 use std::path::Path;
 
 use crate::files::{self, FileError};
-use crate::settings::PromptName;
+use crate::settings::{AppId, PromptName, Settings};
 
 /// The size limit of a prompt file, in bytes.
 const LIMIT: u64 = 32 * 1024;
@@ -20,6 +20,8 @@ pub(crate) struct BuiltIn {
     pub(crate) name: &'static str,
     /// The instructions to the chat model.
     pub(crate) text: &'static str,
+    /// The bundle identifiers of the applications that use the prompt when `[refine.apps]` has no key for it.
+    pub(crate) apps: &'static [&'static str],
 }
 
 impl BuiltIn {
@@ -36,12 +38,30 @@ impl BuiltIn {
 pub(crate) const NATURAL_LIGHT: BuiltIn = BuiltIn {
     name: "natural-light",
     text: include_str!("../../../prompts/natural-light.md"),
+    apps: &[
+        "com.apple.MobileSMS",
+        "net.whatsapp.WhatsApp",
+        "ru.keepcoder.Telegram",
+        "org.telegram.desktop",
+        "org.whispersystems.signal-desktop",
+    ],
 };
 
 /// The prompt for technical dictation: the corrections of `natural-light`, and the written form of technical terms.
 const CODE: BuiltIn = BuiltIn {
     name: "code",
     text: include_str!("../../../prompts/code.md"),
+    apps: &[
+        "com.apple.Terminal",
+        "com.mitchellh.ghostty",
+        "com.googlecode.iterm2",
+        "dev.warp.Warp-Stable",
+        "com.microsoft.VSCode",
+        "com.todesktop.230313mzl4w4u92",
+        "dev.zed.Zed",
+        "com.apple.dt.Xcode",
+        "com.anthropic.claudefordesktop",
+    ],
 };
 
 /// The built-in prompts.
@@ -138,6 +158,45 @@ pub(crate) fn names(folder: &Path) -> Vec<PromptName> {
     names.into_iter().collect()
 }
 
+/// The applications of each prompt: the effective lists of `[refine.apps]` and the built-in lists.
+pub(crate) type AppLists = BTreeMap<PromptName, Vec<AppId>>;
+
+/// Returns the applications of each prompt: the lists of `[refine.apps]`, then the built-in list of each built-in
+/// prompt without a key. A key replaces the built-in list, even with an empty list.
+/// An application of a `[refine.apps]` list is in no built-in list. Thus no application is in two lists.
+pub(crate) fn app_lists(settings: &Settings) -> AppLists {
+    let apps = &settings.refine.apps;
+    let mut lists: AppLists = apps
+        .iter()
+        .map(|(prompt, list)| (prompt.clone(), list.to_vec()))
+        .collect();
+    for prompt in &BUILT_IN {
+        let Ok(name) = PromptName::try_from(prompt.name.to_owned()) else {
+            continue;
+        };
+        if apps.get(&name).is_some() {
+            continue;
+        }
+        let list = prompt
+            .apps
+            .iter()
+            .filter_map(|&app| AppId::try_from(app.to_owned()).ok())
+            .filter(|app| !apps.iter().any(|(_, list)| list.contains(app)))
+            .collect();
+        lists.insert(name, list);
+    }
+    lists
+}
+
+/// Returns the prompt whose list contains the application `app`, or `None` when no list contains it.
+pub(crate) fn route<'a>(lists: &'a AppLists, app: Option<&str>) -> Option<&'a PromptName> {
+    let app = app?;
+    lists
+        .iter()
+        .find(|(_, list)| list.iter().any(|id| id.as_str() == app))
+        .map(|(prompt, _)| prompt)
+}
+
 /// Returns the prompt name of the file name `file`: its name without `.md`, when it is UTF-8 and a valid prompt name.
 fn name_of(file: &OsStr) -> Option<PromptName> {
     let stem = file.to_str()?.strip_suffix(".md")?;
@@ -153,10 +212,11 @@ mod tests {
     use std::os::unix::ffi::OsStrExt as _;
 
     use super::{
-        BUILT_IN, LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, name_of, names, resolve,
+        BUILT_IN, CODE, LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, app_lists, name_of,
+        names, resolve, route,
     };
     use crate::files::tests::scratch_dir;
-    use crate::settings::PromptName;
+    use crate::settings::{AppId, PromptName, Settings, parse};
 
     fn name(value: &str) -> PromptName {
         PromptName::try_from(value.to_owned()).unwrap()
@@ -361,5 +421,97 @@ mod tests {
 
         assert!(debug.starts_with("Prompt { name: \"natural-light\", source: BuiltIn, chars: "));
         assert!(!debug.contains("transcript"));
+    }
+
+    fn ids(list: &[AppId]) -> Vec<&str> {
+        list.iter().map(AppId::as_str).collect()
+    }
+
+    #[test]
+    fn each_built_in_application_is_a_valid_bundle_identifier_in_one_list() {
+        let mut seen = Vec::new();
+        for prompt in &BUILT_IN {
+            for &app in prompt.apps {
+                assert!(AppId::try_from(app.to_owned()).is_ok(), "{app}");
+                assert!(!seen.contains(&app), "{app}");
+                seen.push(app);
+            }
+        }
+        assert_eq!(seen.len(), 14);
+        assert!(CODE.apps.contains(&"com.anthropic.claudefordesktop"));
+    }
+
+    #[test]
+    fn without_the_apps_table_the_lists_are_the_built_in_lists() {
+        let lists = app_lists(&Settings::default());
+
+        assert_eq!(lists.len(), BUILT_IN.len());
+        for prompt in &BUILT_IN {
+            assert_eq!(
+                ids(&lists[&name(prompt.name)]),
+                prompt.apps,
+                "{}",
+                prompt.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_key_replaces_the_built_in_list_of_its_prompt_even_when_empty() {
+        let settings =
+            parse("[refine.apps]\ncode = [\"com.apple.Notes\"]\nnatural-light = []\n").unwrap();
+
+        let lists = app_lists(&settings);
+
+        assert_eq!(ids(&lists[&name("code")]), ["com.apple.Notes"]);
+        assert_eq!(ids(&lists[&name("natural-light")]), [] as [&str; 0]);
+        assert_eq!(lists.len(), 2);
+    }
+
+    #[test]
+    fn an_application_of_a_key_leaves_every_built_in_list() {
+        let settings =
+            parse("[refine.apps]\nmail = [\"com.mitchellh.ghostty\", \"com.apple.mail\"]\n")
+                .unwrap();
+
+        let lists = app_lists(&settings);
+
+        assert_eq!(
+            ids(&lists[&name("mail")]),
+            ["com.mitchellh.ghostty", "com.apple.mail"]
+        );
+        let code: Vec<&str> = CODE
+            .apps
+            .iter()
+            .copied()
+            .filter(|&app| app != "com.mitchellh.ghostty")
+            .collect();
+        assert_eq!(ids(&lists[&name("code")]), code);
+        assert_eq!(ids(&lists[&name("natural-light")]), NATURAL_LIGHT.apps);
+    }
+
+    #[test]
+    fn the_route_is_the_prompt_whose_list_contains_the_application() {
+        let settings = parse(
+            "[refine.apps]\nnatural-light = [\"com.mitchellh.ghostty\"]\nmail = [\"com.apple.mail\"]\n",
+        )
+        .unwrap();
+        let lists = app_lists(&settings);
+
+        for (app, prompt) in [
+            (Some("com.mitchellh.ghostty"), Some("natural-light")),
+            (Some("com.apple.Terminal"), Some("code")),
+            (Some("com.apple.mail"), Some("mail")),
+            (Some("com.apple.MobileSMS"), None),
+            (Some("com.apple.terminal"), None),
+            (Some(""), None),
+            (None, None),
+        ] {
+            assert_eq!(
+                route(&lists, app).map(PromptName::as_str),
+                prompt,
+                "{app:?}"
+            );
+        }
     }
 }

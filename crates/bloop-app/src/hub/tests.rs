@@ -64,12 +64,16 @@ fn folder(test: &str, config: &str) -> std::path::PathBuf {
     dir
 }
 
+fn name(value: &str) -> PromptName {
+    PromptName::try_from(value.to_owned()).unwrap()
+}
+
 fn start(dir: &Path) -> Hub {
     Hub::start(Paths::new(dir), &Secrets::with_keys(), LIMIT)
 }
 
 fn current(hub: &Hub) -> Rc<Snapshot> {
-    hub.refresh().expect("a free hub")
+    hub.refresh(None).expect("a free hub")
 }
 
 fn speech(snapshot: &Snapshot) -> &Speech {
@@ -171,7 +175,7 @@ fn a_changed_prompt_file_builds_a_new_snapshot_with_the_same_chat_model() {
     assert_eq!(no_correction(&next), None);
     assert!(Arc::ptr_eq(&model, &chat_model(&hub)));
     let inner = hub.inner.borrow();
-    let Some(Ok(prompt)) = &inner.state.prompt else {
+    let Some((_, Ok(prompt))) = &inner.state.prompt else {
         panic!("{:?}", inner.state.prompt);
     };
     assert_eq!(prompt.text, "Corrige le texte.\n");
@@ -349,7 +353,7 @@ fn with_the_correction_off_the_prompt_is_not_read() {
     );
     assert_eq!(
         hub.inner.borrow().state.prompt,
-        Some(Err(prompts::PromptError::Missing))
+        Some((name("absent"), Err(prompts::PromptError::Missing)))
     );
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -428,7 +432,7 @@ fn the_keys_are_read_one_time_at_start() {
 fn the_driver_gets_the_last_snapshot_when_the_hub_is_in_use() {
     let dir = folder("hub-in-use", OFF);
     let hub = Rc::new(start(&dir));
-    let mut snapshots = HubSnapshots::new(Rc::clone(&hub));
+    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), Box::new(|| None));
     let first = snapshots.snapshot();
     assert!(Rc::ptr_eq(&first, &current(&hub)));
     fs::write(dir.join("config.toml"), ON).unwrap();
@@ -640,4 +644,225 @@ fn set_writes_each_change_and_the_next_snapshot_uses_it() {
     assert_eq!(summary.prompt.as_str(), "absent");
     assert!(!Arc::ptr_eq(&model, &chat_model(&hub)));
     fs::remove_dir_all(&dir).unwrap();
+}
+
+const GHOSTTY: &str = "com.mitchellh.ghostty";
+const WHATSAPP: &str = "net.whatsapp.WhatsApp";
+const NOTES: &str = "com.apple.Notes";
+
+/// Refreshes the hub for a dictation in `app`, and returns the snapshot and the name of its prompt.
+fn routed(hub: &Hub, app: Option<&str>) -> (Rc<Snapshot>, Option<String>) {
+    let snapshot = hub.refresh(app).expect("a free hub");
+    let prompt = hub
+        .inner
+        .borrow()
+        .state
+        .prompt
+        .as_ref()
+        .map(|(name, _)| name.as_str().to_owned());
+    (snapshot, prompt)
+}
+
+fn prompt_of(hub: &Hub, app: Option<&str>) -> Option<String> {
+    routed(hub, app).1
+}
+
+#[test]
+fn a_routed_app_uses_the_prompt_of_its_list() {
+    let dir = folder("hub-route-app", ON);
+    let hub = start(&dir);
+
+    let (snapshot, prompt) = routed(&hub, Some(GHOSTTY));
+    assert_eq!(prompt.as_deref(), Some("code"));
+    assert_eq!(no_correction(&snapshot), None);
+    assert_eq!(
+        prompt_of(&hub, Some(WHATSAPP)).as_deref(),
+        Some("natural-light")
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_unknown_app_and_no_app_use_the_selected_prompt() {
+    let dir = folder(
+        "hub-route-default",
+        "schema = 1\n\n[refine]\nenabled = true\nprompt = \"code\"\n",
+    );
+    let hub = start(&dir);
+
+    assert_eq!(
+        prompt_of(&hub, Some(WHATSAPP)).as_deref(),
+        Some("natural-light")
+    );
+    assert_eq!(prompt_of(&hub, Some(NOTES)).as_deref(), Some("code"));
+    assert_eq!(prompt_of(&hub, None).as_deref(), Some("code"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn with_the_correction_off_a_routed_app_reads_no_prompt_and_the_view_shows_no_error() {
+    let text = "schema = 1\n\n[refine]\nenabled = false\nprompt = \"absent\"\n\n[refine.apps]\nmail = [\"com.apple.mail\"]\n";
+    let dir = folder("hub-route-off", text);
+    let hub = start(&dir);
+
+    let (snapshot, prompt) = routed(&hub, Some("com.apple.mail"));
+
+    assert_eq!(prompt, None);
+    assert_eq!(no_correction(&snapshot), Some(NoCorrection::Off));
+    assert_eq!(prompt_of(&hub, Some(GHOSTTY)), None);
+    let view = view(&hub);
+    assert_eq!(view.prompt, None);
+    assert_eq!(view.routed, []);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_key_replaces_the_built_in_list_and_an_empty_key_disables_it() {
+    let dir = folder(
+        "hub-route-replace",
+        &format!("{ON}\n[refine.apps]\ncode = [\"{NOTES}\"]\n"),
+    );
+    let hub = start(&dir);
+    assert_eq!(prompt_of(&hub, Some(NOTES)).as_deref(), Some("code"));
+    assert_eq!(
+        prompt_of(&hub, Some(GHOSTTY)).as_deref(),
+        Some("natural-light")
+    );
+
+    fs::write(
+        dir.join("config.toml"),
+        format!("{ON}prompt = \"code\"\n\n[refine.apps]\nnatural-light = []\n"),
+    )
+    .unwrap();
+
+    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("code"));
+    assert_eq!(prompt_of(&hub, Some(GHOSTTY)).as_deref(), Some("code"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_app_of_a_key_wins_over_its_built_in_list() {
+    let dir = folder(
+        "hub-route-wins",
+        &format!("{ON}prompt = \"code\"\n\n[refine.apps]\nnatural-light = [\"{GHOSTTY}\"]\n"),
+    );
+    let hub = start(&dir);
+
+    assert_eq!(
+        prompt_of(&hub, Some(GHOSTTY)).as_deref(),
+        Some("natural-light")
+    );
+    assert_eq!(
+        prompt_of(&hub, Some("com.apple.Terminal")).as_deref(),
+        Some("code")
+    );
+    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("code"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_same_app_in_two_keys_gives_invalid_settings() {
+    let dir = folder(
+        "hub-route-twice",
+        &format!("{ON}\n[refine.apps]\ncode = [\"{NOTES}\"]\nnatural-light = [\"{NOTES}\"]\n"),
+    );
+    let hub = start(&dir);
+
+    let (snapshot, prompt) = routed(&hub, Some(NOTES));
+
+    assert_eq!(error(&snapshot), Some(AppError::InvalidSettings));
+    assert_eq!(prompt, None);
+    assert_eq!(
+        view(&hub).settings.err(),
+        Some(settings::Invalid::Parse { line: Some(6) })
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_routed_missing_prompt_fails_its_app_only_and_the_view_names_it() {
+    let dir = folder(
+        "hub-route-missing",
+        &format!("{ON}\n[refine.apps]\nmail = [\"com.apple.mail\"]\n"),
+    );
+    let hub = start(&dir);
+
+    let (mail, prompt) = routed(&hub, Some("com.apple.mail"));
+    assert_eq!(prompt.as_deref(), Some("mail"));
+    assert_eq!(no_correction(&mail), Some(NoCorrection::InvalidPrompt));
+    let (notes, prompt) = routed(&hub, Some(NOTES));
+    assert_eq!(prompt.as_deref(), Some("natural-light"));
+    assert_eq!(no_correction(&notes), None);
+    assert_eq!(no_correction(&current(&hub)), None);
+
+    let view = view(&hub);
+    assert_eq!(view.prompt, None);
+    assert_eq!(view.routed, [(name("mail"), prompts::PromptError::Missing)]);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_view_names_each_routed_prompt_error_once_and_never_the_selected_prompt() {
+    let dir = folder(
+        "hub-route-errors",
+        &format!(
+            "{ON}prompt = \"mail\"\n\n[refine.apps]\nmail = [\"com.apple.mail\"]\nnotes = [\"{NOTES}\"]\nunused = []\n"
+        ),
+    );
+    fs::create_dir(dir.join("prompts")).unwrap();
+    fs::write(dir.join("prompts").join("notes.md"), " \n").unwrap();
+    let hub = start(&dir);
+
+    let view = view(&hub);
+
+    assert_eq!(
+        view.prompt,
+        Some((name("mail"), prompts::PromptError::Missing))
+    );
+    assert_eq!(view.routed, [(name("notes"), prompts::PromptError::Empty)]);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn alternating_apps_reuse_the_chat_model() {
+    let dir = folder("hub-route-chat", ON);
+    let hub = start(&dir);
+    let model = chat_model(&hub);
+
+    let (code, _) = routed(&hub, Some(GHOSTTY));
+    let (light, _) = routed(&hub, Some(WHATSAPP));
+    let (again, _) = routed(&hub, Some(GHOSTTY));
+
+    assert!(!Rc::ptr_eq(&code, &light));
+    assert!(!Rc::ptr_eq(&light, &again));
+    assert!(Rc::ptr_eq(&again, &routed(&hub, Some(GHOSTTY)).0));
+    assert!(Arc::ptr_eq(&model, &chat_model(&hub)));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_driver_snapshot_uses_the_frontmost_app_and_a_view_does_not_change_it() {
+    let dir = folder("hub-route-snapshots", ON);
+    let hub = Rc::new(start(&dir));
+    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), Box::new(|| Some(GHOSTTY.to_owned())));
+
+    let first = snapshots.snapshot();
+    assert_eq!(prompt_name(&hub).as_deref(), Some("code"));
+    let _ = view(&hub);
+    assert_eq!(prompt_name(&hub).as_deref(), Some("natural-light"));
+    let next = snapshots.snapshot();
+
+    assert_eq!(prompt_name(&hub).as_deref(), Some("code"));
+    assert_eq!(no_correction(&first), None);
+    assert_eq!(no_correction(&next), None);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+fn prompt_name(hub: &Hub) -> Option<String> {
+    hub.inner
+        .borrow()
+        .state
+        .prompt
+        .as_ref()
+        .map(|(name, _)| name.as_str().to_owned())
 }

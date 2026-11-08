@@ -194,7 +194,7 @@ fn status(menu: &mut Builder, facts: &Facts, view: &View) {
     if let Err(error) = &view.settings {
         menu.action(config_title(*error), Action::OpenConfig);
     }
-    if let Some((name, error)) = &view.prompt {
+    for (name, error) in view.prompt.iter().chain(&view.routed) {
         menu.action(prompt_title(name, *error), Action::OpenPrompts);
     }
     if let Some(error) = &view.dictionary {

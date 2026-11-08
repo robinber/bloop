@@ -266,3 +266,122 @@ fn an_unknown_provider_is_an_error_with_its_own_line() {
         assert_eq!(error_line(text), Some(3), "{text}");
     }
 }
+
+/// The lists of `[refine.apps]` of a valid file.
+fn apps(text: &str) -> Vec<(String, Vec<String>)> {
+    parse(text)
+        .unwrap()
+        .refine
+        .apps
+        .iter()
+        .map(|(prompt, list)| {
+            let list = list.iter().map(|app| app.as_str().to_owned()).collect();
+            (prompt.as_str().to_owned(), list)
+        })
+        .collect()
+}
+
+fn lists(lists: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+    lists
+        .iter()
+        .map(|(prompt, list)| {
+            let list = list.iter().map(|&app| app.to_owned()).collect();
+            ((*prompt).to_owned(), list)
+        })
+        .collect()
+}
+
+#[test]
+fn without_the_apps_table_the_file_names_no_list() {
+    assert_eq!(apps("[refine]\nenabled = true\n"), lists(&[]));
+}
+
+#[test]
+fn the_apps_table_gives_the_list_of_each_prompt_in_each_form() {
+    let expected = lists(&[
+        ("code", &["com.apple.Terminal"]),
+        (
+            "natural-light",
+            &["net.whatsapp.WhatsApp", "com.apple.MobileSMS"],
+        ),
+    ]);
+    for text in [
+        "[refine.apps]\ncode = [\"com.apple.Terminal\"]\nnatural-light = [\"net.whatsapp.WhatsApp\", \"com.apple.MobileSMS\"]\n",
+        "[refine]\napps = { code = [\"com.apple.Terminal\"], natural-light = [\"net.whatsapp.WhatsApp\", \"com.apple.MobileSMS\"] }\n",
+        "[refine]\nenabled = true\napps.code = [\"com.apple.Terminal\"]\napps.natural-light = [\"net.whatsapp.WhatsApp\", \"com.apple.MobileSMS\"]\n",
+    ] {
+        assert_eq!(apps(text), expected, "{text}");
+    }
+}
+
+#[test]
+fn an_empty_list_and_a_key_for_an_unknown_prompt_are_valid() {
+    assert_eq!(
+        apps("[refine.apps]\ncode = []\nmail = [\"com.apple.mail\"]\n"),
+        lists(&[("code", &[]), ("mail", &["com.apple.mail"])])
+    );
+}
+
+#[test]
+fn the_bundle_identifier_accepts_1_to_255_letters_digits_dots_hyphens_and_underscores() {
+    let longest = "a".repeat(255);
+    for value in [
+        "a",
+        "com.todesktop.230313mzl4w4u92",
+        "dev.warp.Warp-Stable",
+        "org.my_app",
+        longest.as_str(),
+    ] {
+        assert_eq!(
+            apps(&format!("[refine.apps]\ncode = [\"{value}\"]\n")),
+            lists(&[("code", &[value])])
+        );
+    }
+}
+
+#[test]
+fn an_invalid_bundle_identifier_is_an_error_with_its_line() {
+    let too_long = "a".repeat(256);
+    for value in [
+        "",
+        "com apple",
+        "com/apple",
+        "é",
+        too_long.as_str(),
+        "com.*",
+    ] {
+        let text = format!("[refine.apps]\ncode = [\"{value}\"]\n");
+
+        assert_eq!(error_line(&text), Some(2), "{value}");
+    }
+}
+
+#[test]
+fn a_wrong_type_or_an_invalid_prompt_name_in_the_apps_table_is_an_error_with_its_line() {
+    let cases = [
+        "[refine.apps]\ncode = \"com.apple.Terminal\"\n",
+        "[refine.apps]\ncode = [1]\n",
+        "[refine.apps]\n\"bad name\" = []\n",
+        "[refine]\napps = [\"com.apple.Terminal\"]\n",
+    ];
+    for text in cases {
+        assert_eq!(error_line(text), Some(2), "{text}");
+    }
+}
+
+#[test]
+fn an_application_repeated_in_one_list_is_kept_once() {
+    assert_eq!(
+        apps(
+            "[refine.apps]\ncode = [\"com.apple.Terminal\", \"dev.zed.Zed\", \"com.apple.Terminal\"]\n"
+        ),
+        lists(&[("code", &["com.apple.Terminal", "dev.zed.Zed"])])
+    );
+}
+
+#[test]
+fn an_application_in_two_lists_gives_the_line_of_the_table_header() {
+    let text = "schema = 1\n\n[refine]\nenabled = true\n\n[refine.apps]\ncode = [\"com.apple.Terminal\"]\nmail = [\"dev.zed.Zed\", \"com.apple.Terminal\"]\n";
+
+    assert_eq!(error_line(text), Some(6));
+}

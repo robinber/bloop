@@ -113,7 +113,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | Item | Effect |
 | --- | --- |
 | **Correct text** | Turns the correction on or off for the next dictations. The checkmark shows the value of the settings file. |
-| **Prompt** | Selects the correction prompt: the built-in `natural-light` and `code`, and the `.md` files of your prompts folder. |
+| **Prompt** | Selects the default correction prompt: the built-in `natural-light` and `code`, and the `.md` files of your prompts folder. |
 | **Model** | Selects the correction model from the list in the settings file. |
 | **Hold delay** | Selects the hold time of the dictation key: 150, 220, 300, or 400 ms. |
 | **Copy last result** | Copies the text of the latest dictation that Bloop tried to paste. |
@@ -121,6 +121,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | **Quit Bloop** (⌘Q) | Quits. Bloop first restores a clipboard that a paste still holds. |
 
 Each choice writes its key to `config.toml` and keeps your comments. A change applies from the next dictation.
+With **Correct text** on, the application in front selects the prompt: a terminal, a code editor, or Claude uses `code`, a messaging application uses `natural-light`, and another application uses the default prompt. The [configuration guide](docs/SETUP.md#prompt-by-application) lists the applications and how to change them.
 The top of the menu reports what needs your attention: a missing permission, a missing or refused API key, or an invalid file with its line.
 
 ### When a paste is not possible
@@ -147,10 +148,10 @@ The [configuration guide](docs/SETUP.md) lists every key, its default value, and
 
 ## Privacy
 
-- **What leaves your Mac.** During a dictation, Bloop sends the audio, as 16 kHz PCM, the language, and the written forms of your dictionary to the Mistral realtime transcription API. When **Correct text** is on, it also sends the complete transcript and the selected prompt to the Mistral chat completions API. Bloop connects to no other service.
+- **What leaves your Mac.** During a dictation, Bloop sends the audio, as 16 kHz PCM, the language, and the written forms of your dictionary to the Mistral realtime transcription API. When **Correct text** is on, it also sends the complete transcript and the prompt of the dictation to the Mistral chat completions API. Bloop connects to no other service.
 - **What Bloop stores.** The settings file, the dictionary, your prompt files, and a log. Bloop writes no audio file and no history of your dictations. The last result stays in memory for **Copy last result** until a newer result replaces it or Bloop quits.
 - **The API key.** It lives in macOS Keychain. Bloop never writes it to the settings, the log, an error message, or a command line.
-- **The log.** `~/Library/Logs/Bloop/bloop.log` records events, durations, character counts, nonsecret settings such as the model identifiers, the name and bundle identifier of the application in front at key release, and error categories. It never contains audio, transcript text, prompt text, dictionary entries, or the key.
+- **The log.** `~/Library/Logs/Bloop/bloop.log` records events, durations, character counts, nonsecret settings such as the model identifiers, the bundle identifier of the application in front at key press when **Correct text** is on, the name and bundle identifier of the application in front at key release, and error categories. It never contains audio, transcript text, prompt text, dictionary entries, or the key.
 
 ## Troubleshooting
 

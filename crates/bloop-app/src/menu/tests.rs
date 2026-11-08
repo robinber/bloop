@@ -45,6 +45,7 @@ fn view() -> View {
     View {
         settings: Ok(summary(false)),
         prompt: None,
+        routed: Vec::new(),
         dictionary: None,
         key_refused: false,
         prompts: vec![name("dev"), name("natural-light")],
@@ -443,6 +444,28 @@ fn a_prompt_error_opens_the_prompts_folder() {
         assert_eq!(status(&facts(), &view), [opens(title, Action::OpenPrompts)]);
         assert!(titles(&build(&facts(), &view).0).contains(&"Correct text"));
     }
+}
+
+#[test]
+fn each_routed_prompt_error_follows_the_selected_prompt_error() {
+    let view = View {
+        settings: Ok(summary(true)),
+        prompt: Some((name("dev"), PromptError::Missing)),
+        routed: vec![
+            (name("code"), PromptError::Empty),
+            (name("mail"), PromptError::Missing),
+        ],
+        ..view()
+    };
+
+    assert_eq!(
+        status(&facts(), &view),
+        [
+            opens("Prompt \"dev\": not found", Action::OpenPrompts),
+            opens("Prompt \"code\": not valid", Action::OpenPrompts),
+            opens("Prompt \"mail\": not found", Action::OpenPrompts),
+        ]
+    );
 }
 
 #[test]

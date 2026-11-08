@@ -31,6 +31,7 @@ use bloop_macos::paste::Paster;
 use bloop_macos::permissions;
 use bloop_macos::scheduler::MainScheduler;
 use bloop_macos::sleep::SleepObserver;
+use bloop_macos::workspace;
 use tokio::runtime::Builder;
 
 use crate::driver::Driver;
@@ -92,7 +93,7 @@ fn main() -> ExitCode {
         Paster::new(mtm),
         microphone,
         spawner,
-        HubSnapshots::new(Rc::clone(&hub)),
+        HubSnapshots::new(Rc::clone(&hub), Box::new(workspace::frontmost_app)),
     );
     // Install the tap after the slow setup: macOS disables a tap that gets events before the run loop runs.
     let tap = KeyTap::install(mtm);

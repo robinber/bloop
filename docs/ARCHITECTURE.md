@@ -51,15 +51,15 @@ For each invariant, it names the component that enforces it and the tests that c
 | `bloop-core` | `domain`: audio and text types; `session`: events, commands, and job order; `ports/ai` and `ports/platform`: the traits; `error`: typed failures; `pipeline`: ordered text steps; `steps/`: `LlmRefine`, `Typography`, `Trim`; `dictionary`: entries and written forms |
 | `bloop-audio` | `capture`: the microphone stream; `device`: the input device choice; `buffer`: the bounded sample queue; `convert`: the conversion to 16 kHz |
 | `bloop-providers` | `lib`: provider settings and constructors; `http`: the shared HTTP client; `mistral/`: settings, `transcribe` over WebSocket, and `chat` over HTTP |
-| `bloop-macos` | `app`: the AppKit run loop; `events` and `scheduler`: the main queue; `keys`: the event tap; `sleep`: the sleep observer; `paste` and `paste/clipboard`: the target check and the clipboard transaction; `orb/`: the indicator and the card; `menu`: the AppKit menu renderer; `keychain`: the API keys; `permissions`: checks and System Settings links; `workspace`: file and folder opening |
-| `bloop-app` | `main`: construction; `driver`: command execution and generation resources; `worker`: the streaming task and the text pipeline; `settings/`: schema, template, and edits; `files`: bounded reads and atomic writes; `hub`: refresh, snapshots, and adapter reuse; `menu`: the menu model and actions; `prompts`: built-in and user prompts; `dictionary`: file parsing; `logging`: the log file; `bin/eval/`: the evaluation tool |
+| `bloop-macos` | `app`: the AppKit run loop; `events` and `scheduler`: the main queue; `keys`: the event tap; `sleep`: the sleep observer; `paste` and `paste/clipboard`: the target check and the clipboard transaction; `orb/`: the indicator and the card; `menu`: the AppKit menu renderer; `keychain`: the API keys; `permissions`: checks and System Settings links; `workspace`: file and folder opening, and the frontmost application |
+| `bloop-app` | `main`: construction; `driver`: command execution and generation resources; `worker`: the streaming task and the text pipeline; `settings/`: schema, template, and edits; `files`: bounded reads and atomic writes; `hub`: refresh, snapshots, and adapter reuse; `menu`: the menu model and actions; `prompts`: built-in and user prompts, and the application lists; `dictionary`: file parsing; `logging`: the log file; `bin/eval/`: the evaluation tool |
 
 Both binaries use `steps::correction` and the same `Pipeline`.
 
 ## Dictation flow
 
 ```text
-Right Command down -> settings snapshot -> hold timer
+Right Command down -> frontmost application -> settings snapshot -> hold timer
 Hold threshold     -> microphone -> bounded queue -> converter -> provider stream
 Right Command up   -> target snapshot -> stop microphone -> drain and finish stream
 Complete transcript -> optional correction -> ordered insertion -> clipboard restore or fallback card
@@ -154,7 +154,7 @@ With the correction off, the step list is empty and the raw transcript is the fi
 - Each correction request has a limit of 8 s, including its response body (`CORRECTION_LIMIT` in `main.rs`, applied by the HTTP client; `mistral/chat.rs` tests: `a_provider_slower_than_the_limit_gives_timeout`, `a_body_that_stalls_after_the_headers_gives_timeout`).
 - The chat adapter sends `model`, the two messages, `max_tokens`, `temperature` 0, `reasoning_effort`, and `stream: false`. It maps `stop` to `Complete`, `length` and `model_length` to `Truncated`, and other reasons to `Other`.
 - Without a chat model, for example without an API key, a job with the correction on keeps the raw transcript (`worker/tests.rs`: `without_a_chat_model_a_job_with_the_correction_on_keeps_the_raw_transcript`).
-- A missing or invalid selected prompt with the correction on fails each capture with `InvalidSettings` before the microphone task (`worker/tests.rs`: `with_an_invalid_prompt_and_the_correction_on_the_capture_fails_before_its_task`). With the correction off, the hub does not read the prompt (`hub/tests.rs`: `with_the_correction_off_the_prompt_is_not_read`).
+- A missing or invalid prompt with the correction on fails each capture that uses it with `InvalidSettings` before the microphone task (`worker/tests.rs`: `with_an_invalid_prompt_and_the_correction_on_the_capture_fails_before_its_task`). With the correction off, the hub does not read a prompt (`hub/tests.rs`: `with_the_correction_off_the_prompt_is_not_read`, `with_the_correction_off_a_routed_app_reads_no_prompt_and_the_view_shows_no_error`).
 
 The built-in prompts are `natural-light` and `code`, included from `prompts/`. A file of the user prompts folder with the same name replaces a built-in prompt (`prompts.rs` tests).
 
@@ -196,11 +196,17 @@ Each view change starts a new timer epoch, so the timers of a previous view have
 
 The hub (`bloop-app/src/hub.rs`) owns the parsed settings, the file texts, the current snapshot, and the chat model. It runs on the main thread.
 
-- At each dictation key press and each menu open, the hub reads `config.toml` and `dictionary.toml` with bounded reads, and the selected prompt when the correction is on. Unchanged texts reuse the current snapshot (`hub/tests.rs`: `an_unchanged_text_builds_no_new_snapshot`, `a_changed_config_builds_a_new_snapshot`).
-- A prompt change reuses the chat model. A change of the `[chat]` table rebuilds it (`a_changed_prompt_file_builds_a_new_snapshot_with_the_same_chat_model`, `a_changed_chat_table_builds_a_new_chat_model`).
+- At each dictation key press and each menu open, the hub reads `config.toml` and `dictionary.toml` with bounded reads, and one prompt when the correction is on. Unchanged texts and an unchanged prompt reuse the current snapshot (`hub/tests.rs`: `an_unchanged_text_builds_no_new_snapshot`, `a_changed_config_builds_a_new_snapshot`).
+- A prompt change reuses the chat model. A change of the `[chat]` table rebuilds it (`a_changed_prompt_file_builds_a_new_snapshot_with_the_same_chat_model`, `a_changed_chat_table_builds_a_new_chat_model`, `alternating_apps_reuse_the_chat_model`).
+- At a key press, `HubSnapshots` reads the bundle identifier of the frontmost application through `NSWorkspace` before the hub borrow. Bloop itself counts as no application (`workspace.rs` tests: `only_the_process_identifier_of_bloop_is_its_own`). The prompt is the prompt whose list contains the application, else `[refine] prompt`. A menu open and a menu change read `[refine] prompt` (`hub/tests.rs`: `a_routed_app_uses_the_prompt_of_its_list`, `an_unknown_app_and_no_app_use_the_selected_prompt`, `the_driver_snapshot_uses_the_frontmost_app_and_a_view_does_not_change_it`). The log gives the prompt name, `route = "app"` or `route = "default"`, and the bundle identifier.
+- The lists are the keys of `[refine.apps]`, then the built-in lists of `code` and `natural-light` for a prompt without a key (`prompts.rs`: `app_lists`). A key replaces the built-in list, even when it is empty. An application of a key leaves every built-in list. The same application in two keys makes the file invalid, so no application is in two lists (`prompts.rs` tests; `hub/tests.rs`: `a_key_replaces_the_built_in_list_and_an_empty_key_disables_it`, `an_app_of_a_key_wins_over_its_built_in_list`, `the_same_app_in_two_keys_gives_invalid_settings`).
+- A missing or invalid prompt of a list fails the dictations in its applications only. With the correction on, the view reports it with its own name (`a_routed_missing_prompt_fails_its_app_only_and_the_view_names_it`, `the_view_names_each_routed_prompt_error_once_and_never_the_selected_prompt`).
 - An invalid or unreadable settings or dictionary file gives a snapshot that fails each capture with `InvalidSettings` (`an_invalid_config_gives_invalid_settings_and_the_default_hold`, `an_invalid_dictionary_gives_invalid_settings_with_the_hold_of_the_file`).
 - The API keys are read one time at start, outside the event tap, because a Keychain read can wait for a dialog. A changed key needs a restart (`the_keys_are_read_one_time_at_start`). Without a key, each dictation fails with `Unauthorized`. A refused key stays marked until the next start (`a_refused_key_stays_until_the_next_start`).
 - Startup writes the settings template, the empty dictionary, and the prompts folder when they are missing. It never changes an existing file (`settings/mod.rs` tests: `a_later_start_keeps_the_existing_files_byte_for_byte`).
+
+The event tap sees keys, modifier changes, and mouse down events only. A trackpad swipe between Spaces, or an application that activates itself during a capture, changes the frontmost application without cancelling the capture.
+The prompt then comes from the application at the key press, and the paste target from the application at the key release. A browser uses the default prompt: the lists hold applications, not websites.
 
 A menu change writes one key of `config.toml` (`settings/edit.rs`, `files.rs`):
 
@@ -211,7 +217,7 @@ A menu change writes one key of `config.toml` (`settings/edit.rs`, `files.rs`):
 
 The application builds the `MenuModel` (`bloop-app/src/menu.rs`), and `bloop-macos/src/menu.rs` renders it in AppKit:
 
-- The menu refreshes at each open. The status lines come first: the missing permissions, the API key, the event tap, then the file errors with their line (`menu/tests.rs`).
+- The menu refreshes at each open. The status lines come first: the missing permissions, the API key, the event tap, then the file errors with their line, the selected prompt error, and the error of each other prompt of a list (`menu/tests.rs`: `each_routed_prompt_error_follows_the_selected_prompt_error`).
 - An action identifier is the index of the action in the last model. The renderer encodes it as the item tag, index plus one. Tag 0 is never an action. Unknown identifiers and invalid tags are logged and ignored (`bloop-macos/src/menu.rs` tests: `the_tag_is_the_action_plus_one_and_gives_the_action_back`, `the_tag_0_and_negative_tags_give_no_action`; `menu/tests.rs`: `an_unknown_action_has_no_effect`).
 - The renderer adds a separator and **Quit Bloop** with ⌘Q after the items. The menu source and the Objective-C callbacks never panic.
 
@@ -231,7 +237,7 @@ The event tap (`bloop-macos/src/keys.rs`) is an active session tap on key down, 
 - `Transcript`, `FinalText`, `AudioChunk`, `ChatRequest`, `ChatReply`, `StepOutcome`, `Prompt`, `Dictionary`, and the provider `Text` type redact their content in `Debug`. `TranscriptionOptions` shows the vocabulary count, not the entries (tests in `domain.rs`, `ports/ai.rs`, `prompts.rs`, `dictionary.rs`, and `transcribe/tests.rs`).
 - API keys are `SecretString`. The `Authorization` header is marked sensitive, and the adapter `Debug` shows `REDACTED` (`chat.rs` tests: `the_debug_of_the_adapter_shows_no_key`). The key never enters settings, command arguments, logs, or error messages.
 - Provider errors use local categories and HTTP status codes. The HTTP adapter does not read error bodies. The WebSocket adapter logs no error details, unknown event types, or finish strings (`chat.rs` tests: `an_http_error_body_never_enters_logs`, `an_unknown_finish_reason_is_logged_only_as_a_local_category`; `transcribe/tests.rs`: `provider_errors_and_unknown_event_types_never_enter_logs`).
-- Logs record durations, counts, controlled error categories, the frontmost application at key release, and nonsecret settings such as the model identifiers. They never contain audio, text, prompt text, dictionary entries, or file content. Settings errors give a line, never the parser message.
+- Logs record durations, counts, controlled error categories, the bundle identifier of the frontmost application at key press with the correction on, the frontmost application at key release, and nonsecret settings such as the model identifiers. They never contain audio, text, prompt text, dictionary entries, or file content. Settings errors give a line, never the parser message.
 - The panic hook logs a literal panic message. A formatted message, which can quote dictated text, gives only its length (`logging.rs` tests).
 - The application installs no bridge from the `log` crate. WebSocket handshake traces can contain authorization headers.
 - The `eval` tool writes its samples and results to the terminal by design.

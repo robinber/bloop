@@ -3,6 +3,7 @@
 //! Each key is optional, and each table rejects unknown keys. The newtypes check their values at parse time.
 //! Thus a `Settings` value is always valid.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use bloop_providers::{ChatConfig, TranscriberConfig};
@@ -53,7 +54,55 @@ pub(crate) struct Dictation {
 pub(crate) struct Refine {
     /// The state of the "Correct text" menu item.
     pub(crate) enabled: bool,
+    /// The default prompt: the prompt of an application that no list of `apps` contains.
     pub(crate) prompt: PromptName,
+    pub(crate) apps: Apps,
+}
+
+/// The `[refine.apps]` table: the applications of each prompt that the file names.
+///
+/// A list has no duplicate: the parser ignores a repeated application in one list.
+/// An application in two lists makes the file invalid.
+#[derive(Debug, Default, PartialEq, Deserialize)]
+#[serde(try_from = "BTreeMap<PromptName, Vec<AppId>>")]
+pub(crate) struct Apps(BTreeMap<PromptName, Vec<AppId>>);
+
+impl Apps {
+    /// Returns the list of `prompt`, or `None` when the table has no key for it.
+    pub(crate) fn get(&self, prompt: &PromptName) -> Option<&[AppId]> {
+        self.0.get(prompt).map(Vec::as_slice)
+    }
+
+    /// Returns each prompt name of the table and its list, sorted by name.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&PromptName, &[AppId])> {
+        self.0
+            .iter()
+            .map(|(prompt, apps)| (prompt, apps.as_slice()))
+    }
+}
+
+impl TryFrom<BTreeMap<PromptName, Vec<AppId>>> for Apps {
+    type Error = &'static str;
+
+    fn try_from(lists: BTreeMap<PromptName, Vec<AppId>>) -> Result<Self, Self::Error> {
+        let mut owners: BTreeMap<AppId, PromptName> = BTreeMap::new();
+        let mut checked = BTreeMap::new();
+        for (prompt, apps) in lists {
+            let mut list = Vec::with_capacity(apps.len());
+            for app in apps {
+                match owners.get(&app) {
+                    Some(owner) if *owner == prompt => {}
+                    Some(_) => return Err("an application is in two lists of [refine.apps]"),
+                    None => {
+                        owners.insert(app.clone(), prompt.clone());
+                        list.push(app);
+                    }
+                }
+            }
+            checked.insert(prompt, list);
+        }
+        Ok(Self(checked))
+    }
 }
 
 /// The hold time of the dictation key before the capture starts: 100 to 1000 ms, 220 ms by default.
@@ -149,10 +198,35 @@ impl TryFrom<String> for PromptName {
     }
 }
 
+/// The bundle identifier of an application: 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct AppId(String);
+
+impl AppId {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for AppId {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let allowed = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_');
+        if (1..=255).contains(&value.len()) && value.bytes().all(allowed) {
+            Ok(Self(value))
+        } else {
+            Err("the bundle identifier is not 1 to 255 characters from A-Z a-z 0-9 . - _")
+        }
+    }
+}
+
 /// Returns the settings of a valid file. The error gives the line, never the value or the parser message.
 ///
 /// The line is the line of the value, or of the key. In `[transcriber]` and `[chat]`, an unknown key or a wrong type
 /// gives the line of the table header, because the parser reads these tables before it selects the provider.
+/// An application in two lists of `[refine.apps]` gives the line of that table header.
 pub(crate) fn parse(text: &str) -> Result<Settings, Invalid> {
     let file: File = toml::from_str(text).map_err(|error| Invalid::Parse {
         line: error.span().and_then(|span| line(text, span.start)),

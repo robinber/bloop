@@ -87,6 +87,7 @@ No test covers the real permissions, microphone, network, or AppKit behavior. Af
 | `bloop-macos/src/paste.rs` and `paste/clipboard.rs` | Paste in a native application, a browser, and a terminal; a changed target; secure input; an unread clipboard item; text and image restoration; consecutive pastes; cancellation; and quit during a pending transaction. |
 | `bloop-macos/src/menu.rs` and `bloop-app/src/menu.rs` | Refresh at open, checkmarks, submenus, ⌘Q, and the file and permission links. |
 | Correction | Correction on and off, a failed correction, and manual recovery with **Copy last result**. |
+| Prompt by application: `bloop-macos/src/workspace.rs` and `bloop-app/src/hub.rs` | With the correction on, a dictation in Ghostty uses `code`, in WhatsApp uses `natural-light`, and in Notes uses the default prompt. Check the `the dictation prompt is chosen` log line. |
 
 Miri cannot run FFI calls to macOS frameworks. For `bloop-macos`, test the safe wrappers, review the drop and error paths, and run the manual checks.
 
