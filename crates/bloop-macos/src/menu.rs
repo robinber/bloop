@@ -10,12 +10,15 @@ use std::fmt;
 use bloop_core::ports::platform::{ActionId, ChoiceOption, MenuItem, MenuSource};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
-use objc2::{DefinedClass as _, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
+use objc2::{
+    AnyThread as _, DefinedClass as _, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    sel,
+};
 use objc2_app_kit::{
     NSControlStateValue, NSControlStateValueOff, NSControlStateValueOn, NSImage, NSMenu,
     NSMenuDelegate, NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
 };
-use objc2_foundation::{NSString, ns_string};
+use objc2_foundation::{NSData, NSString, ns_string};
 
 /// The Bloop item in the menu bar. The item stays in the menu bar while this value exists.
 ///
@@ -41,11 +44,7 @@ impl StatusMenu {
         let item = NSStatusBar::systemStatusBar().statusItemWithLength(NSVariableStatusItemLength);
         item.setMenu(Some(&menu));
         if let Some(button) = item.button(mtm) {
-            let icon = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-                ns_string!("waveform"),
-                Some(ns_string!("Bloop")),
-            );
-            match icon {
+            match status_icon() {
                 Some(icon) => button.setImage(Some(&icon)),
                 None => button.setTitle(ns_string!("Bloop")),
             }
@@ -55,6 +54,17 @@ impl StatusMenu {
             _target: target,
         }
     }
+}
+
+const STATUS_ICON_SVG: &[u8] = include_bytes!("../../../assets/branding/status-icon.svg");
+
+/// Returns the Bloop logo as a template image. `AppKit` draws it in the color of the menu bar.
+/// The SVG file gives the size in points.
+fn status_icon() -> Option<Retained<NSImage>> {
+    let icon = NSImage::initWithData(NSImage::alloc(), &NSData::with_bytes(STATUS_ICON_SVG))?;
+    icon.setTemplate(true);
+    icon.setAccessibilityDescription(Some(ns_string!("Bloop")));
+    Some(icon)
 }
 
 /// Returns the tag of the menu item for `action`: the action plus 1. Thus the default tag 0 never starts an action.
@@ -229,7 +239,17 @@ impl MenuTarget {
 mod tests {
     use bloop_core::ports::platform::ActionId;
 
-    use super::{action_of, tag_of};
+    use super::{action_of, status_icon, tag_of};
+
+    #[test]
+    fn the_status_icon_is_a_template_image_of_menu_bar_size() {
+        let icon = status_icon().unwrap();
+        let size = icon.size();
+
+        assert!(icon.isTemplate());
+        assert!((size.width - 13.3).abs() < 1e-6, "{}", size.width);
+        assert!((size.height - 16.0).abs() < 1e-6, "{}", size.height);
+    }
 
     #[test]
     fn the_tag_is_the_action_plus_one_and_gives_the_action_back() {

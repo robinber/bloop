@@ -646,6 +646,8 @@ Phase 6 adds learning from fixes:
 
 - `Info.plist` sets `LSUIElement` to true. Bloop has no Dock icon.
 - `Info.plist` contains `NSMicrophoneUsageDescription` and the bundle identifier `io.github.robinber.bloop`.
+- `Info.plist` names the application icon file, `Bloop.icns`. `scripts/icon.sh` makes it from `assets/branding/app-icon.svg`,
+  and `scripts/bundle.sh` copies it into the bundle.
 - `scripts/bundle.sh` builds `target/release/Bloop.app` and signs it with `Bloop Dev`,
   a self-signed code signing certificate in the login keychain.
 - The designated requirement of the signature is the bundle identifier and the certificate.

@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleExecutable</key>
 	<string>Bloop</string>
+	<key>CFBundleIconFile</key>
+	<string>Bloop</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.robinber.bloop</string>
 	<key>CFBundleInfoDictionaryVersion</key>
