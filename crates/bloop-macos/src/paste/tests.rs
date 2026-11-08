@@ -8,10 +8,10 @@ use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
 
 use bloop_core::session::InsertOutcome;
 
-use super::clipboard::{finalize, save_within};
+use super::clipboard::{finalize, restore, save_within};
 use super::{
-    KEY_V, Target, Targets, Transaction, is_posted, mark_posted, restore, save, string_type,
-    transient_type, write_text,
+    KEY_V, Target, Targets, Transaction, is_posted, mark_posted, save, string_type, transient_type,
+    write_text,
 };
 
 /// The data of each item of the pasteboard, by type, in item order.

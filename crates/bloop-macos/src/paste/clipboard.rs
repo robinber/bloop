@@ -136,10 +136,12 @@ pub(super) fn restore(
     }
 }
 
-/// Ends an abandoned paste: writes the saved items back as [`restore`] does.
+/// Ends a paste, after the read or when Bloop abandons it: writes the saved items back as
+/// [`restore`] does.
 ///
 /// Without a saved clipboard, it replaces the item of Bloop with a normal text item, if the clipboard
-/// did not change since `written`. Thus the item does not depend on a provider that no longer exists.
+/// did not change since `written`. Thus the text loses the transient and concealed markers, and the
+/// item does not depend on a provider that no longer exists.
 pub(super) fn finalize(
     pasteboard: &NSPasteboard,
     saved: Option<Vec<SavedItem>>,

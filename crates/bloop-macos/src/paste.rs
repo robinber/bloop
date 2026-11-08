@@ -38,7 +38,7 @@ use objc2_core_graphics::{
 use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 
 use self::clipboard::{
-    SavedItem, finalize, owns_clipboard, restore, save, string_type, transient_type, write_text,
+    SavedItem, finalize, owns_clipboard, save, string_type, transient_type, write_text,
 };
 use crate::events::MainSink;
 use crate::scheduler;
@@ -422,11 +422,17 @@ impl TextProvider {
         }
     }
 
-    /// Restores the saved clipboard after the read, then reports `Landed`.
+    /// Restores the saved clipboard after the read, or without one, leaves the text as a normal
+    /// item. Then reports `Landed`.
     fn restore_now(&self) {
         if self.step(Transaction::restore_due) {
-            let pasteboard = NSPasteboard::generalPasteboard();
-            restore(&pasteboard, self.ivars().saved.take(), self.ivars().written);
+            let ivars = self.ivars();
+            finalize(
+                &NSPasteboard::generalPasteboard(),
+                ivars.saved.take(),
+                ivars.written,
+                &ivars.text,
+            );
             self.report(InsertOutcome::Landed);
         }
     }
