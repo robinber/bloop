@@ -56,11 +56,12 @@ const INPUT_EVENTS: [CGEventType; 4] = [
     CGEventType::OtherMouseDown,
 ];
 
+// SAFETY: Carbon declares `Boolean IsSecureEventInputEnabled(void)` with the C ABI, and `Boolean`
+// is `unsigned char`, which is `u8`. The function takes no argument and only reads a system state.
+// Thus a call cannot cause undefined behavior, and the declaration is `safe`.
 #[link(name = "Carbon", kind = "framework")]
 unsafe extern "C" {
     /// Returns a nonzero value while an application uses secure keyboard input, for example in a password field.
-    ///
-    /// The function has no parameters and only reads a system state. Thus a call cannot cause undefined behavior.
     safe fn IsSecureEventInputEnabled() -> u8;
 }
 
