@@ -261,14 +261,12 @@ mod tests {
     }
 
     #[test]
-    fn the_debug_of_the_configs_shows_no_key() {
+    fn the_debug_of_the_configs_names_the_provider_and_its_settings() {
         let transcriber = format!("{:?}", TranscriberConfig::default());
         let chat = format!("{:?}", ChatConfig::default());
 
         assert!(transcriber.starts_with("Mistral(TranscribeConfig {"));
         assert!(chat.starts_with("Mistral(ChatConfig {"));
-        assert!(!transcriber.contains(KEY));
-        assert!(!chat.contains(KEY));
     }
 
     #[test]

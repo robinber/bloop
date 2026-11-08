@@ -230,7 +230,7 @@ mod tests {
     use tokio::task::JoinHandle;
     use tracing::instrument::WithSubscriber as _;
 
-    use super::{Chat, ChatConfig};
+    use super::{Chat, ChatConfig, Completion};
     use crate::http;
     use crate::test_log::{Log, install_fallback};
 
@@ -567,6 +567,29 @@ mod tests {
         assert_eq!(result.err(), Some(ProviderError::Http(429)));
         let output = log.text();
         assert!(output.contains("status=429"), "{output}");
+        assert!(!output.contains(PRIVATE), "{output}");
+    }
+
+    #[tokio::test]
+    async fn a_body_that_does_not_decode_logs_only_the_category() {
+        const PRIVATE: &str = "private-dictation-and-key-sentinel";
+        let body = json!({
+            "choices": [{ "message": { "content": TEXT }, "finish_reason": "stop" }],
+            "usage": { "prompt_tokens": PRIVATE },
+        })
+        .to_string();
+        let Err(error) = serde_json::from_str::<Completion>(&body) else {
+            panic!("the body decodes");
+        };
+        assert!(error.to_string().contains(PRIVATE), "{error}");
+        install_fallback();
+        let log = Log::default();
+
+        let result = complete(200, body).with_subscriber(log.clone()).await;
+
+        assert_eq!(result.err(), Some(ProviderError::InvalidResponse));
+        let output = log.text();
+        assert!(output.contains("category=Data"), "{output}");
         assert!(!output.contains(PRIVATE), "{output}");
     }
 

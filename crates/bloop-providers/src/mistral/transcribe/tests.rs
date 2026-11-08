@@ -13,9 +13,12 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
-use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
+use tracing::instrument::WithSubscriber as _;
 
 use super::{
     DRAIN_LIMIT, MAX_MESSAGE_SIZE, ServerEvent, Session, Text, TranscribeConfig, Transcriber,
@@ -28,6 +31,8 @@ const MODEL: &str = "voxtral-test";
 const DELAY_MS: u32 = 480;
 const TEXT: &str = "Bonjour à tous.";
 const RATE: NonZeroU32 = NonZeroU32::new(24_000).unwrap();
+/// A value that must never reach a log or a `Debug` output.
+const PRIVATE: &str = "private-dictation-and-key-sentinel";
 
 static VOCABULARY: LazyLock<Vec<String>> =
     LazyLock::new(|| vec!["Bloop".to_owned(), "Voxtral".to_owned()]);
@@ -111,7 +116,7 @@ where
     (transcriber, server)
 }
 
-/// Refuses one connection with `status`.
+/// Refuses one connection with `status`. The refusal carries `PRIVATE` in a header and in its body.
 #[expect(
     clippy::result_large_err,
     reason = "the tungstenite handshake callback sets the error type"
@@ -123,8 +128,11 @@ async fn refuse(status: StatusCode) -> Transcriber {
         accept_hdr_async(
             stream,
             |_: &Request, _: Response| -> Result<Response, ErrorResponse> {
-                let mut refusal = ErrorResponse::new(None);
+                let mut refusal = ErrorResponse::new(Some(PRIVATE.to_owned()));
                 *refusal.status_mut() = status;
+                refusal
+                    .headers_mut()
+                    .insert("x-detail", HeaderValue::from_static(PRIVATE));
                 Err(refusal)
             },
         )
@@ -380,6 +388,22 @@ async fn a_refused_handshake_maps_the_status() {
 }
 
 #[tokio::test]
+async fn a_refused_handshake_logs_only_its_status() {
+    install_fallback();
+    let log = Log::default();
+    let transcriber = refuse(StatusCode::UNAUTHORIZED).await;
+
+    let result = ai::Transcriber::start(&transcriber, options())
+        .with_subscriber(log.clone())
+        .await;
+
+    assert_eq!(result.err(), Some(ProviderError::Unauthorized));
+    let output = log.text();
+    assert!(output.contains("status=401"), "{output}");
+    assert!(!output.contains(PRIVATE), "{output}");
+}
+
+#[tokio::test]
 async fn an_error_event_instead_of_session_updated_fails_start() {
     let (transcriber, server) = serve(|mut provider| async move {
         emit(&mut provider, &created()).await;
@@ -577,7 +601,6 @@ fn the_debug_of_a_delta_event_shows_no_text() {
 
 #[test]
 fn provider_errors_and_unknown_event_types_never_enter_logs() {
-    const PRIVATE: &str = "private-dictation-and-key-sentinel";
     install_fallback();
     let log = Log::default();
     tracing::subscriber::with_default(log.clone(), || {
@@ -603,4 +626,55 @@ fn provider_errors_and_unknown_event_types_never_enter_logs() {
     assert!(output.contains("the provider sent an error"));
     assert!(output.contains("the provider sent an event that the adapter does not use"));
     assert!(!output.contains(PRIVATE), "{output}");
+}
+
+#[test]
+fn the_debug_of_the_adapter_shows_no_key_and_the_authorization_header_is_sensitive() {
+    let transcriber = Transcriber::new(PRIVATE.into(), TranscribeConfig::default());
+
+    let debug = format!("{transcriber:?}");
+    let request = transcriber.request().unwrap();
+
+    assert!(debug.contains("REDACTED"), "{debug}");
+    assert!(!debug.contains(PRIVATE), "{debug}");
+    assert!(request.headers()[AUTHORIZATION].is_sensitive());
+    assert!(!format!("{request:?}").contains(PRIVATE));
+}
+
+#[test]
+fn a_close_reason_never_enters_logs() {
+    install_fallback();
+    let log = Log::default();
+    let close = Message::Close(Some(CloseFrame {
+        code: CloseCode::Policy,
+        reason: PRIVATE.into(),
+    }));
+
+    let result = tracing::subscriber::with_default(log.clone(), || decode(Some(Ok(close))));
+
+    assert_eq!(result.err(), Some(ProviderError::Network));
+    let output = log.text();
+    assert!(
+        output.contains("the provider closed the connection"),
+        "{output}"
+    );
+    assert!(!output.contains(PRIVATE), "{output}");
+}
+
+#[test]
+fn a_known_event_that_does_not_decode_logs_only_the_category() {
+    let private = 7_340_917_263_518_u64;
+    let body = json!({ "type": "transcription.done", "text": private }).to_string();
+    let error = serde_json::from_str::<ServerEvent>(&body).unwrap_err();
+    assert!(error.to_string().contains(&private.to_string()), "{error}");
+    install_fallback();
+    let log = Log::default();
+
+    let result =
+        tracing::subscriber::with_default(log.clone(), || decode(Some(Ok(Message::text(body)))));
+
+    assert_eq!(result.err(), Some(ProviderError::InvalidResponse));
+    let output = log.text();
+    assert!(output.contains("category=Data"), "{output}");
+    assert!(!output.contains(&private.to_string()), "{output}");
 }
