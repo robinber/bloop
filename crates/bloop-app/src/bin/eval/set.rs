@@ -248,7 +248,8 @@ category = "name"
 raw = "dis à Camille"
 "#;
 
-    const REAL: &str = include_str!("../../../../../prompts/test-set-fr.toml");
+    const FRENCH: &str = include_str!("../../../../../prompts/test-set-fr.toml");
+    const CODE: &str = include_str!("../../../../../prompts/test-set-code-fr.toml");
 
     fn error(text: &str) -> Invalid {
         parse(text).map(|_| ()).unwrap_err()
@@ -367,7 +368,7 @@ raw = "dis à Camille"
 
     #[test]
     fn the_french_test_set_is_valid_and_covers_each_category() {
-        let set = parse(REAL).unwrap();
+        let set = parse(FRENCH).unwrap();
 
         assert!(!set.pairs.is_empty());
         let mut ids = HashSet::new();
@@ -388,13 +389,26 @@ raw = "dis à Camille"
     }
 
     #[test]
-    fn the_french_test_set_has_the_spoken_correction_of_the_ratio_review() {
-        let set = parse(REAL).unwrap();
+    fn the_french_test_set_has_the_spoken_correction_from_2_to_3_heures() {
+        let set = parse(FRENCH).unwrap();
 
         assert!(
             set.samples
                 .iter()
                 .any(|sample| sample.raw == "à 2 heures, non, 3 heures")
         );
+    }
+
+    #[test]
+    fn the_code_test_set_is_valid_and_has_technical_dev_and_validation_samples() {
+        let set = parse(CODE).unwrap();
+
+        assert!(
+            set.samples
+                .iter()
+                .any(|sample| sample.category == "technical")
+        );
+        assert!(!set.samples(Split::Validation).is_empty());
+        assert!(!set.samples(Split::Dev).is_empty());
     }
 }
