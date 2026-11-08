@@ -136,11 +136,14 @@ pub enum MenuItem {
         checked: bool,
     },
     /// An item with a submenu. A list of choices is a submenu of `Toggle` items.
+    /// A click on the item opens the submenu: the item has no action.
     Submenu {
         /// The text of the item.
         title: String,
         /// The items of the submenu, in display order.
         items: Vec<MenuItem>,
+        /// `true` shows the checkmark on the item.
+        checked: bool,
     },
     /// A line between groups of items.
     Separator,

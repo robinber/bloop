@@ -1,12 +1,13 @@
 //! The content of the status menu: the status lines, "Correct text", the lists, and the menu actions.
 //!
-//! Each time the menu opens, `AppMenu` refreshes the settings hub, looks up the frontmost application and the names
-//! of the applications outside the hub borrow, and builds the model with the pure function `build`.
+//! Each time the menu opens, `AppMenu` refreshes the settings hub, looks up the names of the listed applications and
+//! the open applications outside the hub borrow, and builds the model with the pure function `build`.
 //! The status lines give the file and the line of an error, never the file content.
 //! `AppKit` calls `AppMenu` from Objective-C, thus nothing here panics. A failed borrow logs an error.
+//! "Choose…" runs a modal file panel. `AppMenu` holds no borrow while it runs, because events keep arriving.
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use bloop_core::error::{Permission, SecretError};
@@ -17,7 +18,7 @@ use bloop_macos::{permissions, workspace};
 
 use crate::dictionary;
 use crate::hub::{Hub, View};
-use crate::prompts::{self, PromptError};
+use crate::prompts::PromptError;
 use crate::settings::{self, AppId, Change, HoldMs, Paths, PromptName};
 
 /// The options of the "Hold delay" list, in milliseconds.
@@ -40,7 +41,7 @@ pub(crate) enum Action {
     OpenPermission(Permission),
     /// Changes the state of "Correct text".
     ToggleCorrection,
-    /// Selects the correction prompt.
+    /// Selects the default correction prompt.
     Prompt(PromptName),
     /// Selects the correction model.
     Model(String),
@@ -56,27 +57,34 @@ pub(crate) enum Action {
         prompt: PromptName,
         app: AppId,
     },
+    /// Asks for an application in a file panel, then adds it as `AddApp` does.
+    ChooseApp {
+        prompt: PromptName,
+    },
     CopyLastResult,
     OpenConfig,
     OpenPrompts,
     OpenDictionary,
 }
 
-/// The application lookups of the status menu: the `NSWorkspace` functions, or fakes in the tests.
+/// The application lookups of the status menu: the `bloop-macos` functions, or fakes in the tests.
 pub(crate) struct Lookups {
-    /// Returns the bundle identifier of the frontmost application.
-    pub(crate) frontmost: fn() -> Option<String>,
     /// Returns the name of the installed application with a bundle identifier.
     pub(crate) name: fn(&str) -> Option<String>,
+    /// Returns the bundle identifier and the name of each open application, except Bloop.
+    pub(crate) running: fn() -> Vec<(String, String)>,
+    /// Asks for an application in a modal file panel and returns its bundle identifier.
+    /// It runs the main run loop until the panel closes.
+    pub(crate) choose: Box<dyn Fn() -> Option<String>>,
 }
 
 /// The applications that the status menu names. `AppMenu::model` looks them up outside the hub borrow.
 #[derive(Default)]
 pub(crate) struct AppNames {
-    /// The frontmost application, when its bundle identifier is valid.
-    pub(crate) frontmost: Option<AppId>,
-    /// The names that macOS gives to the installed applications.
+    /// The names that macOS gives to the installed applications of the lists.
     pub(crate) names: BTreeMap<AppId, String>,
+    /// The open applications with a valid bundle identifier, and their names: sorted by name, without duplicates.
+    pub(crate) running: Vec<(AppId, String)>,
 }
 
 impl AppNames {
@@ -109,18 +117,45 @@ impl AppMenu {
         }
     }
 
-    /// Looks up the frontmost application, and the name of each application of the lists and of the frontmost one.
+    /// Looks up the name of each application of the lists, and the open applications.
+    /// It leaves out an open application whose bundle identifier is not valid or comes again.
     fn apps(&self, view: &View) -> AppNames {
-        let frontmost = (self.lookups.frontmost)().and_then(|id| AppId::try_from(id).ok());
         let mut names = BTreeMap::new();
-        for app in view.lists.values().flatten().chain(&frontmost) {
+        for app in view.lists.values().flatten() {
             if !names.contains_key(app)
                 && let Some(name) = (self.lookups.name)(app.as_str())
             {
                 names.insert(app.clone(), name);
             }
         }
-        AppNames { frontmost, names }
+        let mut seen = BTreeSet::new();
+        let mut running: Vec<(AppId, String)> = (self.lookups.running)()
+            .into_iter()
+            .filter_map(|(id, name)| Some((AppId::try_from(id).ok()?, name)))
+            .filter(|(id, _)| seen.insert(id.clone()))
+            .collect();
+        running.sort_by_cached_key(|(id, name)| (name.to_lowercase(), id.clone()));
+        AppNames { names, running }
+    }
+
+    /// Asks for an application in the file panel, and adds it to the list of `prompt`.
+    /// It runs without a borrow of the menu or the hub: the panel runs the main run loop, which can refresh the hub.
+    fn choose_app(&self, prompt: PromptName) {
+        let Some(id) = (self.lookups.choose)() else {
+            return;
+        };
+        let Ok(app) = AppId::try_from(id) else {
+            tracing::warn!(
+                "the bundle identifier of the chosen application is not valid, Bloop ignores it"
+            );
+            return;
+        };
+        tracing::info!(
+            prompt = prompt.as_str(),
+            app = app.as_str(),
+            "the menu added a chosen application to a prompt"
+        );
+        self.hub.set(&Change::AddApp { prompt, app });
     }
 
     /// Returns the action of `id` in the last model.
@@ -193,6 +228,7 @@ impl MenuSource for AppMenu {
                 );
                 self.hub.set(&Change::RemoveApp { prompt, app });
             }
+            Action::ChooseApp { prompt } => self.choose_app(prompt),
             Action::CopyLastResult => MainSink.send(Event::CopyLastResult),
             Action::OpenConfig => workspace::open_file(&self.paths.config),
             Action::OpenPrompts => workspace::open_folder(&self.paths.prompts),
@@ -209,14 +245,7 @@ pub(crate) fn build(facts: &Facts, view: &View, apps: &AppNames) -> (MenuModel, 
     menu.items.push(MenuItem::Separator);
     if let Ok(summary) = &view.settings {
         menu.toggle("Correct text", Action::ToggleCorrection, summary.correction);
-        menu.choice(
-            "Prompt",
-            &view.prompts,
-            &summary.prompt,
-            |name| name.as_str().to_owned(),
-            Action::Prompt,
-        );
-        by_app(&mut menu, view, apps);
+        prompt_menu(&mut menu, view, &summary.prompt, apps);
         menu.choice(
             "Model",
             &summary.models,
@@ -244,36 +273,49 @@ pub(crate) fn build(facts: &Facts, view: &View, apps: &AppNames) -> (MenuModel, 
     (MenuModel { items: menu.items }, menu.actions)
 }
 
-/// Adds the "Prompt by app" submenu: the prompt of the frontmost application, then one submenu for each prompt name
-/// of the "Prompt" list and for each `[refine.apps]` key of another name with applications.
-fn by_app(menu: &mut Builder, view: &View, apps: &AppNames) {
-    let listed = view.prompts.iter().map(|prompt| (prompt, true));
-    let others = view
-        .lists
-        .iter()
-        .filter(|(name, list)| !list.is_empty() && !view.prompts.contains(name))
-        .map(|(name, _)| (name, false));
-    menu.submenu("Prompt by app", |menu| {
-        if let Some(app) = &apps.frontmost {
-            let title = match prompts::route(&view.lists, Some(app.as_str())) {
-                Some(prompt) => format!("{} uses {}", apps.name(app), prompt.as_str()),
-                None => format!("{} uses the default prompt", apps.name(app)),
-            };
-            menu.status(&title);
-            menu.items.push(MenuItem::Separator);
+/// Adds the "Prompt" submenu: one submenu for each prompt name, with a checkmark on the default prompt `default`.
+/// The names are the prompt names, then `default` when it is not among them, then each `[refine.apps]` key of another
+/// name with applications. The submenu of such a key has no "Default prompt" and no "Add application".
+fn prompt_menu(menu: &mut Builder, view: &View, default: &PromptName, apps: &AppNames) {
+    let mut shown: Vec<(&PromptName, bool)> = Vec::new();
+    for name in view.prompts.iter().chain([default]) {
+        if !shown.iter().any(|(listed, _)| *listed == name) {
+            shown.push((name, true));
         }
-        for (prompt, exists) in listed.chain(others) {
-            menu.submenu(prompt.as_str(), |menu| {
-                app_list(menu, view, apps, prompt, exists);
+    }
+    for (name, list) in &view.lists {
+        if !list.is_empty() && !shown.iter().any(|(listed, _)| *listed == name) {
+            shown.push((name, false));
+        }
+    }
+    menu.submenu("Prompt", false, |menu| {
+        for (name, known) in shown {
+            menu.submenu(name.as_str(), name == default, |menu| {
+                prompt_items(menu, view, apps, name, name == default, known);
             });
         }
     });
 }
 
-/// Adds one checked item for each application of the list of `prompt`: a click removes the application.
-/// When `prompt` exists, it then adds "Add" for the frontmost application, unless the list already contains it.
-fn app_list(menu: &mut Builder, view: &View, apps: &AppNames, prompt: &PromptName, exists: bool) {
+/// Adds the items of the submenu of `prompt`. When `known`, "Default prompt" comes first, with a checkmark when
+/// `prompt` is the default prompt. Then each application of the list, with a checkmark: a click removes it.
+/// When `known`, "Add application" comes last.
+fn prompt_items(
+    menu: &mut Builder,
+    view: &View,
+    apps: &AppNames,
+    prompt: &PromptName,
+    default: bool,
+    known: bool,
+) {
+    if known {
+        menu.toggle("Default prompt", Action::Prompt(prompt.clone()), default);
+        menu.items.push(MenuItem::Separator);
+    }
     let list = view.lists.get(prompt).map_or(&[][..], Vec::as_slice);
+    if list.is_empty() {
+        menu.status("No application");
+    }
     for app in list {
         let action = Action::RemoveApp {
             prompt: prompt.clone(),
@@ -281,23 +323,31 @@ fn app_list(menu: &mut Builder, view: &View, apps: &AppNames, prompt: &PromptNam
         };
         menu.toggle(&apps.name(app), action, true);
     }
-    if let Some(app) = apps
-        .frontmost
-        .as_ref()
-        .filter(|app| exists && !list.contains(app))
-    {
-        if !list.is_empty() {
-            menu.items.push(MenuItem::Separator);
-        }
+    if known {
+        menu.items.push(MenuItem::Separator);
+        menu.submenu("Add application", false, |menu| {
+            add_items(menu, apps, prompt, list);
+        });
+    }
+}
+
+/// Adds the items of "Add application" for `prompt`: each open application that `list` does not contain, then
+/// "Choose…". A click adds the application to the list of `prompt` and removes it from every other list.
+fn add_items(menu: &mut Builder, apps: &AppNames, prompt: &PromptName, list: &[AppId]) {
+    for (app, name) in apps.running.iter().filter(|(app, _)| !list.contains(app)) {
         let action = Action::AddApp {
             prompt: prompt.clone(),
             app: app.clone(),
         };
-        menu.action(format!("Add {}", apps.name(app)), action);
+        menu.action(name.clone(), action);
     }
-    if menu.items.is_empty() {
-        menu.status("No application");
+    if !menu.items.is_empty() {
+        menu.items.push(MenuItem::Separator);
     }
+    let action = Action::ChooseApp {
+        prompt: prompt.clone(),
+    };
+    menu.action("Choose…".to_owned(), action);
 }
 
 /// Adds the status lines: the missing permissions and the API key, which need a restart, then the file errors.
@@ -421,14 +471,16 @@ impl Builder {
         });
     }
 
-    /// Adds a submenu with the items that `fill` adds. The actions of the submenu follow the actions before it.
-    fn submenu(&mut self, title: &str, fill: impl FnOnce(&mut Self)) {
+    /// Adds a submenu with the items that `fill` adds, and a checkmark on its item when `checked`.
+    /// The actions of the submenu follow the actions before it.
+    fn submenu(&mut self, title: &str, checked: bool, fill: impl FnOnce(&mut Self)) {
         let outer = std::mem::take(&mut self.items);
         fill(self);
         let items = std::mem::replace(&mut self.items, outer);
         self.items.push(MenuItem::Submenu {
             title: title.to_owned(),
             items,
+            checked,
         });
     }
 
@@ -448,7 +500,7 @@ impl Builder {
                 shown.push(value);
             }
         }
-        self.submenu(title, |menu| {
+        self.submenu(title, false, |menu| {
             for value in shown {
                 menu.toggle(&label(value), action(value.clone()), value == current);
             }

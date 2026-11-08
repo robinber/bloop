@@ -114,8 +114,9 @@ fn main() -> ExitCode {
         key: hub.key_error(),
     };
     let lookups = Lookups {
-        frontmost: workspace::frontmost_app,
         name: workspace::app_name,
+        running: workspace::running_apps,
+        choose: Box::new(move || workspace::choose_app(mtm)),
     };
     let menu = AppMenu::new(Rc::clone(&hub), facts, paths, lookups);
     let _menu = StatusMenu::new(mtm, Box::new(menu));

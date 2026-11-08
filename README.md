@@ -113,8 +113,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | Item | Effect |
 | --- | --- |
 | **Correct text** | Turns the correction on or off for the next dictations. The checkmark shows the value of the settings file. |
-| **Prompt** | Selects the default correction prompt: the built-in `natural-light` and `code`, and the `.md` files of your prompts folder. |
-| **Prompt by app** | Shows the prompt of the application in front and the applications of each prompt. Select an application to remove it from a list, or **Add** to add the application in front. |
+| **Prompt** | Has one submenu for each prompt: the built-in `natural-light` and `code`, and the `.md` files of your prompts folder. A checkmark marks the default prompt. In the submenu of a prompt, **Default prompt** selects it, a click on an application removes it from the list of the prompt, and **Add application** adds an open application, or another one with **Choose…**. |
 | **Model** | Selects the correction model from the list in the settings file. |
 | **Hold delay** | Selects the hold time of the dictation key: 150, 220, 300, or 400 ms. |
 | **Copy last result** | Copies the text of the latest dictation that Bloop tried to paste. |

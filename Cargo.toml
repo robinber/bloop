@@ -28,12 +28,12 @@ hyper-tls = { version = "0.6.0", features = ["alpn"] }
 hyper-util = { version = "0.1.21", features = ["client-legacy", "http1", "http2", "tokio"] }
 native-tls = { version = "0.2.18", features = ["alpn"] }
 objc2 = "0.6.5"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSMenu", "NSMenuItem", "NSPanel", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSRunningApplication", "NSScreen", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWindow", "NSWorkspace", "libc", "objc2-core-foundation", "objc2-core-text", "objc2-quartz-core"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSButton", "NSCell", "NSColor", "NSControl", "NSEvent", "NSFont", "NSGraphics", "NSImage", "NSMenu", "NSMenuItem", "NSOpenPanel", "NSPanel", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSRunningApplication", "NSSavePanel", "NSScreen", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWindow", "NSWorkspace", "libc", "objc2-core-foundation", "objc2-core-text", "objc2-quartz-core"] }
 objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFMachPort", "CFRunLoop"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGColor", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
 objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSData", "NSEnumerator", "NSNotification", "NSOperation", "NSString", "NSURL", "block2"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSData", "NSEnumerator", "NSNotification", "NSOperation", "NSString", "NSURL", "block2"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CAGradientLayer", "CALayer", "CATextLayer", "CATransaction", "CATransform3D", "objc2-core-foundation", "objc2-core-graphics"] }
 rtrb = "0.4.1"
 rubato = { version = "5.0.1", default-features = false, features = ["fft_resampler"] }

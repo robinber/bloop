@@ -195,13 +195,18 @@ impl MenuTarget {
                 item.setState(check(*checked));
                 item
             }
-            MenuItem::Submenu { title, items } => {
+            MenuItem::Submenu {
+                title,
+                items,
+                checked,
+            } => {
                 let submenu = NSMenu::new(mtm);
                 for child in items {
                     submenu.addItem(&self.item(mtm, child));
                 }
                 let item = menu_item(mtm, title, None, "");
                 item.setSubmenu(Some(&submenu));
+                item.setState(check(*checked));
                 item
             }
             MenuItem::Separator => NSMenuItem::separatorItem(mtm),

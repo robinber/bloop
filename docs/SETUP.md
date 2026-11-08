@@ -40,7 +40,7 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | The models that the **Model** submenu lists. |
 | `[chat] reasoning_effort` | `"none"` | The `reasoning_effort` value of the chat request. The provider checks the value. |
 | `[refine] enabled` | `false` | The state of **Correct text**. |
-| `[refine] prompt` | `"natural-light"` | The default correction prompt: a built-in name, or a file of the prompts folder without `.md`. 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. The **Prompt** submenu selects it. |
+| `[refine] prompt` | `"natural-light"` | The default correction prompt: a built-in name, or a file of the prompts folder without `.md`. 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. **Default prompt** in the **Prompt** submenu selects it. |
 | `[refine.apps]` | The default lists | The applications of each prompt: one key for each prompt name, with a list of bundle identifiers. A bundle identifier has 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`. See [Prompt by application](#prompt-by-application). |
 
 The sampling temperature of the correction is 0. The file cannot change it.
@@ -50,7 +50,7 @@ Model identifiers and provider options go to the API as they are. A valid file d
 
 **Correct text** and the **Prompt**, **Model**, and **Hold delay** submenus write their key to `config.toml`. Bloop keeps the comments and the other keys.
 A missing table goes at the end of the file. A model change writes the `provider` key of `[chat]` when the table does not have it.
-**Prompt by app** writes lists of `[refine.apps]`. Without the table, the first change writes the whole table: one key for each default list, even an empty one, and the key of the changed prompt. With the table, a change writes the lists that change. A new `[refine.apps]` table goes directly after `[refine]`.
+The application items of the **Prompt** submenu write lists of `[refine.apps]`. Without the table, the first change writes the whole table: one key for each default list, even an empty one, and the key of the changed prompt. With the table, a change writes the lists that change. A new `[refine.apps]` table goes directly after `[refine]`.
 A changed list keeps the comment above its key, but loses the comments inside a list on several lines.
 
 Bloop parses the current file before a write and refuses to change an invalid file. It also refuses a change that makes the file larger than 64 KiB.
@@ -80,12 +80,12 @@ With `code`, "point", "slash", "tiret", "underscore" or "tiret du bas", "arobase
 For example, "package point json" becomes `package.json`, "tiret tiret workspace" becomes `--workspace`, and "arobase types slash node" becomes `@types/node`.
 When the whole dictation is a command line, `code` writes it without a capital letter and without a final period.
 
-The built-in prompt files are `prompts/natural-light.md` and `prompts/code.md` in this repository. Select the default prompt in the **Prompt** submenu.
+The built-in prompt files are `prompts/natural-light.md` and `prompts/code.md` in this repository. To select the default prompt, open the submenu of the prompt in the **Prompt** submenu and select **Default prompt**.
 
 ### Your own prompt
 
 1. Write the prompt in a `.md` file of `~/Library/Application Support/Bloop/prompts/`, for example `mail.md`. To start from a built-in prompt, copy `prompts/natural-light.md` or `prompts/code.md` from this repository. Tell the model that the transcript comes between a `<transcript>` line and a `</transcript>` line, because the request puts it there.
-2. Select **mail** in the **Prompt** submenu, or set `prompt = "mail"` in `[refine]`.
+2. Select **Prompt > mail > Default prompt** in the menu, or set `prompt = "mail"` in `[refine]`.
 
 A file with the name of a built-in prompt replaces it. The **Prompt** submenu lists the built-in names and the `.md` files whose name is a valid prompt name, sorted and without duplicates.
 A change in a prompt file applies from the next dictation.
@@ -122,12 +122,15 @@ mail = ["com.apple.mail"]
 - The same application in two keys is an error. An application repeated in one list counts one time.
 - The comparison of bundle identifiers is case-sensitive. Copy the identifier from the log, as described below.
 
-The **Prompt by app** submenu shows and changes the lists. Its first line gives the prompt of the application in front, for example `Ghostty uses code` or `Notes uses the default prompt`. Then it has one submenu for each prompt, with its applications:
+The **Prompt** submenu shows and changes the lists. It has one submenu for each prompt, and a checkmark marks the submenu of the default prompt. The submenu of a prompt has:
 
-- Select an application to remove it from the list.
-- Select **Add** followed by the name of the application in front to add it to the list. Bloop removes it from the other lists.
+- **Default prompt**, which makes this prompt the default prompt.
+- The applications of the list, each with a checkmark. Select an application to remove it from the list. An empty list shows `No application`.
+- **Add application**, with the applications that are open now, except Bloop and the applications of this list. Select one to add it to the list. Bloop removes it from the other lists.
+- **Choose…** at the end of **Add application**, for an application that is not open. It opens a file panel in the Applications folder. Select the application, then **Open**. When the panel closes, the application that was in front before comes back to the front.
 
-The submenus show the name of the installed application, else the bundle identifier. A key of `[refine.apps]` that names no prompt also has a submenu, without **Add**, so that you can remove its applications.
+A listed application shows the name of the installed application, else its bundle identifier. An open application shows its name in macOS. A key of `[refine.apps]` that names no prompt also has a submenu, with its applications only, so that you can remove them.
+A dictation that starts while the file panel is open uses the default prompt and pastes into the panel.
 
 To find the bundle identifier of an application, dictate one time in it, then search the log for `the target is recorded`. The line gives `bundle_id`.
 
