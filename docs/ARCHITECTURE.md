@@ -88,6 +88,23 @@ There is no total deadline for the audio backlog after release. Each send has it
 A slow connection can therefore delay completion and later insertions beyond 15 seconds.
 No timeout limits the recording duration.
 
+### Measured latency
+
+Bloop measured these values from its own log on the reference Mac, from 2026-11-05 to 2026-11-08.
+The sample is 109 dictations that reached the paste command: 98 with the correction on and 11 with it off.
+
+| Step | Correction on | Correction off |
+| --- | --- | --- |
+| Key release to complete transcript | median 902 ms | median 836 ms |
+| Correction | median 639 ms | not applicable |
+| Key release to paste command | median 1572 ms, from 840 to 11738 ms | median 988 ms, from 572 to 3105 ms |
+| Paste command to target read | median 6 ms | median 7 ms |
+| Target read to `InsertDone` | median 314 ms | median 315 ms |
+
+The daily medians with the correction on were 1536, 1758, 1457, and 1267 ms.
+The design target was a median of 1.5 s from key release to paste command with the correction on. The period missed it by 72 ms.
+The provider `finish` step alone has a median of 864 ms over 199 captures, pasted or not. Transcription completion is the largest step.
+
 ## Insertion and recovery
 
 At release, Bloop records the frontmost process and the keyboard and mouse input counters.
