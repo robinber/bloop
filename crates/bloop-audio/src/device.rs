@@ -2,8 +2,8 @@
 //!
 //! When a Bluetooth headset connects, macOS makes it the default input. Its microphone goes through
 //! the hands-free profile: a low sample rate, a switch of the headset audio at each capture start,
-//! and no text from the speech provider for short dictations on the reference Mac. Thus the
-//! capture uses the built-in microphone of the Mac when the default input is a Bluetooth device.
+//! and short dictations that can give no text from the speech provider. Thus the capture uses the
+//! built-in microphone of the Mac when the default input is a Bluetooth device.
 
 use coreaudio::audio_unit::Scope;
 use coreaudio::audio_unit::macos_helpers::{
