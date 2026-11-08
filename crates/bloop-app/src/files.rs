@@ -131,7 +131,7 @@ pub(crate) mod tests {
 
     use super::{FileError, create_temporary, line, read_bounded, replace, write_if_missing};
 
-    /// Creates an empty folder for one test of the settings files. The test removes it at the end.
+    /// Creates an empty folder for one test of the files. The test removes it at the end.
     pub(crate) fn scratch_dir(test: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -102,29 +102,14 @@ fn rotate(path: &Path, limit: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use super::*;
+    use crate::files::tests::scratch_dir;
 
     const LIMIT: u64 = 8;
 
-    fn scratch_dir(test: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "bloop-logging-{test}-{}-{nanos}",
-            std::process::id()
-        ));
-        fs::create_dir(&dir).unwrap();
-        dir
-    }
-
     #[test]
     fn keeps_a_file_at_or_below_the_limit() {
-        let dir = scratch_dir("below");
+        let dir = scratch_dir("logging-below");
         let log = dir.join("bloop.log");
         let previous = dir.join("bloop.log.1");
 
@@ -143,7 +128,7 @@ mod tests {
 
     #[test]
     fn moves_a_file_above_the_limit() {
-        let dir = scratch_dir("above");
+        let dir = scratch_dir("logging-above");
         let log = dir.join("bloop.log");
         let previous = dir.join("bloop.log.1");
         fs::write(&log, b"123456789").unwrap();
@@ -157,7 +142,7 @@ mod tests {
 
     #[test]
     fn replaces_the_older_previous_file() {
-        let dir = scratch_dir("replace");
+        let dir = scratch_dir("logging-replace");
         let log = dir.join("bloop.log");
         let previous = dir.join("bloop.log.1");
         fs::write(&previous, b"old").unwrap();
@@ -172,7 +157,7 @@ mod tests {
 
     #[test]
     fn ignores_a_missing_file() {
-        let dir = scratch_dir("missing");
+        let dir = scratch_dir("logging-missing");
         let log = dir.join("bloop.log");
 
         rotate(&log, LIMIT).unwrap();
@@ -184,7 +169,7 @@ mod tests {
 
     #[test]
     fn reports_a_failed_rename_and_keeps_the_file() {
-        let dir = scratch_dir("rename");
+        let dir = scratch_dir("logging-rename");
         let log = dir.join("bloop.log");
         let previous = dir.join("bloop.log.1");
         fs::create_dir(&previous).unwrap();
