@@ -240,7 +240,7 @@ type WeakOrb = MainThreadBound<(Weak<RefCell<Orb>>, MainThreadMarker)>;
 /// Applies `step` to the orb, then schedules the next step that it returns.
 ///
 /// If a step is running, `step` goes to the end of the main queue. Thus a step never runs
-/// inside another step, and the orb loses no step.
+/// inside another step, and no [`Overlay`] call is lost.
 fn run(
     shared: &Rc<RefCell<Orb>>,
     mtm: MainThreadMarker,
@@ -266,6 +266,8 @@ fn run(
 }
 
 /// Runs `step` on the main queue after `delay`, if the orb exists and its epoch is still `epoch`.
+///
+/// Unlike [`run`], it drops a due step when a step is running, as it drops a stale one.
 fn schedule(target: WeakOrb, epoch: u64, delay: Duration, step: fn(&mut Orb) -> Next) {
     scheduler::run_after(delay, move || {
         target.get_on_main(|(orb, mtm)| {
