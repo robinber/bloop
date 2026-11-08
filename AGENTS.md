@@ -77,8 +77,8 @@ The workspace manifests are the source of truth. When they change, update this s
     `NSPasteboard` and its data provider, `NSWorkspace` and the sleep notification observer
     on its `NSNotificationCenter`, and `NSRunningApplication`.
   - Core Animation layers and animations.
-  - Core Graphics event taps and posted events: `CGEventTapCreate`, `CGEventTapEnable`, `CGEventPost`, and
-    `CGEventSourceCounterForEventType`.
+  - Core Graphics event taps and posted events: `CGEventTapCreate`, `CGEventTapEnable`, `CGEventPost`,
+    `CGEventSourceCounterForEventType`, and the run loop source of the tap in `kCFRunLoopCommonModes`.
   - `IsSecureEventInputEnabled`, Accessibility and Input Monitoring permission checks, Keychain access,
     and the main dispatch queue.
   - The AVFoundation microphone authorization status and request.

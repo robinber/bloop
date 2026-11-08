@@ -7,7 +7,7 @@
 
 #![expect(
     unsafe_code,
-    reason = "the event tap calls a C callback with a context pointer that the compiler cannot check"
+    reason = "the event tap calls a C callback with a context pointer that the compiler cannot check, and its run loop source reads the Core Foundation constant kCFRunLoopCommonModes, an external static"
 )]
 
 use std::cell::{Cell, OnceCell};
