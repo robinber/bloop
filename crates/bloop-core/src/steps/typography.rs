@@ -3,7 +3,7 @@
 use std::future;
 
 use crate::error::StepError;
-use crate::ports::ai::{BoxFuture, StepContext, StepOutcome, TextStep};
+use crate::ports::ai::{BoxFuture, StepContext, TextStep};
 
 /// Replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) with a normal space
 /// when it comes immediately before `?`, `!`, `:`, `;`, or `»`, or immediately after `«`.
@@ -22,8 +22,8 @@ impl TextStep for Typography {
         &'a self,
         text: &'a str,
         _context: &'a StepContext,
-    ) -> BoxFuture<'a, Result<StepOutcome, StepError>> {
-        Box::pin(future::ready(Ok(StepOutcome::Applied(normalize(text)))))
+    ) -> BoxFuture<'a, Result<String, StepError>> {
+        Box::pin(future::ready(Ok(normalize(text))))
     }
 }
 
@@ -54,13 +54,10 @@ fn normalize(text: &str) -> String {
 mod tests {
     use super::Typography;
     use crate::fakes::{context, resolve};
-    use crate::ports::ai::{StepOutcome, TextStep};
+    use crate::ports::ai::TextStep;
 
     fn typography(text: &str) -> String {
-        match resolve(Typography.apply(text, &context())) {
-            Ok(StepOutcome::Applied(text)) => text,
-            other => panic!("{other:?}"),
-        }
+        resolve(Typography.apply(text, &context())).unwrap()
     }
 
     #[test]

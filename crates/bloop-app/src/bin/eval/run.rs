@@ -72,13 +72,13 @@ pub(crate) struct Outcome {
 }
 
 impl Outcome {
-    /// Returns the steps that did not apply, with their result, or `None` when each step applied.
-    /// When the correction did not apply, the final text is the raw transcript after the other steps.
+    /// Returns the steps that failed, with their result, or `None` when each step applied.
+    /// When the correction failed, the final text is the raw transcript after the other steps.
     pub(crate) fn fallback(&self) -> Option<String> {
         let reasons: Vec<String> = self
             .report
             .iter()
-            .filter(|report| !matches!(report.result, StepResult::Applied))
+            .filter(|report| matches!(report.result, StepResult::Failed(_)))
             .map(|report| format!("{} {:?}", report.step, report.result))
             .collect();
         (!reasons.is_empty()).then(|| reasons.join(", "))

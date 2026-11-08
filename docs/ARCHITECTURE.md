@@ -140,8 +140,8 @@ It applies the sample rate, the delay setting, the language, and the dictionary 
 
 ## Correction pipeline
 
-The pipeline (`bloop-core/src/pipeline.rs`) applies the text steps of a generation in order. Each step returns an applied text, a skip reason, or a typed error.
-A failed or skipped step preserves its input for the next step. An empty transcript runs no step and gives `NothingHeard` (`pipeline.rs` tests).
+The pipeline (`bloop-core/src/pipeline.rs`) applies the text steps of a generation in order. Each step returns its text or a typed error.
+A failed step preserves its input for the next step. An empty transcript runs no step and gives `NothingHeard` (`pipeline.rs` tests).
 
 With the correction off, the step list is empty and the raw transcript is the final text. With the correction on, `steps::correction` gives:
 
@@ -150,7 +150,6 @@ With the correction off, the step list is empty and the raw transcript is the fi
 3. `Trim` removes `\n` and `\r` at the start and the end. It keeps the spaces (`steps/trim.rs` tests).
 
 - A failed correction therefore keeps the transcript, and typography and trim still apply (`pipeline.rs` tests: `a_failed_correction_keeps_the_raw_transcript_and_the_next_steps_run`; `worker/tests.rs`: `a_failed_correction_keeps_the_raw_transcript`).
-- The minimum word count and the character ratio of `LlmRefine` are off in the application and in `eval` (`steps/mod.rs` tests).
 - Each correction request has a limit of 8 s, including its response body (`CORRECTION_LIMIT` in `main.rs`, applied by the HTTP client; `mistral/chat.rs` tests: `a_provider_slower_than_the_limit_gives_timeout`, `a_body_that_stalls_after_the_headers_gives_timeout`).
 - The chat adapter sends `model`, the two messages, `max_tokens`, `temperature` 0, `reasoning_effort`, and `stream: false`. It maps `stop` to `Complete`, `length` and `model_length` to `Truncated`, and other reasons to `Other`.
 - Without a chat model, for example without an API key, a job with the correction on keeps the raw transcript (`worker/tests.rs`: `without_a_chat_model_a_job_with_the_correction_on_keeps_the_raw_transcript`).
@@ -245,7 +244,7 @@ The event tap (`bloop-macos/src/keys.rs`) is an active session tap on key down, 
 
 ## Privacy rules
 
-- `Transcript`, `FinalText`, `AudioChunk`, `ChatRequest`, `ChatReply`, `StepOutcome`, `Prompt`, `Dictionary`, and the provider `Text` type redact their content in `Debug`. `TranscriptionOptions` shows the vocabulary count, not the entries (tests in `domain.rs`, `ports/ai.rs`, `prompts.rs`, `dictionary.rs`, and `transcribe/tests.rs`).
+- `Transcript`, `FinalText`, `AudioChunk`, `ChatRequest`, `ChatReply`, `Prompt`, `Dictionary`, and the provider `Text` type redact their content in `Debug`. `TranscriptionOptions` shows the vocabulary count, not the entries (tests in `domain.rs`, `ports/ai.rs`, `prompts.rs`, `dictionary.rs`, and `transcribe/tests.rs`).
 - API keys are `SecretString`. The `Authorization` header is marked sensitive, and the `Debug` of both adapters shows `REDACTED` (`chat.rs` tests: `the_debug_of_the_adapter_shows_no_key`, `the_authorization_header_carries_the_key`; `transcribe/tests.rs`: `the_debug_of_the_adapter_shows_no_key_and_the_authorization_header_is_sensitive`). The key never enters settings, command arguments, logs, or error messages.
 - Provider errors use local categories and HTTP status codes. The HTTP adapter does not read error bodies, and logs no finish strings. The WebSocket adapter logs no error details, unknown event types, close reasons, or the headers and body of a refused handshake. A response that does not decode logs only the serde category, because the serde message can quote a provider value (`chat.rs` tests: `an_http_error_body_never_enters_logs`, `an_unknown_finish_reason_is_logged_only_as_a_local_category`, `a_body_that_does_not_decode_logs_only_the_category`; `transcribe/tests.rs`: `provider_errors_and_unknown_event_types_never_enter_logs`, `a_refused_handshake_logs_only_its_status`, `a_close_reason_never_enters_logs`, `a_known_event_that_does_not_decode_logs_only_the_category`).
 - Logs record durations, counts, controlled error categories, the bundle identifier of the frontmost application at key press with the correction on, the bundle identifier of an application that a menu change adds or removes, the frontmost application at key release, and nonsecret settings such as the model identifiers. They never contain audio, text, prompt text, dictionary entries, or file content. Settings errors give a line, never the parser message.

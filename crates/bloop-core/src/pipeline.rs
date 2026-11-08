@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::domain::{FinalText, Generation, Transcript};
 use crate::error::StepError;
-use crate::ports::ai::{SkipReason, StepContext, StepOutcome, TextStep};
+use crate::ports::ai::{StepContext, TextStep};
 use crate::session::Event;
 
 /// The text steps of one generation, in order.
@@ -26,8 +26,6 @@ pub struct StepReport {
 pub enum StepResult {
     /// The text of the step replaced the previous text.
     Applied,
-    /// The step did not change the text.
-    Skipped(SkipReason),
     /// The step failed. The previous text continued to the next step.
     Failed(StepError),
 }
@@ -79,7 +77,7 @@ impl Pipeline {
     ///
     /// A transcript that contains only whitespace gives no text and an empty report.
     /// Otherwise each step gets the current text, and an applied step replaces it.
-    /// After a skip or a failure, the text from before that step continues to the next step.
+    /// After a failure, the text from before that step continues to the next step.
     /// The final text is the text after the last step.
     pub async fn process(&self, transcript: Transcript, context: &StepContext) -> Processed {
         if transcript.as_str().trim().is_empty() {
@@ -91,13 +89,11 @@ impl Pipeline {
         let mut text = FinalText::from(transcript);
         let mut report = Vec::with_capacity(self.steps.len());
         for step in &self.steps {
-            let outcome = step.apply(text.as_str(), context).await;
-            let result = match outcome {
-                Ok(StepOutcome::Applied(changed)) => {
+            let result = match step.apply(text.as_str(), context).await {
+                Ok(changed) => {
                     text = FinalText::new(changed);
                     StepResult::Applied
                 }
-                Ok(StepOutcome::Skipped(reason)) => StepResult::Skipped(reason),
                 Err(error) => StepResult::Failed(error),
             };
             report.push(StepReport {
@@ -121,9 +117,9 @@ mod tests {
     use crate::domain::{Generation, Transcript};
     use crate::error::{ProviderError, StepError};
     use crate::fakes::{FakeChat, Sent, context, resolve};
-    use crate::ports::ai::{ChatModel, Finish, SkipReason, TextStep};
+    use crate::ports::ai::{ChatModel, Finish, TextStep};
     use crate::session::Event;
-    use crate::steps::{LlmRefine, Trim, Typography};
+    use crate::steps::{self, LlmRefine};
 
     const PROMPT: &str = "Corrige la ponctuation.";
     const RAW: &str = "euh il est trois heures\u{a0}? c’est l’heure\n";
@@ -135,8 +131,11 @@ mod tests {
         LlmRefine::new(Arc::clone(model) as Arc<dyn ChatModel>, PROMPT.to_owned())
     }
 
-    fn correction(refine: LlmRefine) -> Pipeline {
-        Pipeline::new(vec![Arc::new(refine), Arc::new(Typography), Arc::new(Trim)])
+    fn correction(model: &Arc<FakeChat>) -> Pipeline {
+        Pipeline::new(steps::correction(
+            Arc::clone(model) as Arc<dyn ChatModel>,
+            PROMPT.to_owned(),
+        ))
     }
 
     fn run(pipeline: &Pipeline, transcript: &str) -> PipelineOutput {
@@ -167,7 +166,7 @@ mod tests {
     #[test]
     fn a_transcript_without_words_is_nothing_heard_and_no_step_runs() {
         let model = FakeChat::replying(REPLY, Finish::Complete);
-        let pipeline = correction(refine(&model));
+        let pipeline = correction(&model);
 
         for text in ["", " ", "\n\t ", "\u{a0}\n"] {
             let output = run(&pipeline, text);
@@ -194,7 +193,7 @@ mod tests {
     fn each_step_gets_the_text_of_the_previous_step() {
         let model = FakeChat::replying(REPLY, Finish::Complete);
 
-        let output = run(&correction(refine(&model)), RAW);
+        let output = run(&correction(&model), RAW);
 
         assert_eq!(final_text(&output), REPLY_FINAL);
         assert_eq!(
@@ -245,7 +244,7 @@ mod tests {
             ),
         ];
         for (model, expected) in failures {
-            let output = run(&correction(refine(&model)), RAW);
+            let output = run(&correction(&model), RAW);
 
             assert_eq!(final_text(&output), RAW_FINAL, "{expected}");
             assert_eq!(
@@ -257,49 +256,6 @@ mod tests {
                 ]
             );
         }
-    }
-
-    #[test]
-    fn a_rejected_ratio_keeps_the_raw_transcript() {
-        for (reply, expected) in [
-            ("Oui.", "Failed(Rejected(TooShort))"),
-            (&*RAW.repeat(2), "Failed(Rejected(TooLong))"),
-        ] {
-            let model = FakeChat::replying(reply, Finish::Complete);
-
-            let output = run(&correction(refine(&model).with_ratio(50..=160)), RAW);
-
-            assert_eq!(final_text(&output), RAW_FINAL, "{expected}");
-            assert_eq!(results(&output)[0], ("llm_refine", expected.to_owned()));
-        }
-    }
-
-    #[test]
-    fn a_skipped_correction_keeps_the_raw_transcript_and_the_next_steps_run() {
-        let model = FakeChat::replying(REPLY, Finish::Complete);
-        let pipeline = correction(refine(&model).with_min_words(4));
-
-        let output = run(&pipeline, "Oui\u{a0}!\n");
-
-        assert_eq!(final_text(&output), "Oui !");
-        assert_eq!(model.sent(), [] as [Sent; 0]);
-        assert_matches!(
-            output.report.as_slice(),
-            [
-                StepReport {
-                    step: "llm_refine",
-                    result: StepResult::Skipped(SkipReason::TooFewWords)
-                },
-                StepReport {
-                    step: "typography",
-                    result: StepResult::Applied
-                },
-                StepReport {
-                    step: "trim",
-                    result: StepResult::Applied
-                },
-            ]
-        );
     }
 
     #[test]
@@ -330,7 +286,7 @@ mod tests {
     #[test]
     fn process_gives_no_text_for_a_transcript_without_words_and_no_step_runs() {
         let model = FakeChat::replying(REPLY, Finish::Complete);
-        let pipeline = correction(refine(&model));
+        let pipeline = correction(&model);
 
         for text in ["", " ", "\n\t ", "\u{a0}\n"] {
             let processed = process(&pipeline, text);
@@ -345,7 +301,7 @@ mod tests {
     fn process_gives_the_text_after_the_last_step_and_one_report_for_each_step() {
         let model = FakeChat::replying(REPLY, Finish::Complete);
 
-        let processed = process(&correction(refine(&model)), RAW);
+        let processed = process(&correction(&model), RAW);
 
         assert_eq!(processed.text.unwrap().as_str(), REPLY_FINAL);
         assert_matches!(
@@ -371,7 +327,7 @@ mod tests {
     fn process_keeps_the_text_from_before_a_failed_step() {
         let model = FakeChat::failing(ProviderError::Timeout);
 
-        let processed = process(&correction(refine(&model)), RAW);
+        let processed = process(&correction(&model), RAW);
 
         assert_eq!(processed.text.unwrap().as_str(), RAW_FINAL);
         assert_matches!(
@@ -397,7 +353,7 @@ mod tests {
     fn the_output_debug_shows_no_text() {
         let model = FakeChat::replying(REPLY, Finish::Complete);
 
-        let output = run(&correction(refine(&model)), RAW);
+        let output = run(&correction(&model), RAW);
 
         let debug = format!("{output:?}");
         assert!(!debug.contains("heure"), "{debug}");

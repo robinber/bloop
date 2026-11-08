@@ -14,7 +14,6 @@ use crate::ports::ai::{ChatModel, TextStep};
 
 /// Returns the steps of the correction, in order: `LlmRefine` with `model` and `prompt`, `Typography`, and `Trim`.
 ///
-/// The minimum word count and the character ratio of `LlmRefine` stay off.
 /// The application and the evaluation tool both use this list. Thus a measured result is the result of the application.
 #[must_use]
 pub fn correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Arc<dyn TextStep>> {
@@ -32,7 +31,7 @@ mod tests {
 
     use super::correction;
     use crate::fakes::{FakeChat, context, resolve};
-    use crate::ports::ai::{ChatModel, Finish, StepOutcome, TextStep};
+    use crate::ports::ai::{ChatModel, Finish, TextStep};
 
     const PROMPT: &str = "Corrige la ponctuation.";
 
@@ -50,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn the_correction_sends_the_prompt_and_keeps_the_word_count_and_the_ratio_off() {
+    fn the_correction_sends_each_text_with_the_prompt() {
         let model = FakeChat::replying("À 3 heures.", Finish::Complete);
         let steps = steps(&model);
 
@@ -59,7 +58,7 @@ mod tests {
 
             assert_matches!(
                 outcome,
-                Ok(StepOutcome::Applied(applied)) if applied == "À 3 heures.",
+                Ok(applied) if applied == "À 3 heures.",
                 "{text:?}"
             );
         }

@@ -132,35 +132,6 @@ pub struct StepContext {
     pub language: String,
 }
 
-/// The result of a text step that did not fail.
-///
-/// `Debug` shows only the number of characters, never the text.
-pub enum StepOutcome {
-    /// The step gives this text. It replaces the text of the previous step.
-    Applied(String),
-    /// The step did not change the text.
-    Skipped(SkipReason),
-}
-
-impl fmt::Debug for StepOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Applied(text) => f
-                .debug_struct("Applied")
-                .field("chars", &text.chars().count())
-                .finish(),
-            Self::Skipped(reason) => f.debug_tuple("Skipped").field(reason).finish(),
-        }
-    }
-}
-
-/// The reason why a text step did not change the text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkipReason {
-    /// The text has fewer words than the step requires.
-    TooFewWords,
-}
-
 /// One change to the text after the transcription, for example the correction.
 ///
 /// A step writes no logs. It returns its outcome, and the pipeline adds it to the step report.
@@ -168,19 +139,19 @@ pub trait TextStep: Send + Sync {
     /// The name of the step in the step report.
     fn name(&self) -> &'static str;
 
-    /// Applies the step to `text`, the text after the previous step.
+    /// Applies the step to `text`, the text after the previous step, and returns the text that replaces it.
     fn apply<'a>(
         &'a self,
         text: &'a str,
         context: &'a StepContext,
-    ) -> BoxFuture<'a, Result<StepOutcome, StepError>>;
+    ) -> BoxFuture<'a, Result<String, StepError>>;
 }
 
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU32;
 
-    use super::{ChatReply, ChatRequest, Finish, SkipReason, StepOutcome, TranscriptionOptions};
+    use super::{ChatReply, ChatRequest, Finish, TranscriptionOptions};
 
     #[test]
     fn transcription_options_debug_hides_the_dictionary_terms() {
@@ -211,8 +182,6 @@ mod tests {
             text: "Mot de passe secret.".to_owned(),
             finish: Finish::Complete,
         };
-        let applied = StepOutcome::Applied("secret".to_owned());
-        let skipped = StepOutcome::Skipped(SkipReason::TooFewWords);
 
         assert_eq!(
             format!("{request:?}"),
@@ -222,7 +191,5 @@ mod tests {
             format!("{reply:?}"),
             "ChatReply { chars: 20, finish: Complete }"
         );
-        assert_eq!(format!("{applied:?}"), "Applied { chars: 6 }");
-        assert_eq!(format!("{skipped:?}"), "Skipped(TooFewWords)");
     }
 }

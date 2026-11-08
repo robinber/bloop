@@ -42,10 +42,6 @@ pub enum Rejection {
     Incomplete,
     /// The reply is empty or contains only whitespace.
     Empty,
-    /// The reply has fewer characters than the minimum ratio permits.
-    TooShort,
-    /// The reply has more characters than the maximum ratio permits.
-    TooLong,
 }
 
 /// A failure of the bounded audio queue between the microphone and the worker.
