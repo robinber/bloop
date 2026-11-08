@@ -26,7 +26,7 @@ Supporting files:
 | `prompts/test-set-*.toml` | The French test sets of the `eval` tool |
 | `bundle/Info.plist` | The bundle identity, `LSUIElement`, and the microphone usage text |
 | `bundle/Bloop.icns` | The application icon, made by `scripts/icon.sh` |
-| `assets/branding/` | The SVG sources: README wordmarks, application icon, and menu bar icon |
+| `assets/branding/` | The SVG sources: the logo, the README wordmarks, the application icon, and the menu bar icon |
 | `scripts/bundle.sh` | Release build, application bundle, and code signature |
 | `scripts/icon.sh` | The `.icns` file from `assets/branding/app-icon.svg` |
 | `.claude/skills/rust-strict` | The Rust policy that agents follow, as a git submodule |
@@ -137,3 +137,8 @@ One commit covers one change, and the three gates pass before it.
 Write the documents in English, with short sentences in the present tense. Describe the current behavior only: no plans, no history, and no measurements.
 Keep the exact identifiers of the code, the menu, and the files, such as `hold_ms`, **Correct text**, and `config.toml`.
 When a change alters the behavior, update `README.md`, `docs/SETUP.md`, or `docs/ARCHITECTURE.md` in the same commit, and the package facts of `AGENTS.md` when a manifest changes.
+
+## License
+
+Bloop is distributed under the Apache License, Version 2.0, in [LICENSE](LICENSE).
+Unless you state otherwise, a contribution that you submit for inclusion in Bloop is licensed under the same terms, without additional terms or conditions.

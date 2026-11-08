@@ -25,6 +25,8 @@ The workspace manifests are the source of truth. When they change, update this s
   `bloop-app` has two binaries: `bloop-app` (`default-run`) and the correction evaluation tool `eval`.
 - Version: `0.1.0` for every package, from `[workspace.package]`. `scripts/bundle.sh` copies it to `CFBundleShortVersionString`.
 - Edition: 2024. All packages have `publish = false`. `Cargo.lock` is under version control.
+- License: `Apache-2.0`, with the repository URL, from `[workspace.package]`. Every package inherits both.
+  The license text is `LICENSE`.
 - Declared MSRV (`rust-version`): 1.99. This declaration does not prove compatibility without an MSRV check.
 - Toolchain policy: stable, without `rust-toolchain.toml`. Report the actual toolchain when running checks.
   Do not introduce nightly without a documented need.
