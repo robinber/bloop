@@ -1,4 +1,5 @@
 //! The HTTP client of the chat adapters, and the conversion of HTTP failures to `ProviderError`.
+//! The WebSocket adapter maps the status of a refused handshake with `status_error` too.
 //!
 //! The logs contain only the HTTP status and local failure categories.
 //! Error response bodies are not read or logged.
@@ -10,7 +11,7 @@ use std::time::Duration;
 use bloop_core::error::ProviderError;
 use http_body_util::{BodyExt as _, Full, LengthLimitError, Limited};
 use hyper::body::Bytes;
-use hyper::{Request, StatusCode, Version};
+use hyper::{Request, Version};
 use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::{self, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
@@ -85,6 +86,8 @@ async fn exchange(
     let version = response.version();
     let status = response.status();
     if !status.is_success() {
+        let status = status.as_u16();
+        tracing::warn!(status, "the provider answered with an HTTP error");
         return Err(status_error(status));
     }
     let body = timeout_at(
@@ -102,9 +105,8 @@ fn expired() -> ProviderError {
     ProviderError::Timeout
 }
 
-fn status_error(status: StatusCode) -> ProviderError {
-    let status = status.as_u16();
-    tracing::warn!(status, "the provider answered with an HTTP error");
+/// Maps an HTTP error status of the provider. 401 and 403 mean that the provider refused the API key.
+pub(crate) fn status_error(status: u16) -> ProviderError {
     match status {
         401 | 403 => ProviderError::Unauthorized,
         _ => ProviderError::Http(status),

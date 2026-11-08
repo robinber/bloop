@@ -22,6 +22,7 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
 
 use super::TranscribeConfig;
+use crate::http;
 
 const URL: &str = "wss://api.mistral.ai/v1/audio/transcriptions/realtime";
 
@@ -318,10 +319,7 @@ fn transport_error(error: WsError) -> ProviderError {
         WsError::Http(response) => {
             let status = response.status().as_u16();
             tracing::warn!(status, "the provider refused the connection");
-            match status {
-                401 | 403 => ProviderError::Unauthorized,
-                _ => ProviderError::Http(status),
-            }
+            http::status_error(status)
         }
         WsError::Io(_)
         | WsError::Tls(_)
