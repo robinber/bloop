@@ -39,7 +39,7 @@ use crate::menu::{AppMenu, Facts};
 use crate::settings::Paths;
 use crate::worker::Spawner;
 
-/// The time limit of each correction request: an initial value, not measured.
+/// The time limit of each correction request, including its response body.
 const CORRECTION_LIMIT: Duration = Duration::from_secs(8);
 
 fn main() -> ExitCode {
@@ -115,5 +115,6 @@ fn main() -> ExitCode {
     });
 
     app.run();
+    events::clear_handler(mtm);
     ExitCode::SUCCESS
 }

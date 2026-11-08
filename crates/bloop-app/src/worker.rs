@@ -102,8 +102,8 @@ pub(crate) struct Limits {
 }
 
 impl Default for Limits {
-    /// Initial values, not measured: connection 5 s, inactivity 5 s, and completion 15 s.
-    /// Phase 2 measurements replace them.
+    /// Operation limits: connection 5 s, inactivity 5 s, and completion 15 s.
+    /// These are configured bounds, not measured latencies.
     fn default() -> Self {
         Self {
             connection: Duration::from_secs(5),

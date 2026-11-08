@@ -2,7 +2,11 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read as _, Write as _};
-use std::path::Path;
+use std::os::unix::fs::OpenOptionsExt as _;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
 
 /// Why Bloop cannot use the text of a file. It contains no file content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,26 +72,57 @@ pub(crate) fn write_if_missing(path: &Path, text: &str) -> io::Result<bool> {
 }
 
 /// Writes `text` to a temporary file in the folder of `path`, then renames it to `path`.
-/// Thus a failed write never leaves a partial file.
+/// Each write owns its temporary file. A failed write or rename attempts to remove that file.
 pub(crate) fn replace(path: &Path, text: &str) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let temporary = path.with_added_extension("tmp");
-    let mut file = File::create(&temporary)?;
-    file.write_all(text.as_bytes())?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)
+    let (temporary, mut file) = create_temporary(path)?;
+    let written = file
+        .write_all(text.as_bytes())
+        .and_then(|()| file.sync_all());
+    drop(file);
+    let result = written.and_then(|()| fs::rename(&temporary, path));
+    if result.is_err()
+        && let Err(cleanup) = fs::remove_file(&temporary)
+    {
+        tracing::warn!(kind = ?cleanup.kind(), "the temporary file is not removed");
+    }
+    result
+}
+
+/// Creates a private file next to `path`, without opening or truncating an existing file.
+/// A reused process identifier can meet a file left by an interrupted write, so collisions get a new name.
+fn create_temporary(path: &Path) -> io::Result<(PathBuf, File)> {
+    for _ in 0..16 {
+        // Only uniqueness matters. The counter publishes no other state.
+        let sequence = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
+        let temporary = path.with_added_extension(format!("tmp.{}.{sequence}", std::process::id()));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+        {
+            Ok(file) => return Ok((temporary, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no unused temporary file name",
+    ))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
-    use std::io;
+    use std::io::{self, Write as _};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{FileError, read_bounded, replace, write_if_missing};
+    use super::{FileError, create_temporary, read_bounded, replace, write_if_missing};
 
     /// Creates an empty folder for one test of the settings files. The test removes it at the end.
     pub(crate) fn scratch_dir(test: &str) -> PathBuf {
@@ -170,6 +205,59 @@ pub(crate) mod tests {
             "schema = 1\n\n[refine]\nenabled = true\n"
         );
         assert!(!path.with_added_extension("tmp").exists());
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn replace_does_not_touch_an_existing_shared_temporary_file() {
+        let dir = scratch_dir("replace-existing-temporary");
+        let path = dir.join("config.toml");
+        let existing = path.with_added_extension("tmp");
+        fs::write(&existing, "another write").unwrap();
+
+        replace(&path, "schema = 1\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "schema = 1\n");
+        assert_eq!(fs::read_to_string(&existing).unwrap(), "another write");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn overlapping_writers_cannot_change_a_file_that_another_writer_published() {
+        let dir = scratch_dir("replace-overlap");
+        let path = dir.join("config.toml");
+        let (first_path, mut first) = create_temporary(&path).unwrap();
+        let (second_path, mut second) = create_temporary(&path).unwrap();
+
+        first.write_all(b"first").unwrap();
+        drop(first);
+        fs::rename(&first_path, &path).unwrap();
+        second.write_all(b"second").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"first");
+        drop(second);
+        fs::rename(&second_path, &path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_rename_removes_its_temporary_file() {
+        let dir = scratch_dir("replace-failed-rename");
+        let path = dir.join("config.toml");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("keep"), "existing content").unwrap();
+
+        assert!(replace(&path, "schema = 1\n").is_err());
+
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(
+            fs::read_to_string(path.join("keep")).unwrap(),
+            "existing content"
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 }

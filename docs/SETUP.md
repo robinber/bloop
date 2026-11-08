@@ -73,10 +73,10 @@ written = "Voxtral"
 ```
 
 Each entry needs a non-empty `written` value. The file size is at most 256 KiB.
-The optional `heard` field stores the form that Bloop writes now. It does not affect transcription or correction yet.
+The optional `heard` field is retained as metadata. It does not affect transcription or correction.
 
 Bloop reads the dictionary again at each dictation. A change applies from the next dictation, without restart.
-Without the file, the dictionary is empty. An invalid file prevents dictation. The menu shows the error and its line.
+Without the file, the dictionary is empty. An invalid file prevents dictation. The menu shows the error and its line when available.
 
 ## Settings file
 
@@ -94,7 +94,7 @@ Each key is optional. A missing key has its default value:
 | `[dictation] language` | `"fr"` | Two lowercase ASCII letters |
 | `[transcriber] provider` | `"mistral"` | The speech provider. It is necessary when the table exists. |
 | `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The transcription model |
-| `[transcriber] target_streaming_delay_ms` | `480` | The balance between delay and accuracy, in milliseconds |
+| `[transcriber] target_streaming_delay_ms` | `480` | Provider delay setting, in milliseconds. Bloop sends this value without local range validation. |
 | `[chat] provider` | `"mistral"` | The correction provider. It is necessary when the table exists. |
 | `[chat] model` | `"mistral-medium-latest"` | The correction model. **Model** in the menu selects it. |
 | `[chat] models` | `["mistral-medium-latest", "mistral-small-latest"]` | The correction models that the **Model** submenu lists |
@@ -108,8 +108,10 @@ The **Hold delay** submenu lists 150, 220, 300, and 400 ms. Another value of the
 
 A change in the file applies from the next dictation, without restart. A new API key still needs a restart.
 Each time you open the menu, the checkmark of **Correct text** shows the value in the file.
-An invalid file prevents dictation. The menu shows the line of the key, or of its table, and hides **Correct text**.
+An invalid file prevents dictation. The menu shows its error and hides **Correct text**.
+When available, the error includes the line of the key or its table.
 In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table.
+Model identifiers and provider options are sent to the API. A valid TOML file does not guarantee that the provider accepts those values.
 
 ### Prompts
 
@@ -169,8 +171,10 @@ The tool sends each sample to the provider. The samples are invented and contain
 - **No recording:** check the menu for missing permissions, then quit and open Bloop again.
 - **Missing API key:** add the key with the command above, then quit and open Bloop again.
 - **The provider refused the API key:** store a valid key with the command above, then quit and open Bloop again.
-- **Red recording indicator after a file edit:** the menu shows the file and the line of the error.
+- **Red recording indicator after a file edit:** the menu shows the file error and its line when available.
   Select the line to open the file or the prompts folder. An invalid file prevents dictation until you fix it.
 - **Text was not inserted:** select **Copy last result** in the menu, then paste manually.
 
 Logs are in `~/Library/Logs/Bloop/bloop.log`.
+At startup, a file larger than 5 MiB moves to `bloop.log.1`, replacing the previous backup.
+The active file can grow beyond 5 MiB until the next startup.

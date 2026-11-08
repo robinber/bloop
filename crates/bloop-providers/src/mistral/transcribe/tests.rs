@@ -18,9 +18,10 @@ use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, accept_hdr_async};
 
 use super::{
-    DRAIN_LIMIT, LOG_EXCERPT, MAX_MESSAGE_SIZE, ServerEvent, Session, Text, TranscribeConfig,
-    Transcriber, excerpt,
+    DRAIN_LIMIT, MAX_MESSAGE_SIZE, ServerEvent, Session, Text, TranscribeConfig, Transcriber,
+    decode, unexpected,
 };
+use crate::test_log::Log;
 
 const KEY: &str = "test-key";
 const MODEL: &str = "voxtral-test";
@@ -575,10 +576,30 @@ fn the_debug_of_a_delta_event_shows_no_text() {
 }
 
 #[test]
-fn an_excerpt_ends_at_the_last_char_boundary_before_the_limit() {
-    let long = format!("a{}", "é".repeat(150));
-    assert!(!long.is_char_boundary(LOG_EXCERPT));
+fn provider_errors_and_unknown_event_types_never_enter_logs() {
+    const PRIVATE: &str = "private-dictation-and-key-sentinel";
+    let log = Log::default();
+    tracing::subscriber::with_default(log.clone(), || {
+        let body = json!({
+            "type": "error",
+            "error": { "message": PRIVATE, "code": PRIVATE },
+        });
+        let event = decode(Some(Ok(Message::text(body.to_string()))))
+            .unwrap()
+            .unwrap();
+        assert_eq!(unexpected(&event), ProviderError::InvalidResponse);
+        assert!(!format!("{event:?}").contains(PRIVATE));
 
-    assert_eq!(excerpt(&long), format!("a{}", "é".repeat(99)));
-    assert_eq!(excerpt("Invalid session"), "Invalid session");
+        let unknown = json!({ "type": PRIVATE });
+        assert!(
+            decode(Some(Ok(Message::text(unknown.to_string()))))
+                .unwrap()
+                .is_none()
+        );
+    });
+
+    let output = log.text();
+    assert!(output.contains("the provider sent an error"));
+    assert!(output.contains("the provider sent an event that the adapter does not use"));
+    assert!(!output.contains(PRIVATE), "{output}");
 }

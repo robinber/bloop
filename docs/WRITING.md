@@ -1,8 +1,8 @@
 # Writing rules
 
 The repository uses Markdown and ASD-STE100 Simplified Technical English.
-Use [ASD-STE100 Issue 9](https://www.asd-ste100.org/) as the language reference.
-The current documents are drafts. A complete STE vocabulary review remains open.
+Use [ASD-STE100](https://www.asd-ste100.org/) as the language reference.
+The rules below guide the writing. They do not certify full STE compliance.
 
 ## Review checks
 
@@ -16,7 +16,8 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 - Use dictionary words with their approved meaning and part of speech.
 - Preserve official names, API fields, and Rust identifiers.
 - Define project terms before their first use.
-- Identify proposals and test results separately.
+- Describe the current implementation. Keep plans and historical experiments out of the reference documents.
+- Distinguish implementation limits from measured results. Claim only checks that actually ran.
 
 ## Project terms
 
@@ -51,8 +52,6 @@ The current documents are drafts. A complete STE vocabulary review remains open.
 | Status menu | The menu of the Bloop item in the menu bar |
 | Paste command | The Command-V event that Bloop posts |
 | Dictionary | The user list of written forms, with an optional form that Bloop writes now |
-| Suggestion | A dictionary entry that Bloop proposes after the user edits a pasted text |
 | Driver | The `bloop-app` component that sends events to the core and executes its commands |
-| MVP | Minimum viable product; the smallest version that proves the complete process |
 
-This term list supports a later vocabulary review. It does not replace the STE dictionary.
+This term list does not replace the STE dictionary.

@@ -40,6 +40,24 @@ pub fn set_handler(_mtm: MainThreadMarker, handler: impl FnMut(Event) + 'static)
     }
 }
 
+/// Removes the handler and drops the components it owns after the run loop returns.
+/// Events that arrive later have no handler.
+pub fn clear_handler(_mtm: MainThreadMarker) {
+    let removed = HANDLER.try_with(|slot| {
+        let Ok(mut slot) = slot.try_borrow_mut() else {
+            return Err(());
+        };
+        Ok(slot.take())
+    });
+    match removed {
+        // Drop outside the borrow, because component cleanup can call AppKit.
+        Ok(Ok(handler)) => drop(handler),
+        Ok(Err(())) | Err(_) => {
+            tracing::error!("the event handler cannot be removed while it runs")
+        }
+    }
+}
+
 /// Gives the event to the handler. Call it only from a block on the main queue.
 ///
 /// If the handler is running, the event goes to the end of the main queue. Thus the handler

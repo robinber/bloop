@@ -161,7 +161,10 @@ impl Layers {
             HINT_SIZE,
             &CGColor::new_srgb(0.62, 0.62, 0.66, 1.0),
         );
-        set_string(&hint, Some(ns_string!("Copied, press ⌘V")));
+        set_string(
+            &hint,
+            Some(ns_string!("Use Copy last result in the Bloop menu")),
+        );
         pill.addSublayer(&hint);
 
         let layers = Self {

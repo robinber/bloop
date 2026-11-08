@@ -17,11 +17,11 @@ Hold **Right Command**, speak, then release the key to insert your words into th
 - A small recording indicator that follows your voice level.
 - Clipboard restoration after a successful paste, with manual text recovery from the menu.
 
-Bloop is in active development for personal use. It has been tested on one Apple silicon Mac running macOS 27.
+Bloop is for personal use on Apple silicon with macOS 27.
 
 ## Installation
 
-You need an Apple silicon Mac, Rust 1.99 or later, Xcode Command Line Tools, and a Mistral API key.
+You need an Apple silicon Mac, Rust 1.99 or later, Xcode Command Line Tools, Python 3, and a Mistral API key.
 Bloop requires an internet connection.
 
 Clone the repository:
@@ -50,17 +50,18 @@ open target/release/Bloop.app
 Press **Escape** during recording to cancel. Bloop sets no maximum recording duration.
 
 In the menu bar, select **Correct text** to enable correction for subsequent dictations.
-Bloop keeps this choice when it starts again. If correction fails or exceeds eight seconds, Bloop uses the raw transcript.
+Bloop keeps this choice when it starts again. If correction fails or exceeds eight seconds, Bloop keeps the transcript and applies typography cleanup.
 The **Prompt**, **Model**, and **Hold delay** submenus select the correction prompt, the correction model, and the hold time of the key.
 
 Select **Copy last result** to recover the most recent result for manual paste.
+If a paste is uncertain, the indicator shows a recovery card. The clipboard can contain other content, so use the menu before pasting manually.
 The menu shows setup problems and file errors. It also opens the settings file, the prompts folder, and the dictionary.
 See the [dictionary setup](docs/SETUP.md#dictionary) to add names and technical terms.
 
 ## Data
 
 Audio and dictionary terms go directly to Mistral for transcription.
-When correction is enabled, the transcript also goes to the Mistral chat model.
+When correction is enabled, the transcript and selected prompt also go to the Mistral chat model.
 API keys stay in macOS Keychain.
 
 ## Development
@@ -73,4 +74,4 @@ cargo test --workspace
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Code structure](docs/STRUCTURE.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Behavioral contracts](docs/CONTRACTS.md)

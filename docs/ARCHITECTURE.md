@@ -1,687 +1,124 @@
 # Architecture
 
-Status: Proposed design, revision 23 (2026-11-08). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Bloop is a personal macOS dictation app. It uses Rust, native AppKit, and direct connections to Mistral.
+The interface consists of a menu bar item and a recording indicator. There is no web view or application server.
 
-## Principles
+The [source map](STRUCTURE.md) describes the crate boundaries. The [contracts](CONTRACTS.md) define the invariants.
 
-- Bloop does one task: dictation into the focused field.
-- The behavior follows Tabi. The design stays small.
-- All code uses Rust. The interface uses AppKit through `objc2`. Bloop has no web view.
-- Bloop never loses the text. If a paste is not possible, Bloop shows the text and copies it.
-- Bloop is provider-agnostic. Ports in `bloop-core` hide the providers. Mistral is the default provider and the only adapter today.
-- A feature that is off does not change the dictation path. Phase 3 adds a correction toggle; Phase 4 adds the settings file, lists in the status menu, and clear errors.
-
-## Process
-
-Phase 1 proves the key, orb, and insertion with fixed text.
-Phase 2 adds streaming transcription. Phase 3 adds optional correction, one menu toggle, and a daily-use trial.
-Phase 4 adds the settings file, lists in the status menu, and clear errors.
-Streaming is the only STT path.
+## Dictation flow
 
 ```text
-Right Command held for 220 ms
-    -> the orb opens, capture starts, and the provider connection opens
-    -> audio chunks go to the speech provider while the user speaks
-Right Command released
-    -> the capture stops and the orb closes
-    -> queued audio drains, the converter flushes, and the stream ends
-    -> the speech provider returns the complete transcript
-    -> when the correction is on: correction, typography, trim
-    -> clipboard save, target check, then paste or fallback card
-    -> the orb closes
+Right Command down -> settings snapshot -> hold timer
+Hold threshold     -> microphone -> bounded queue -> converter -> provider stream
+Right Command up   -> target snapshot -> stop microphone -> drain and finish stream
+Complete transcript -> optional correction -> ordered insertion -> clipboard recovery
 ```
 
-## Code structure
+The hold threshold defaults to 220 ms. Recording starts after this threshold, so the user must wait for the indicator before speaking.
+Right Command combinations remain available. Escape or other input cancels the active capture.
+System sleep cancels the capture and all jobs. Recording has no maximum duration.
 
-Bloop is one Cargo workspace with five crates. The [code structure](STRUCTURE.md) gives the details.
+The core has one capture state: `Idle`, `Pending`, or `Listening`.
+After release, a job moves through `Processing`, `Ready`, and `Inserting`.
+Up to three jobs can exist. A new capture can start while earlier jobs run, and insertion follows capture order.
+Each generation identifies one dictation. Results from cancelled generations have no effect.
 
-| Crate | Responsibility |
+## Threads and ownership
+
+| Context | Work |
 | --- | --- |
-| `bloop-core` | Domain types, session state machine, pipeline, text steps, and ports |
-| `bloop-providers` | AI providers; one module for each vendor |
-| `bloop-audio` | Microphone capture and incremental PCM conversion |
-| `bloop-macos` | AppKit, event tap, orb, paste, menu, and Keychain |
-| `bloop-app` | Executable: settings, construction, and driver |
+| Main thread | AppKit, event tap, core, driver, settings, menu, indicator, and clipboard |
+| Audio callback | Mono mixing, sample queue writes, and atomic level and failure updates |
+| Tokio worker | Incremental conversion, network I/O, and correction |
 
-The [Rust contracts](CONTRACTS.md) define the types and the ports.
-The core receives events and returns commands. The driver executes the commands through the ports.
-Unit tests drive the core with event sequences, without macOS.
+The audio callback uses preallocated storage. It does not allocate, lock, log, or wait for network I/O.
+One Tokio worker thread runs the asynchronous tasks. The worker waits 20 ms between queue-drain and send cycles.
+During provider operations, it checks queue failures at the same interval. Network sends can extend a cycle.
+The driver owns work handles by generation. Cancellation aborts the work and releases its queue and connection.
+A supervising task converts a work-task panic to `AppError::Internal`.
+Events return through the main dispatch queue.
 
-## Threads
+## Audio and transcription
 
-| Thread | Work |
+Bloop uses the default input. If it is a Bluetooth device, Bloop selects the built-in microphone when one exists.
+The microphone runs at its native rate. The worker converts mono samples to signed 16-bit little-endian PCM at 16 kHz.
+The converter uses filtered resampling and removes its own delay.
+
+The sample queue holds 960,000 samples: 20 seconds at 48 kHz or 10 seconds at 96 kHz.
+Its capacity does not grow with recording duration. An overflow fails the dictation instead of dropping samples silently.
+System audio overruns are counted and logged at capture end. They do not stop capture.
+The worker sends complete 100 ms chunks during capture. At release, it sends the remaining samples without waiting for a full chunk.
+
+One WebSocket connection serves each dictation. The adapter applies the language, dictionary, and delay before sending audio.
+Partial transcripts stay inside the adapter. Only a complete transcript reaches the pipeline.
+Bloop does not reconnect, replay audio, or upload a recording after a streaming failure.
+It stores no audio file or complete local recording.
+
+## Correction
+
+Correction is off by default. When enabled, it applies three steps:
+
+1. `LlmRefine` sends the complete transcript with the selected prompt to the chat model.
+2. `Typography` normalizes French non-breaking spaces around punctuation and converts `’` to `'`.
+3. `Trim` removes leading and trailing line breaks. It preserves spaces.
+
+A failed or skipped step preserves its input for the next step.
+Thus a failed model request retains the transcript, while typography and trim still apply.
+An incomplete or empty model reply is a failure. Bloop cannot detect every change in meaning from a model.
+
+The built-in prompts are `natural-light` and `code`. A user file can override either prompt or add a named prompt.
+The HTTP client and its connection pool are reused while the chat settings stay unchanged.
+The [setup guide](SETUP.md#settings-file) lists the configured model defaults. A model alias can resolve to a different provider version over time.
+
+## Time and size limits
+
+These are implementation limits, not measured latency guarantees.
+
+| Operation | Limit |
 | --- | --- |
-| Main | AppKit run loop, event tap, core, orb, menu, clipboard, and paste command |
-| Audio | `cpal` callback: copies samples to a bounded buffer and updates the level |
-| Worker | Incremental audio conversion, transcription stream, and correction request; asynchronous I/O through Tokio |
-
-- The audio callback does not allocate memory, lock, access files, or wait for the network.
-- The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
-- The worker tasks run on a Tokio runtime with one worker thread, `bloop-worker`.
-- After each audio queue read and its sends, the worker waits 20 ms. The callback does not wake it.
-- The audio level is an atomic value. The orb reads it on the main thread.
-- The worker sends each result to the main queue with its generation.
-- The core ignores a result for an unknown generation, for example a cancelled job.
-- The event tap callback returns quickly. It only sends events to the core.
-
-## Session states
-
-A session has two parts: the capture, then a job.
-The capture uses the microphone and the orb. The job runs without a visible indicator.
-Transcription starts during `Listening`. A job finishes transcription, applies text steps, and attempts insertion.
-The driver creates no insertion result from a partial transcript.
-
-```text
-Capture: Idle -> Pending -> Listening -> Idle
-Job:     Processing -> Ready -> Inserting -> end
-```
-
-| Capture state | Starts when | Ends when |
-| --- | --- | --- |
-| `Pending` | The user presses Right Command alone. | 220 ms pass: `Listening`. Key release or other input: `Idle`, with no signal. |
-| `Listening` | The hold threshold passes. | Key release: `Idle` and a new job. Other input or Escape: `Idle`, with no job. |
-
-| Job status | Starts when | Ends when |
-| --- | --- | --- |
-| `Processing` | The capture stops. | Text: `Ready`. Nothing heard: end, with no paste. Error: end, with the error view if no capture is active. |
-| `Ready` | The final text is available. | All earlier jobs are complete: `Inserting`. |
-| `Inserting` | The paste module receives the text. | Paste or fallback card: end. |
-
-- Bloop permits one capture at a time.
-- A new capture can start while jobs run. Thus the user can dictate again before the previous text lands.
-- Jobs paste their text in session order.
-- No more than 3 jobs exist at the same time: processing, ready, or pasting. If 3 jobs exist when the hold threshold
-  passes, the capture does not start and the orb shows the error view.
-- While a capture is active, the orb shows no error view for an earlier job.
-- A fallback card for an earlier job waits until the capture ends. Then the orb shows it.
-  A capture error or system sleep deletes the card. The text stays in the clipboard and in "Copy last result".
-- Escape cancels the capture. It does not cancel a job.
-- Microphone loss cancels the capture. System sleep cancels the capture and all jobs.
-- Cancellation discards queued audio and stops the associated network task. Capture cancellation also closes the orb.
-- A stream failure during capture stops that capture. After capture, it ends the associated job.
-- Bloop does not reconnect, replay audio, or use file transcription after a stream failure.
-
-## Dictation key
-
-- The event tap runs on the main run loop. It is an active tap, thus it needs Accessibility.
-- Right Command has key code 54. The tap reads it from `flagsChanged` events.
-- A key press or a mouse click during the hold is a combination. The session stops with no signal.
-  Thus Right Command shortcuts and Command-click continue to operate.
-- During `Pending` and `Listening`, the tap blocks Escape. It also blocks the key repeats and the key up of that
-  Escape press, because they can arrive after the capture ends. At other times, Escape goes to the application as usual.
-- macOS disables a tap after a slow callback. The callback enables the tap again when it receives that event.
-  Bloop installs the tap after the slow setup at start, because the run loop does not run before this setup ends.
-  The tap can miss the key release while it is disabled. Thus the interruption ends the hold as a combination.
-- Bloop marks the events that it posts. The tap ignores these events.
-- Secure input stops key events to the tap. In this condition, the dictation key has no effect. This is a known limit.
-- Measured on the reference Mac (macOS 27, 2026-11-01): macOS refuses the tap when Accessibility is missing,
-  also with Input Monitoring. The capture starts 228–231 ms after the key press. The target is 220 ms.
-- The capture starts at the hold threshold, not at key press. Thus Bloop can lose a word that the user says at key press.
-  On 2026-11-05, the owner accepted this limit. The [roadmap](ROADMAP.md) gives the measured microphone start.
-  Later on 2026-11-05, the owner reopened this decision. Phase 5 starts the capture at key press.
-
-## Orb
-
-- The orb is an `NSPanel` with the borderless and nonactivating styles.
-  It never becomes the key window or the main window.
-- The panel ignores mouse events and has a clear background. From Phase 6, it accepts mouse events only while it shows the suggestion card.
-- The panel uses the status window level. It shows on all Spaces and above full-screen applications.
-- The panel opens at the bottom center of the screen that contains the mouse pointer, inside the visible frame.
-- Core Animation layers draw the orb. No timer runs while the orb is hidden.
-
-### Layout
-
-The orb is a small dark pill.
-On the left, it shows the icon of the application that receives the text.
-On the right, seven vertical bars move with the voice level.
-
-| Layer | Content |
-| --- | --- |
-| Pill | `CALayer` with a dark, almost opaque fill and a corner radius of half its height |
-| Application icon | `CALayer` that shows the `NSImage` from `NSRunningApplication.icon` |
-| Bars | Seven `CALayer` bars with round ends, used as the mask of one `CAGradientLayer` (deep purple at the bottom, burgundy at the top) |
-
-The initial dimensions come from a Tabi screen capture on the reference Mac. Adjust them by eye in Phase 1.
-
-| Element | Initial size in points |
-| --- | --- |
-| Pill | 150 × 56 |
-| Application icon | 20 × 20 |
-| Bar | Width 4; 11.5 between bar centers; height from 6 to 24 |
-| Card | 340 × 104, corner radius 16; text 14 pt on up to 3 lines; instruction 12 pt |
-
-The panel has the size of the card. The pill sits at its bottom center.
-The panel ignores mouse events. Thus its transparent area does not block clicks.
-
-- The icon shows the frontmost application when the orb opens.
-- If the user activates another application during the session, the icon changes.
-- For a browser, the orb shows the browser icon. Website icons are later work.
-- The layer uses the application icon directly. Bloop does not convert or cache icons.
-
-### Bar animation
-
-- During `Listening`, a 30 Hz timer reads the audio level on the main thread.
-- Bloop converts the level to decibels.
-- The bars show a fixed range of decibels below a ceiling. The ceiling follows the recent level.
-  Thus the bars move the same with a loud microphone and with a quiet microphone.
-- The ceiling rises immediately to a louder level. It falls slowly at a fixed rate, between two limits.
-- Below a fixed noise floor, the bars show no level. Thus room noise does not move the bars.
-- Bloop smooths the result: fast rise, slow fall.
-- All bars follow the current level at the same time.
-- Each bar has a fixed weight and a small random variation. Thus the bars have different heights.
-- Each height change uses a short implicit animation of about 80 ms.
-- A bar never goes below its minimum height. Silence shows seven short bars.
-
-### Orb views
-
-The orb is visible during `Listening`, and when the user must see a result or an error.
-During processing, the orb is not visible. Tabi has the same behavior.
-
-| Orb view | Behavior |
-| --- | --- |
-| Opening | The pill grows from 80% to 100% and fades in, in about 150 ms |
-| Listening | The bars follow the voice level |
-| Closing | When the capture ends, the bars go down, then the pill shrinks and fades out, in about 200 ms |
-| Error | The pill opens with red bars for about 1 second, then closes |
-| Fallback card | The pill becomes a card with the final text and "Copied, press ⌘V", in about 200 ms. The card shows the first 240 characters. It closes after 8 seconds or at the next capture. |
-| Suggestion card | The pill becomes a card with the suggested dictionary entry and the "Save" and "Ignore" buttons (Phase 6). It closes after 8 seconds. |
-
-Bloop does not use Tabi code or assets.
-
-## Audio
-
-- The capture uses the system default input device in its native format.
-  If that device is a Bluetooth device and the Mac has a built-in microphone, the capture uses the built-in microphone.
-  A Bluetooth microphone goes through the hands-free profile: a low sample rate and a switch of the headset audio at each capture start.
-  On 2026-11-05, Voxtral returned no text for three AirPods captures of 1.7 to 2.6 s at 16 kHz, and text for five built-in captures of 1.2 to 2.9 s.
-- Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
-- Before capture, Bloop allocates bounded queues. Their capacity does not grow with the capture duration.
-- Capture starts while the provider connection opens. A queue keeps the initial samples until the connection is ready.
-- The callback mixes the channels to mono and calculates the level of each buffer.
-- During capture, the worker converts samples incrementally to mono signed 16-bit little-endian PCM at 16 kHz, for all microphones.
-- The worker resamples with the FFT resampler of `rubato`. It filters the audio before it lowers the rate. Thus it prevents aliasing.
-  The audio callback does not convert.
-- The worker sends each chunk in order. A full queue fails the session; Bloop never silently drops samples.
-- During capture, the worker sends only complete chunks of 100 ms. It keeps the remaining samples for the next queue read.
-  At capture end, the worker sends the remaining samples immediately. Thus the chunk length adds no delay after key release.
-- At capture end, the worker drains accepted samples and flushes the converter before it ends the stream.
-- Bloop sends each capture to the provider, also a short or silent capture. It applies no duration or level threshold.
-  For silence, Voxtral returns an empty transcript. Then the pipeline sends `NothingHeard`, and Bloop pastes nothing.
-  A level threshold can remove a quiet dictation: the peak of quiet speech can be near the peak of silence.
-- Bloop releases each audio chunk after sending it. Cancellation discards remaining chunks.
-- Bloop keeps no complete recording and writes no audio to disk.
-
-Long dictation checks measure memory use and completion time. They do not set a maximum capture duration.
-
-## Mistral connections
-
-This section describes the Mistral adapters, the default providers. Another provider implements the same ports with its own protocol.
-
-A WebSocket connection serves each transcription session. A reused HTTP client (`hyper`) serves correction requests.
-The API key comes from Keychain (service `bloop`, account `mistral`).
-The user stores the key with the `security add-generic-password` command.
-
-| Request | Model | Settings | Time limit |
-| --- | --- | --- | --- |
-| Transcription | `voxtral-mini-transcribe-realtime-3-0` | PCM audio; language `fr`; `context_bias` word list; `target_streaming_delay_ms`; all set before the first chunk | Connection 5 s, inactivity 5 s, completion 15 s: initial values, not measured |
-| Correction | `mistral-medium-latest`, the alias of Mistral Medium 3.5; other choices later | `reasoning_effort="none"`; `temperature` 0; `max_tokens` from the input length; `natural-light` initially | 8 s: initial value, not measured |
-
-Phase 3 selects the correction timeout from the delay acceptable in daily use, including long dictations.
-An earlier job that waits for correction also delays later insertions. On timeout, use the raw transcript.
-The worker applies the transcription limits. Each chat adapter applies the correction limit that `bloop-app` gives at construction.
-
-The correction HTTP client:
-
-- One `hyper-util` legacy client serves all correction requests. `build_chat_model` builds it with the chat model.
-  The settings hub of `bloop-app` builds the chat model when the correction needs it. It builds it again only when `[chat]` changes.
-- It uses `hyper-tls` with `native-tls`. The TLS handshake offers `h2` and `http/1.1` through ALPN.
-  The client uses HTTP/2 when the server selects `h2`, and HTTP/1.1 otherwise.
-- The TCP connection limit is 5 s. If the host has more than one address, each address gets an equal part of this limit.
-- The request limit is the correction limit that `bloop-app` gives.
-  It applies from the connection start to the end of the response body. Thus it also limits DNS and TLS.
-- The response body limit is 1 MiB. A larger body is `ProviderError::InvalidResponse`.
-- For an HTTP error, the client reads at most 16 KiB of the body and logs only its `type` and `code` fields with the status.
-- The adapter logs the negotiated HTTP version with each reply. Thus the log shows if the request used HTTP/2.
-- The client keeps the default connection pool of `hyper-util`. At the next request, the pool closes a connection that it did not use for more than 90 s.
-  Bloop does not change the keep-alive settings.
-- Bloop sends no warm-up request. A warm-up with `GET /v1/models` is an optional measurement after the first trial.
-  It does not guarantee that a connection stays open until correction.
-- Measured on 2026-11-05 without an API key: `api.mistral.ai` negotiated HTTP/2 and TLS 1.3.
-  The TCP connection took 10–16 ms, and the TLS handshake 26–30 ms.
-
-The correction request:
-
-- The system message contains the prompt. The user message contains the transcript between delimiters.
-- The initial request omits `prediction`. An optional comparison then uses the transcript as predicted output.
-  Mistral documents a response-time benefit when the output is near the prediction. Bloop must measure its own gain.
-- `max_tokens` comes from the input length: ceil(characters / 2.5 × 1.6) + 32, between 64 and 2,048.
-  This is an initial value. Phase 3 checks it against the token counts of the replies.
-- Prompt caching is optional after the first trial. The prompt hash can serve as `prompt_cache_key`; it does not guarantee a cache hit.
-- A finish reason other than `stop` is an incomplete reply. Bloop then uses the raw transcript.
-The connection limit covers setup. The inactivity limit detects a stalled transport, not speech silence.
-The completion limit applies after capture ends.
-The worker counts it from the `finish` call, after the backlog drained, because provider messages stay inside the adapter.
-Thus a backlog after a slow connection can still drain. No short request timeout covers the full capture duration.
-The queue capacity is 960,000 samples: 20 s at 48 kHz, and 10 s at 96 kHz. At these rates, the connection limit is shorter than this capacity.
-Thus a slow connection fails with a timeout before the queue is full.
-During capture, each audio send has the inactivity limit.
-
-The realtime model is a Public Preview since 2026-10-20. Bloop uses its fixed identifier, not the alias.
-The Mistral lifecycle policy permits changes to a Public Preview model, also with a fixed identifier.
-The correction uses the alias `mistral-medium-latest`, as the owner decided on 2026-11-06 after the evaluation in the [roadmap](ROADMAP.md).
-Mistral can change the model behind the alias. The log names the alias, not the version.
-On 2026-11-06, the models API gave `mistral-medium-3-5` and `mistral-medium-2604` as aliases of `mistral-medium-latest`, with no deprecation.
-The Mistral documentation lists Mistral Medium 3.5 as deprecated on 2026-10-31, with retirement on 2027-04-30. It recommends Mistral Large 4.
-`target_streaming_delay_ms` (80 to 1200, or 2400) sets the balance between delay and accuracy.
-The provider never corrects the text that it sent. Thus this value also changes the final text.
-On 2026-11-05, the owner kept 480 ms.
-
-The transcription session follows the provider protocol, checked in Mistral documentation on 2026-11-03:
-
-1. The adapter opens the WebSocket with the model in the query string and the API key in the `Authorization` header.
-2. The provider sends `session.created`. The adapter sends one `session.update` with the audio format, language, word list, and delay.
-3. The provider answers `session.updated`. The settings are fixed from the first audio chunk.
-4. The adapter sends each chunk in an `input_audio.append` message, as base64 PCM.
-5. At capture end, the adapter sends `input_audio.end`. The `text` of `transcription.done` is the complete transcript.
-6. The provider has no abort message. To cancel, the adapter closes the connection.
-
-The official SDKs also have an `input_audio.flush` message. The documentation does not describe it.
-`context_bias` accepts words, phrases, or descriptions. Its limit is the context window of 65,536 tokens, which the audio also uses.
-Above this limit, the provider returns error 400.
-
-The adapter does not use the text of the `transcription.text.delta` messages. It logs only their number and length, and the type of each event that it does not use.
-The default sample rate of the API is 16 kHz. The official example uses 24 kHz. The documentation does not say if the API accepts 48 kHz.
-The realtime microphone example of the official Python SDK accepts only 8000, 16000, 22050, 44100, and 48000 Hz. Its default is 16 kHz.
-Source: `mistralai/client-python`, `examples/mistral/audio/async_realtime_transcription_microphone.py`, checked on 2026-11-05.
-
-Measured on the reference Mac on 2026-11-04 and 2026-11-05: Voxtral accepted `sample_rate` 24000 and echoed it in `session.updated`.
-For AirPods audio at 24 kHz, it sent no delta and returned an empty transcript without an error.
-For the built-in microphone at 48 kHz, it transcribed the speech. The [roadmap](ROADMAP.md) records the values.
-
-On 2026-11-05, the owner decided to convert each capture to 16 kHz mono before the provider, for all microphones.
-The documentation does not give the maximum session length, the inactivity limit of the provider, or the result of a silent session.
-For a silent session, Voxtral sent no delta and returned an empty transcript without an error.
-The maximum session length and the inactivity limit stay unknown.
-
-On connection loss, a full queue, or a timeout, Bloop stops the affected session and reports the failure.
-It does not insert a partial transcript or retry the stream automatically. The user can dictate again.
-There is no upload fallback.
-
-Raw fallback rules apply only after a complete transcript is available:
-
-- The skip below 4 words is a candidate rule. Phase 3 checks short spoken corrections before enabling it.
-- If the correction fails, times out, returns an incomplete reply, or returns empty text, Bloop keeps the raw transcript.
-  `Typography` and `Trim` still apply to it.
-- The 50% to 160% character ratio is a candidate rule, not a required limit or a meaning check.
-  The example "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
-  Phase 3 selects or removes these heuristics before daily use. They must not reject expected corrections in the test set.
-- If `bloop-app` cannot build the chat model, for example without an API key, the correction is not available.
-  A job with the correction on then logs a warning and uses the raw transcript. The dictation continues to operate.
-- The worker logs the reason for each fallback from the step report.
-
-Latency targets, as medians for 10 seconds of speech:
-
-| Step | Target | Tabi median |
-| --- | --- | --- |
-| Transcription after key release | 650 ms | 512 ms |
-| Correction | 650 ms | 595 ms |
-| Paste command | 150 ms | 115 ms |
-| Key release to paste command | 1500 ms | 1297 ms |
-
-Phase 2 measured transcription completion after key release. Phase 3 measures the complete path with correction.
-Record the raw and corrected medians, the longest observed delays, and fallback frequency separately.
-
-The paste command is the time when Bloop posts Command-V. The target read is the time when the target reads the clipboard item.
-The `InsertDone` event comes about 300 ms after the target read, after the clipboard restore. Thus `InsertDone` does not measure the paste.
-The paste module logs `the paste command is posted` and `the target read the text`, each with the generation.
-These values are targets, not Bloop measurements. Streaming still needs completion, correction, and paste time after release.
-The realtime model and parameters were checked in Mistral documentation on 2026-11-03.
-The correction model and parameters were checked on 2026-10-31, 2026-11-05, and 2026-11-06.
-Live transcription requests ran on 2026-11-04 and 2026-11-05. The [roadmap](ROADMAP.md) records their measured values.
-
-References: [Mistral realtime transcription](https://docs.mistral.ai/studio/audio/speech-to-text/transcribe-in-realtime),
-[Mistral Medium 3.5](https://docs.mistral.ai/models/mistral-medium-3-5-26-04),
-and [reasoning settings](https://docs.mistral.ai/studio/conversations/reasoning).
-
-## Stream ownership
-
-The driver owns one transcription task and its audio queue for each generation.
-The provider implements the streaming contract in [Rust contracts](CONTRACTS.md#ai-ports).
-
-- `StartCapture` starts audio capture and opens the provider session asynchronously.
-- `StopCaptureAndProcess` stops capture and tells the existing task to finish. It does not start another transcription.
-- The worker sends `TextReady` only after the complete transcript passes through the text steps.
-  The job exists at that time: the core creates it before the driver sets the end mark.
-- `CancelCapture` stops capture and its stream. It carries no generation: the driver keeps the generation of the active capture.
-- `CancelWork` stops the task for the specified generation and forgets its paste target.
-- A failure during capture produces `CaptureFailed`. A failure after capture produces `WorkFailed`.
-- Bloop records the target at key release. Insertion still follows session order.
-- Phase 2 tests release, failure, and cancellation races with a fake provider before the real adapter.
-
-## Paste
-
-At key release, the paste module records the target:
-
-- the process identifier of the frontmost application;
-- the counters of key-down and mouse-down events (`CGEventSourceCounterForEventType`).
-
-The target check:
-
-1. The frontmost application has the same process identifier.
-2. The event counters did not change.
-3. Secure input is not active (`IsSecureEventInputEnabled`).
-
-The paste:
-
-1. Bloop saves all items of the current clipboard, with the data of all their types.
-   If macOS cannot list the items, Bloop does not restore the clipboard, and the text stays in it.
-   If the clipboard has more than 64 items or more than 64 MiB of data, Bloop stops the save and does not restore the clipboard.
-   If some types cannot be read, Bloop restores the other types. The log records the number of missing types.
-2. Bloop does the target check. The save can wait for another application, thus the check comes after the save.
-   If the check fails, Bloop puts the text in the clipboard and shows the fallback card. Bloop posts no paste command.
-3. Bloop writes one clipboard item. Its string type uses an on-demand data provider.
-   The item also has the `org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType` markers.
-4. Bloop posts Command-V with key code 9 and the Command flag only.
-5. The data provider supplies the text when the target reads it. A successful read makes the result `Landed`.
-6. 300 ms after the read, Bloop restores the saved items if the clipboard did not change after step 3.
-   The restored items have the `org.nspasteboard.TransientType` marker. Thus a clipboard manager does not record them again.
-   Then Bloop reports the result. Thus the next paste saves the restored clipboard, not the text of this paste.
-7. If no read occurs within 1 second, Bloop replaces the item with a normal text item and shows the fallback card.
-   Bloop replaces the item only if the clipboard did not change after step 3.
-
-Bloop posts no more than one paste command for each session.
-When a job ends without a paste result, Bloop forgets its target and reports no result for it.
-A posted paste command can still land. The restore then follows the read as usual.
-Jobs paste in session order.
-The target check does not count the key events that Bloop posts. Thus one paste does not block the paste of the next job.
-
-Measured on the reference Mac (macOS 27, 2026-11-01), with the Phase 1 test text: six pastes in a terminal, WhatsApp,
-Firefox, and TextEdit gave `Landed`. The target read the item 10–27 ms after the `Insert` command.
-This time includes the target check and the paste command. The Tabi reference is 101 ms from paste command to read.
-After a paste in TextEdit, the clipboard contained the copied word or the copied image again.
-After two pastes in a row, it contained the word that was copied before the first paste.
-
-Known limits:
-
-- A clipboard manager that ignores the markers can read the item first. Then Bloop reports `Landed` without a paste.
-- A slow target can read the item after 1 second. Then the field gets the text and the card also shows. This has no bad effect.
-- If another application changes the clipboard within the read time limit, the text is not in the clipboard.
-  The fallback card still shows the text, and "Copy last result" copies it.
-- The save step reads all types of the clipboard. At that time, another application must supply data that it promised.
-  For a large image, this can take some time.
-- Key code 9 is the V key on the AZERTY and QWERTY layouts. Other layouts are later work.
-- A terminal without bracketed paste can execute pasted text that contains line breaks. A correction prompt can return line breaks.
-  On 2026-11-05, the terminal of the reference Mac (Ghostty 1.4.0 with zsh) did not execute pasted lines: zsh turns on bracketed paste.
-
-## Settings and status menu
-
-Phase 3 adds one correction toggle to the existing menu: the item "Correct text" with a checkmark,
-between the status lines and "Copy last result".
-Bloop keeps its state in `config.toml`, in the key `[refine] enabled`. Without the file, the toggle is off.
-The menu reads the key each time it opens. Each dictation reads it at the key press. Both reads go through the settings hub.
-Each click writes the key with the `toml_edit` rule below. If the file is invalid, Bloop does not change it, and the menu hides the item.
-An invalid `config.toml` has the same effect as an invalid dictionary: each capture fails with the error view.
-Each generation uses the value of its settings snapshot, which the driver takes at the key press.
-A change affects only subsequent generations. A click in the menu bar during a capture also cancels the capture.
-Phase 4 adds the design below. The owner validated it on 2026-11-07.
-The [roadmap](ROADMAP.md#phase-4-settings-and-status-menu) gives the iterations. Until an iteration is complete, the Phase 3 behavior above stays.
-
-### Settings file
-
-- `bloop-app` owns the settings. The core does not know them.
-- The settings file is `~/Library/Application Support/Bloop/config.toml`. The user and Bloop both edit it.
-- Each key is optional. A missing key has its default value: the value that Bloop uses today.
-- Each table rejects unknown keys. A `schema` value other than 1 is an error.
-- An error gives the line of the key, or of its table. It never gives the value, because the parser message can quote it.
-- The [code structure](STRUCTURE.md#settings-and-provider-selection) gives the keys and their limits.
-
-The write rule:
-
-- For a menu change, Bloop reads the current file and validates it with the parser.
-  Then it changes one key with `toml_edit`. The comments and the other keys stay.
-  A comment after the value keeps its column, with a minimum of one space before it.
-- Bloop writes the new text to `config.toml.tmp`, syncs it, and renames it to `config.toml`.
-  Thus Bloop never truncates an existing file, and the old file stays valid after a crash.
-- If the current file is invalid, Bloop does not change it.
-- If the file is missing, the change starts from the template.
-- If the table of the key does not exist, Bloop adds it at the end of the file.
-- A new `[chat]` table also gets the `provider` of the current settings, because a `[chat]` table without `provider` is invalid.
-- Each menu choice uses this rule: `[refine] enabled`, `[refine] prompt`, `[chat] model`, and `[dictation] hold_ms`.
-
-### Files and prompts
-
-All files are in the folder `~/Library/Application Support/Bloop/`.
-A refresh reads the files again at the dictation key press and each time the menu opens.
-
-| File | At start, when missing | Read | Written by Bloop | Size limit |
-| --- | --- | --- | --- | --- |
-| `config.toml` | Bloop writes the commented template, with `enabled = false` | At each refresh | One key for each menu choice | 64 KiB |
-| `prompts/` | Bloop creates the folder | At each menu open, for the list of names | Never | — |
-| `prompts/<name>.md` | — | The selected prompt, at each refresh when the correction is on | Never | 32 KiB |
-| `dictionary.toml` | Bloop writes a commented empty dictionary | At each refresh | Never in Phase 4 | 256 KiB |
-
-- Bloop writes a file at start only when the file does not exist. It never rewrites or migrates an existing file.
-- The current file of the owner stays valid. It has no comments. To get the commented template, the owner deletes the file.
-- If a write at start fails, Bloop logs a warning with the error kind. Then it continues with the default values.
-- Bloop reads each file with its size limit. It stops the read one byte after the limit. A larger file is invalid.
-
-The prompts:
-
-- The built-in prompts are in the binary: `natural-light` for everyday text, and `code` for technical dictation.
-- The `prompts` folder contains only the prompts of the user. Bloop writes no prompt file.
-- `[refine] prompt = "x"` selects `prompts/x.md` when this file exists. Else it selects the built-in prompt `x`. Else the prompt is missing.
-- A user file with the name of a built-in prompt replaces it. This is an explicit act. The log then gives "file" as the source.
-- Thus a revised built-in prompt reaches the application at the next build. The application and the evaluation tool use the same text.
-- A prompt is valid when it is UTF-8, it is not empty after trim, and it is within its size limit.
-- A prompt name contains 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. Thus a setting cannot point outside the prompts folder.
-
-### Refresh and settings snapshot
-
-The settings hub of `bloop-app` keeps the file texts, the parsed settings, and the current snapshot.
-
-- At each refresh, the hub reads `config.toml`, `dictionary.toml`, and the selected prompt file when the correction is on.
-- The hub compares each text with its last text. If no text changed, the current snapshot stays.
-  Else the hub parses the changed files and builds a new snapshot.
-- Bloop does not use the modification time and does not watch the files. A text comparison is deterministic.
-- The expected cost of a refresh is less than 1 ms for three small files. This is an estimate, not a measurement.
-- A settings snapshot contains the hold threshold and the speech objects: the transcriber, the correction, the language, and the word list.
-  When speech is not available, the snapshot contains the error of each capture instead.
-- When the core creates a generation (`StartHoldTimer`), the driver takes the snapshot. The hold timer and the capture of that generation use it.
-  Thus a change never affects an active capture or a running job.
-- The hub builds the transcriber again for each new snapshot. This only stores the settings and the key.
-- The hub builds the chat model again only when `[chat]` changes. A prompt change keeps the chat model and its connection pool.
-- Bloop reads the API keys one time at start. It never reads Keychain at the key press, because a read can wait for a dialog.
-  A provider that the file names later, without a key read at start, is `Unauthorized` until the next start.
-- A menu choice writes one key with the write rule. Then the hub refreshes. The change applies from the next dictation.
-- A change in an editor applies from the next dictation, without restart. A new API key still needs a restart.
-- A click in the menu bar during a capture is other input. Thus it cancels the capture.
-
-### Errors and effects
-
-| Condition | Captures | Status line | Menu writes |
-| --- | --- | --- | --- |
-| `config.toml` invalid or too large | Fail with the error view | `config.toml: invalid setting, line N`. It opens the file. | Refused |
-| Selected prompt missing, empty, too large, or not UTF-8 | Correction on: fail with the error view. Correction off: dictation operates. | With the correction on: `Prompt "name": not found` or `Prompt "name": not valid`. It opens the folder. | Allowed |
-| `dictionary.toml` invalid or too large | Fail with the error view | `dictionary.toml: invalid entry, line N`. It opens the file. | Allowed |
-| No API key at start | Fail with `Unauthorized`, as today | As today, with "Then open Bloop again" | Allowed |
-| API key refused by the provider | That capture fails | "The provider refused the API key", then "Then open Bloop again" | Allowed |
-| Correction fails or times out | Raw text, as today | None | — |
-| Write at start fails | Default values | None. The log has a warning. | — |
-
-- A fixed file applies from the next dictation, without restart. A new API key is the exception.
-- A missing or invalid prompt affects only the correction (owner decision B). A feature that is off does not change the dictation path.
-  With the correction on, the capture fails. Bloop does not silently paste the raw text.
-- A file error gives the file and the line. It never gives the file content.
-  Without a known line, the status line has no line number.
-  For a file that is too large or not readable, the status line is `<file>: file too large` or `<file>: file not readable`.
-- Bloop tracks a refused key from the transcription only. The event handler of `main.rs` sees each event before the driver.
-- An event with `ProviderError::Unauthorized` sets the refused key state when Bloop read a key at start. Else the menu shows the missing key line.
-- The refused key line stays until the restart, because Bloop reads the key at start only.
-- Bloop does not track a refusal of the chat request alone. Today, the chat provider and the speech provider use the same account.
-- The status icon does not change. The status lines show each problem.
-
-### Menu
-
-`bloop-app` builds the menu content as a data model.
-`bloop-macos` renders the model each time the menu opens (`menuNeedsUpdate:`). Thus a new feature does not change AppKit code.
-
-- When the menu opens, the hub refreshes. Then `bloop-app` builds the model from the settings, the errors, and the prompt names.
-- The prompt names are the built-in names and the valid `.md` file names of the prompts folder, sorted and without duplicates.
-  Bloop skips a file name that is not UTF-8. It does not read the files for the list.
-- "Prompt" lists the prompt names. "Model" lists `[chat] models`. "Hold delay" lists 150, 220, 300, and 400 ms.
-- If the current value is not in its list, the list adds it at the end as the selected option. Thus the menu always shows the current value.
-  A value that occurs two times in a list has one option.
-- A click on an option writes its key with the write rule. The change applies from the next dictation.
-- With invalid settings, the menu shows the status line and hides "Correct text" and the three submenus.
-- A missing permission line opens the related System Settings pane, as today.
-- The status lines that need a restart come first: the missing permissions, the API key, then "Then open Bloop again".
-  The file errors follow, in the order of the table above.
-- When nothing needs action, the status line is "Ready: hold Right Command to dictate", as today.
-- "Open config.toml…" and "Open dictionary…" open the file in the application for `.toml` files.
-  Without such an application, Bloop opens the folder in Finder. "Open prompts folder…" opens the folder.
-- The renderer adds "Quit Bloop" with ⌘Q after the model items, as today.
-
-The menu. In this example, `dev` is a prompt file of the user, and `code` and `natural-light` are built-in prompts:
-
-```text
-Status lines: permissions, API key, and file errors, or "Ready: hold Right Command to dictate"
-──────────
-✓ Correct text
-  Prompt      ▸     code
-                    dev
-                  ✓ natural-light
-  Model       ▸   ✓ mistral-medium-latest
-                    mistral-small-latest
-  Hold delay  ▸     150 ms
-                  ✓ 220 ms
-                    300 ms
-                    400 ms
-──────────
-Copy last result
-Open config.toml…
-Open prompts folder…
-Open dictionary…
-──────────
-Quit Bloop
-```
-
-### Known limits
-
-- A new API key, or a provider that needs another key, needs a restart.
-- If a hand edit and a menu click occur at the same time, the last write wins.
-- After a menu write, a `config.toml` that is a symbolic link becomes a regular file. CRLF line ends become LF.
-- An existing `config.toml` keeps its form. Bloop adds no comments to it.
-- Phase 6 writes the dictionary with the same file rules, through a change on the hub. The next refresh reads the new file.
-- A second chat provider needs its own refused key state.
-
-## Dictionary and learning from fixes
-
-The dictionary is the file `~/Library/Application Support/Bloop/dictionary.toml`.
-Each entry has a written form. An entry can also have the form that Bloop writes now.
-
-```toml
-[[entry]]
-written = "objc2"
-
-[[entry]]
-heard = "comme Tabby"
-written = "comme Taby"
-```
-
-- Each entry must have a `written` value that is not empty and does not contain only whitespace. `heard` is optional.
-  An unknown key makes the file invalid.
-- The settings hub reads the dictionary at each refresh. It parses the file again only when its text changed.
-- If the file does not exist, the dictionary is empty. This is not an error.
-- The written forms go to the speech provider in `TranscriptionOptions::vocabulary`, in file order and one time each.
-  The Mistral adapter sends them as `context_bias`.
-  Thus the transcription spells them correctly, also when the correction is off. A provider without this feature ignores them.
-- The pairs (entries with `heard`) have no effect for now. The owner parked this task on 2026-11-06.
-  Pairs in the correction prompt failed in the evaluation. The [roadmap](ROADMAP.md) gives the findings and a proposed design.
-- Bloop does not replace text directly from the dictionary. A direct replacement can change a correct phrase.
-- If the dictionary file is invalid, each capture fails with the error view. The menu also shows the error and its line.
-- For an invalid file, the log gives the line of the error when it is known.
-  The log never contains the file content or the parser message, because the message can quote an entry.
-- For a valid file, the log gives only the number of entries.
-
-Phase 6 adds learning from fixes:
-
-1. After a `Landed` paste, Bloop reads the value of the focused element through Accessibility and finds the pasted text in it.
-2. Bloop watches the field until the focus leaves it, the pasted text disappears, a new dictation starts, or 60 seconds pass.
-3. Bloop compares the pasted text with the edited text, word by word. A replacement of one to three words is a suggestion.
-   Bloop ignores changes of punctuation or capital letters only, deletions, long rewrites, and pairs that the user ignored before.
-4. A card near the orb shows the suggestion with "Save" and "Ignore". The card accepts clicks and never takes keyboard focus.
-5. After 8 seconds without a click, the card closes. The suggestion then stays in the status menu.
-6. "Save" adds the pair to the dictionary with `toml_edit`. "Ignore" records the pair. Thus Bloop does not propose it again.
-
-- Bloop never saves an entry without a user action.
-- The field text stays in memory during the watch only. The log records only the number of suggestions.
-- If Accessibility cannot read the field, for example in some Electron applications or terminals, Bloop proposes nothing.
-- During a capture, the card waits. When the capture ends, the card shows, with the same rules as the fallback card.
-- The 60-second watch and the 8-second card are initial values. Phase 6 checks them during daily use.
-
-## Data and logs
-
-| Data | Lifetime |
-| --- | --- |
-| Audio chunk | Until sent, or until cancellation discards the queue |
-| Transcript | Until the correction completes |
-| Last final text | Until a newer final text replaces it or the application exits, for "Copy last result" |
-
-- Bloop keeps no history on disk.
-- The log file is `~/Library/Logs/Bloop/bloop.log`.
-- The log records state changes, step durations, fallback reasons, error categories, and panics.
-- For each correction, the log records the model identifier and the prompt name. The evaluation tool also records the prompt hash.
-  The hash is FNV-1a with 64 bits over the prompt text as sent. It identifies a prompt revision. It is not a security function.
-- The log does not contain audio, text, or credentials.
-- The settings file is `~/Library/Application Support/Bloop/config.toml`.
-- The settings file contains nonsecret settings only: hold threshold, language, providers, models, streaming delay, correction state, and prompt name.
-  The dictation key comes with the optional key iteration of Phase 4.
-- Bloop writes a commented template with the default values when the settings file is missing at start.
-- The prompt files of the user are in `~/Library/Application Support/Bloop/prompts/` (Phase 4). They contain no dictated text.
-- For the settings, the log records file names, error kinds, lines, and nonsecret values: models, prompt name, and hold threshold.
-  It never records the file content.
-- The dictionary file contains the user words and the saved or ignored pairs. It contains no other dictated text.
-
-## Bundle and permissions
-
-- `Info.plist` sets `LSUIElement` to true. Bloop has no Dock icon.
-- `Info.plist` contains `NSMicrophoneUsageDescription` and the bundle identifier `io.github.robinber.bloop`.
-- `Info.plist` names the application icon file, `Bloop.icns`. `scripts/icon.sh` makes it from `assets/branding/app-icon.svg`,
-  and `scripts/bundle.sh` copies it into the bundle.
-- `scripts/bundle.sh` builds `target/release/Bloop.app` and signs it with `Bloop Dev`,
-  a self-signed code signing certificate in the login keychain.
-- The designated requirement of the signature is the bundle identifier and the certificate.
-  Thus macOS keeps the permissions after each build.
-  With an ad hoc signature, macOS removes the permissions after each build.
-- Bloop needs three permissions: Microphone, Accessibility (active event tap and paste command), and Input Monitoring (key events).
-- The menu shows each missing permission and opens the related System Settings pane.
-  Without a missing permission, it shows "Ready: hold Right Command to dictate".
-  macOS can keep the old permission result until Bloop starts again. Thus Bloop checks the status at start.
-- The menu item "Copy last result" puts the last final text in the clipboard. Before the first result, it has no effect.
-- Bloop reads the microphone permission at start. If the user did not answer yet, Bloop shows the request of macOS and does not wait.
-  If the user denied access, or a restriction blocks it, the menu shows the permission.
-  The menu does not show the answer to the first request. A denial shows in the menu at the next start.
-  Without the permission, a capture fails with the error view.
-- Without the API key of the selected provider in Keychain, the menu status shows the missing key at start. A capture then fails with the error view.
-
-## Candidate crates
-
-| Need | Crates |
-| --- | --- |
-| AppKit and Foundation | `objc2`, `objc2-foundation`, `objc2-app-kit` |
-| Core Animation | `objc2-quartz-core` |
-| Event tap and events | `objc2-core-graphics`, or direct FFI |
-| Main queue | `dispatch2` |
-| Audio | `cpal`, `rubato`, `rtrb` (bounded queue without allocation in the callback) |
-| Microphone permission | `objc2-av-foundation`, `block2`. The authorization methods are `unsafe`; the owner approved them on 2026-11-02 |
-| Network | `tokio`, `tokio-tungstenite` with `native-tls`, `futures-util`, `serde_json`, `base64`; for correction, `hyper` and `hyper-util` with the HTTP/1.1 and HTTP/2 client, `hyper-tls` with `alpn`, and `http-body-util`. Both connections then use one TLS stack through `security-framework` |
-| Keychain | `security-framework` |
-| Settings | `serde`, `toml`, `toml_edit` |
-| Prompt hash | None: FNV-1a, 64 bits, in a few lines of the evaluation tool |
-| Accessibility read | `objc2-application-services` (Phase 6; check the API coverage) |
-| Errors | `anyhow` (application start only) |
-| Logs | `tracing`, `tracing-subscriber`, `tracing-appender` |
-| Secrets in memory | `secrecy` |
-
-Tabi uses most of these crates in production.
-Check the versions and the API coverage when the project starts.
+| Transcription connection | 5 s |
+| Each audio send | 5 s |
+| Transcription finish, after the queue drains | 15 s |
+| Correction request, including its response body | 8 s |
+| Successful HTTP response body | 1 MiB |
+| WebSocket message | 1 MiB |
+| Clipboard snapshot | 64 items and 64 MiB |
+
+There is no total deadline for the audio backlog after release. Each send has its own deadline before `finish` starts.
+A slow connection can therefore delay completion and later insertions beyond 15 seconds.
+No timeout limits the recording duration.
+
+## Insertion and recovery
+
+At release, Bloop records the frontmost process and the keyboard and mouse input counters.
+Before pasting, it saves the clipboard, checks that the target and counters are unchanged, and checks secure input.
+It posts at most one Command-V event pair for a generation.
+
+The temporary clipboard item supplies its text on demand. A clipboard read produces `Landed`.
+This result confirms a read, not a verified change in the focused field.
+The previous clipboard is restored 300 ms after the read, if Bloop still owns the temporary item.
+If no read occurs within one second, Bloop reports a fallback and keeps text available for manual recovery.
+
+The card shows an excerpt. **Copy last result** copies the latest result retained for insertion.
+The card does not guarantee that the clipboard still contains that text.
+A newer result can replace the result retained by the menu.
+
+The target check does not inspect the Accessibility tree. A clipboard manager can trigger a read before the target does.
+Clipboard restoration can be incomplete if a type cannot be read or the snapshot exceeds its limits.
+Reading promised clipboard data can block the main thread while another application supplies it.
+The paste uses key code 9 for V. Keyboard layouts with a different V position are not supported.
+Terminals without bracketed paste can execute pasted line breaks.
+
+## Settings and data
+
+The hub reads bounded settings and dictionary files at each dictation key press and menu open.
+It reads the selected prompt when correction is enabled. An unchanged set of files keeps the existing settings snapshot.
+Each generation retains its snapshot, so edits affect subsequent dictations.
+Menu changes preserve TOML comments and replace the settings file through a temporary file in the same folder.
+
+API keys are read from Keychain at startup. A key change requires a restart.
+Audio and dictionary terms go to the speech provider. Correction also sends the transcript and prompt to the chat provider.
+Logs contain operational metadata and controlled error categories, without audio, transcript text, or credentials.
+The `eval` tool deliberately writes its test samples and results to the terminal.
+
+See [Setup](SETUP.md) for file paths, settings validation, permissions, and troubleshooting.

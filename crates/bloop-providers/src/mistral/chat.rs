@@ -82,7 +82,7 @@ impl Chat {
             millis = started.elapsed().as_millis(),
             prompt_tokens = usage.prompt_tokens,
             completion_tokens = usage.completion_tokens,
-            finish_reason = choice.finish_reason.as_deref(),
+            ?finish,
             "the chat model replied"
         );
         Ok(ChatReply {
@@ -228,9 +228,11 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::task::JoinHandle;
+    use tracing::instrument::WithSubscriber as _;
 
     use super::{Chat, ChatConfig};
     use crate::http;
+    use crate::test_log::Log;
 
     const KEY: &str = "test-key";
     const MODEL: &str = "mistral-test";
@@ -486,6 +488,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unknown_finish_reason_is_logged_only_as_a_local_category() {
+        const PRIVATE: &str = "private-dictation-and-key-sentinel";
+        let log = Log::default();
+
+        let reply = complete(200, completion(&json!(TEXT), &json!(PRIVATE)))
+            .with_subscriber(log.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(reply.finish, Finish::Other);
+        let output = log.text();
+        assert!(output.contains("finish=Other"), "{output}");
+        assert!(!output.contains(PRIVATE), "{output}");
+        assert!(!output.contains(TEXT), "{output}");
+    }
+
+    #[tokio::test]
     async fn chunk_content_joins_the_text_chunks() {
         let content = json!([
             { "type": "thinking", "thinking": [{ "type": "text", "text": "Hmm." }] },
@@ -533,6 +552,20 @@ mod tests {
         let result = complete(429, body).await;
 
         assert_eq!(result.err(), Some(ProviderError::Http(429)));
+    }
+
+    #[tokio::test]
+    async fn an_http_error_body_never_enters_logs() {
+        const PRIVATE: &str = "private-dictation-and-key-sentinel";
+        let log = Log::default();
+        let body = json!({ "message": PRIVATE, "type": PRIVATE, "code": PRIVATE }).to_string();
+
+        let result = complete(429, body).with_subscriber(log.clone()).await;
+
+        assert_eq!(result.err(), Some(ProviderError::Http(429)));
+        let output = log.text();
+        assert!(output.contains("status=429"), "{output}");
+        assert!(!output.contains(PRIVATE), "{output}");
     }
 
     #[tokio::test]

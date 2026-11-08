@@ -6,9 +6,9 @@
 //! changed it, then reports `Landed`. Without a read within one second, the item becomes a normal
 //! text item and the result is `Fallback(NotRead)`.
 //!
-//! A new paste first ends the previous transaction. If the target did not read the previous item,
-//! Bloop restores the saved clipboard at that moment. Thus the new paste saves the content of the
-//! user, not the item of Bloop.
+//! A new paste first ends the previous transaction and restores its saved clipboard, including
+//! during the delay after a read. Thus the new paste saves the content of the user, not the item
+//! of Bloop.
 
 #![expect(
     unsafe_code,
@@ -65,6 +65,7 @@ unsafe extern "C" {
 }
 
 /// Pastes the final texts. It implements [`TextOutput`] for the driver.
+/// Dropping it ends its pending clipboard transaction and restores the saved content if still owned.
 #[derive(Debug)]
 pub struct Paster {
     mtm: MainThreadMarker,
@@ -157,6 +158,14 @@ impl TextOutput for Paster {
         self.targets.remove(generation);
         if let Some(provider) = &self.provider {
             provider.cancel(generation);
+        }
+    }
+}
+
+impl Drop for Paster {
+    fn drop(&mut self) {
+        if let Some(provider) = self.provider.take() {
+            provider.abandon(&NSPasteboard::generalPasteboard());
         }
     }
 }
@@ -285,8 +294,7 @@ impl Transaction {
         self.advance(Phase::Reading, Phase::Restoring)
     }
 
-    /// The read time limit passed, or a new paste starts. Returns `true` if no read occurred:
-    /// Bloop gives up the read.
+    /// The read time limit passed. Returns `true` if no read occurred: Bloop gives up the read.
     fn read_time_out(&mut self) -> bool {
         self.advance(Phase::Reading, Phase::Done)
     }
@@ -299,6 +307,12 @@ impl Transaction {
     /// The job ended: the steps continue, but Bloop reports no result.
     fn cancel(&mut self) {
         self.cancelled = true;
+    }
+
+    /// Ends a pending transaction without a result. Returns `true` if its clipboard must be restored.
+    fn abandon(&mut self) -> bool {
+        self.cancel();
+        self.read_time_out() || self.restore_due()
     }
 
     /// The result to report, or nothing after a cancel.
@@ -417,13 +431,10 @@ impl TextProvider {
         }
     }
 
-    /// A new paste starts. Without a read, restores the saved clipboard now and reports nothing.
-    ///
-    /// After a read, the restore delay continues. Its restore then finds the clipboard of the new
-    /// paste and keeps it.
+    /// Ends the transaction and restores its saved clipboard now, without a result.
+    /// A later timer has no effect, whether the target read the text or not.
     fn abandon(&self, pasteboard: &NSPasteboard) {
-        if self.step(Transaction::read_time_out) {
-            tracing::info!("a new paste starts before the target read the previous text");
+        if self.step(Transaction::abandon) {
             restore(pasteboard, self.ivars().saved.take(), self.ivars().written);
         }
     }

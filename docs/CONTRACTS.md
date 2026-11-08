@@ -1,680 +1,158 @@
-# Rust contracts
+# Behavioral contracts
 
-Status: revision 27 (2026-11-07). `bloop-core` implements the session state machine, the domain data, the error enums,
-the transcription, chat, text step, and platform ports, and the menu model.
-It also implements the pipeline with its step report, the text steps, the correction step list, and the dictionary types without `Dictionary::pairs`.
-The owner approved the audio and streaming signatures on 2026-11-01, and the `SecretStore` signature on 2026-11-02.
-The text step and pipeline signatures follow the Phase 3 design of 2026-11-05.
-`Pipeline::process` and `steps::correction` follow the evaluation design of 2026-11-06. `Dictionary::pairs` is parked: the roadmap gives the reason. The menu model follows the Phase 4 design of 2026-11-07. Phase 4 iteration 3 implements it.
-Bloop sets no maximum capture duration. Capture continues until key release, cancellation, or failure.
+These invariants apply to the current implementation.
+Exact types and signatures are in [bloop-core](../crates/bloop-core/src/lib.rs).
+The [architecture](ARCHITECTURE.md) describes the runtime, and the [source map](STRUCTURE.md) locates each component.
 
-All types and traits in this document are in `bloop-core`.
-The [code structure](STRUCTURE.md) gives the file for each type.
+## Session and job order
 
-Finish Phase 1 with fixed text before implementing audio.
-Streaming is the only STT path. Every speech provider implements the same session lifecycle.
-
-## Session state machine
-
-The core is a pure state machine. It receives events and returns commands.
-The core does not call macOS APIs, start threads, or read the clock.
-`Core::handle(&mut self, event: Event) -> Vec<Command>` is the only entry point for events.
-`Core::capture_active(&self) -> bool` tells the event tap when to block Escape.
-`Capture`, `JobStatus`, and `Job` are private to `session.rs`. Only the core creates a `Generation`.
-
-```rust
-use std::collections::VecDeque;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Generation(pub(crate) u64);
-
-enum Capture {
-    Idle,
-    Pending(Generation),
-    Listening(Generation),
-}
-
-enum JobStatus {
-    Processing,
-    Ready(FinalText),
-    Inserting(FinalText),
-}
-
-struct Job {
-    generation: Generation,
-    status: JobStatus,
-}
-
-pub struct Core {
-    capture: Capture,
-    jobs: VecDeque<Job>,
-    next_generation: u64,
-    last_result: Option<FinalText>,
-    pending_card: Option<FinalText>,
-}
-
-pub enum Event {
-    DictationKeyDown,
-    DictationKeyUp,
-    OtherInputDuringHold,
-    Escape,
-    HoldElapsed(Generation),
-    CaptureFailed(Generation, AppError),
-    TextReady(Generation, FinalText),
-    NothingHeard(Generation),
-    WorkFailed(Generation, AppError),
-    InsertDone(Generation, InsertOutcome),
-    CopyLastResult,
-    SystemSleep,
-}
-
-pub enum Command {
-    StartHoldTimer(Generation),
-    StartCapture(Generation),
-    RecordTarget(Generation),
-    StopCaptureAndProcess(Generation),
-    CancelCapture,
-    CancelWork(Generation),
-    Insert(Generation, FinalText),
-    CopyToClipboard(FinalText),
-    ShowOrb(OrbView),
-    CloseOrb,
-}
-
-pub enum OrbView {
-    Listening,
-    Error,
-    Card(FinalText),
-}
-
-pub enum InsertOutcome {
-    Landed,
-    Fallback(FallbackReason),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FallbackReason {
-    TargetChanged,
-    SecureInput,
-    NotRead,
-}
-```
-
-## Domain data
-
-```rust
-use std::{
-    sync::{atomic::AtomicU32, Arc},
-    time::Duration,
-};
-
-pub struct AudioChunk(Vec<u8>);
-
-pub struct CaptureSummary {
-    pub duration: Duration,
-    pub peak: f32,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct LevelMeter(Arc<AtomicU32>);
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TargetInfo {
-    pub bundle_id: Option<String>,
-    pub app_name: Option<String>,
-}
-
-pub struct Transcript(String);
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct FinalText(String);
-```
-
-`AudioChunk` contains mono signed 16-bit little-endian PCM at the sample rate of the transcription session, without a file header.
-The worker creates the chunks at 16 kHz. Thus one chunk of 100 ms contains 1,600 samples.
-`AudioChunk::length(NonZeroU32)` returns the number of samples in 100 ms at the given rate. Below 10 Hz, it returns 1.
-It is the only source of the chunk length.
-`AudioChunk::split(&[f32], NonZeroU32)` encodes samples at the given rate as consecutive chunks of this length, in order.
-It is the only constructor. Thus a chunk is never empty and contains only whole samples.
-Only the last chunk can be shorter than 100 ms.
-The 100 ms length follows the Mistral examples, and it decreases the number of WebSocket messages. It is not a measured value.
-A sample from -1 to 1 uses the full 16-bit range. Values outside that range saturate, and NaN encodes as 0.
-`AudioChunk::as_bytes` exposes the bytes. Only the worker creates these chunks.
-`CaptureSummary` contains the duration and peak level. It contains no recording.
-`LevelMeter::set` stores a level from 0 to 1. It clamps other values, and NaN stores 0. `LevelMeter::get` reads the level.
-`FinalText::new` creates a final text and `FinalText::as_str` reads it. `Transcript` uses the same shape.
-`FinalText::from(transcript)` keeps the raw transcript as the final text, without a copy.
-Audio and text types use a redacting `Debug` implementation.
-
-`bloop-core` implements the dictionary types, `Dictionary::new`, and `Dictionary::written_forms`:
-
-```rust
-pub struct DictionaryEntry {
-    pub heard: Option<String>,
-    pub written: String,
-}
-
-pub struct Dictionary {
-    entries: Vec<DictionaryEntry>,
-}
-```
-
-`Dictionary::new` keeps the entries in the given order. `bloop-app` gives them in file order.
-`Dictionary::written_forms` gives the written forms for `TranscriptionOptions::vocabulary`, in entry order. Each form occurs one time.
-`Dictionary::pairs` would give the entries that have a heard form. The [roadmap](ROADMAP.md) parks this task and gives the findings.
-`Dictionary` uses a redacting `Debug` that shows only the number of entries.
-`bloop-app` reads and writes the file. `bloop-core` contains the types only.
-`bloop-core` does not examine the entries. `bloop-app` rejects a written form that is empty or contains only whitespace.
-
-## AI ports
-
-```rust
-use std::{future::Future, num::NonZeroU32, pin::Pin};
-
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-pub struct TranscriptionOptions<'a> {
-    pub language: &'a str,
-    pub vocabulary: &'a [String],
-    pub sample_rate: NonZeroU32,
-}
-
-pub trait Transcriber: Send + Sync {
-    fn start<'a>(&'a self, options: TranscriptionOptions<'a>)
-        -> BoxFuture<'a, Result<Box<dyn TranscriptionSession>, ProviderError>>;
-}
-
-pub trait TranscriptionSession: Send + 'static {
-    fn send_audio<'a>(&'a mut self, chunk: &'a AudioChunk)
-        -> BoxFuture<'a, Result<(), ProviderError>>;
-
-    fn finish(self: Box<Self>)
-        -> BoxFuture<'static, Result<Transcript, ProviderError>>;
-}
-
-pub struct ChatRequest<'a> {
-    pub system: &'a str,
-    pub user: &'a str,
-    pub prediction: Option<&'a str>,
-    pub max_tokens: NonZeroU32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Finish {
-    Complete,
-    Truncated,
-    Other,
-}
-
-pub struct ChatReply {
-    pub text: String,
-    pub finish: Finish,
-}
-
-pub trait ChatModel: Send + Sync {
-    fn complete<'a>(&'a self, request: ChatRequest<'a>)
-        -> BoxFuture<'a, Result<ChatReply, ProviderError>>;
-}
-
-pub struct StepContext {
-    pub language: String,
-}
-
-pub enum StepOutcome {
-    Applied(String),
-    Skipped(SkipReason),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkipReason {
-    TooFewWords,
-}
-
-pub trait TextStep: Send + Sync {
-    fn name(&self) -> &'static str;
-
-    fn apply<'a>(&'a self, text: &'a str, context: &'a StepContext)
-        -> BoxFuture<'a, Result<StepOutcome, StepError>>;
-}
-```
-
-The traits return `BoxFuture`. Thus they are dyn-compatible, and the settings can select a provider at run time.
-Each returned future requires an allocation. Audio chunks and these futures are created outside the audio callback.
-Vendor options, for example `reasoning_effort`, stay in the provider settings. They are not in the requests.
-`prediction` is a hint: the expected reply is near this text. An adapter without this feature ignores it.
-`max_tokens` limits the reply. The step that sends the request calculates it from the input length.
-`Finish::Complete` means that the provider ended the reply normally (`stop` for Mistral).
-`Truncated` means that the reply stopped at the token limit. A reply that is not `Complete` is a step failure.
-The chat adapter logs the request duration, the token counts, the finish reason, and the negotiated HTTP version. It never logs the text.
-For an HTTP error, it logs the status and the provider error `type` and `code`, but never the message or the body of the error.
-Each chat adapter applies the time limit that `bloop-app` gives at construction. An expired limit returns `ProviderError::Timeout`.
-Thus the correction behaves the same with each provider.
-`ChatRequest`, `ChatReply`, and `StepOutcome` contain text. They implement a redacting `Debug`.
-`StepContext` contains the language of the dictation. A step that needs the target application adds the target to `StepContext`.
-The driver then gives the target to the running task at key release, because the task starts before `RecordTarget`.
-A step does not write logs. It returns its outcome, and the pipeline adds it to the step report.
-
-### Transcription lifecycle
-
-- `start` opens a connection and applies the options before the first audio chunk.
-- `sample_rate` is the rate of the audio chunks, in Hz. The worker sets 16 kHz. The adapter sends it to the provider without a change.
-- `vocabulary` contains the written forms of the dictionary. The adapter maps it to a provider feature, for example `context_bias`.
-  An adapter without such a feature ignores it.
-- The returned session owns its connection and settings. It does not borrow the options or the `Transcriber`.
-- One task sends chunks in order. Successful `send_audio` means the chunk was sent, not that transcription is complete.
-- The adapter reads the pending provider messages before each send and during `finish`. Its buffers belong to the session.
-- `finish` consumes the session, ends audio input, and waits for one complete transcript.
-- Cancellation drops the session. The Mistral protocol has no abort message: closing the connection cancels the session.
-- Partial provider results stay inside the adapter. They never enter the text pipeline or insertion queue.
-- Dropping the session, or its pending `start` or `finish` future, releases local resources and stops owned tasks.
-- Dropping `send_audio` stops that send operation. Cancellation also drops the session; Bloop never retries the interrupted chunk.
-- The worker applies the time limits: the connection limit to `start`, the inactivity limit to each `send_audio`,
-  and the completion limit to `finish`. An expired limit fails the operation with `ProviderError::Timeout`.
-  Cancellation must also work during any pending operation.
-- Bloop does not reconnect or replay audio automatically. No adapter can replace streaming with a complete-file upload.
-
-The core ignores a result for an unknown generation. The provider does not call the core or perform insertion.
-
-## Platform ports
-
-```rust
-use std::num::NonZeroU32;
-
-use secrecy::SecretString;
-
-pub trait EventSink: Send + Sync {
-    fn send(&self, event: Event);
-}
-
-pub trait AudioSink: Send {
-    fn try_push(&mut self, samples: &[f32]) -> Result<(), AudioQueueError>;
-}
-
-pub trait AudioInput {
-    fn start(&mut self, generation: Generation, sink: Box<dyn AudioSink>)
-        -> Result<NonZeroU32, AppError>;
-    fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
-    fn cancel(&mut self);
-}
-
-pub trait Overlay {
-    fn show(&mut self, view: OrbView);
-    fn close(&mut self);
-}
-
-pub trait TextOutput {
-    fn record_target(&mut self, generation: Generation) -> TargetInfo;
-    fn insert(&mut self, generation: Generation, text: FinalText);
-    fn copy(&mut self, text: &FinalText);
-    fn cancel(&mut self, generation: Generation);
-}
-
-pub trait Scheduler {
-    fn after(&self, delay: Duration, event: Event);
-}
-
-pub trait SecretStore {
-    fn get(&self, account: &str) -> Result<SecretString, SecretError>;
-}
-```
-
-- Main-thread ports have no `Send` bound. `EventSink` and `AudioSink` transfer data across threads.
-- `AudioInput::start` starts capture without waiting for the provider connection.
-- `AudioInput::start` captures the system default input device. If that device is a Bluetooth device and a built-in microphone exists,
-  it captures the built-in microphone. The log records this choice. If a Core Audio read fails, the capture keeps the default input.
-- Without the microphone permission, macOS can supply silent samples instead of an error.
-  Thus, before each capture, the audio adapter checks the permission.
-  If the permission is missing, `AudioInput::start` returns `AppError::PermissionMissing(Permission::Microphone)`.
-- `AudioInput::start` returns the native sample rate of the device, in Hz. The rate is not zero and stays fixed during the capture.
-  The driver gives this rate to the worker.
-  The worker converts the samples from this rate to 16 kHz mono PCM. It sets 16 kHz in `TranscriptionOptions`.
-- `AudioSink` receives mono samples at the native sample rate.
-- The worker creates the converter of `bloop-audio` before `start`. The audio callback does not convert.
-  The converter removes the delay of its resampler. Thus the 16 kHz audio stays in time with the capture.
-  For `n` samples at the native rate `r`, the converted capture contains `ceil(n × 16000 / r)` samples.
-  At 16 kHz, the converter copies the samples without a change.
-- A converter error is a bug. The worker logs it one time, without audio, and sends `CaptureFailed` with `AppError::Internal`.
-- `try_push` copies borrowed samples into preallocated bounded storage. It does not allocate, block, or perform I/O.
-- The audio callback sends no event and writes no log. It updates only atomic values: sample count, peak level, and overflow mark.
-- The audio library calls an error callback outside the audio callback, except for a rare host time error on the audio thread.
-  The previous rule applies only to the audio callback.
-  For a device loss, the error callback sends `CaptureFailed` with `AppError::Microphone`. It writes no log.
-- The audio library can report a device overrun on the real-time audio thread.
-  Thus, for an overrun, the error callback only adds one to an atomic counter. `AudioInput::stop` writes the count to the log.
-- When the queue is full, `try_push` returns `Full` and the queue keeps an overflow mark.
-- After each queue read and its sends, the worker waits 20 ms. The callback does not wake it.
-  The worker converts the samples incrementally to 16 kHz and calls `send_audio` for each chunk.
-- During the capture, the worker sends only complete chunks of 100 ms at 16 kHz. It keeps the remaining samples for the next read.
-  At the end of the capture, the worker flushes the converter and sends all remaining samples immediately.
-  Thus the chunk length adds no delay after key release.
-- During a provider operation, the worker checks the queue state at the same interval.
-  A full queue or a lost microphone fails the capture without waiting for the provider.
-- The worker reports the overflow mark as `AudioQueueError::Full`. Thus a full queue fails the capture.
-- Each queue has an end mark. For `StopCaptureAndProcess`, the driver sets this mark, then calls `AudioInput::stop`.
-  The worker reads the samples until the producer goes away, then flushes the converter and calls `finish`.
-- If the producer goes away without the end mark, the worker reports `AudioQueueError::Closed`.
-  Cancellation stops the worker first. Thus it produces no second error.
-- The driver sets the end mark on the main thread.
-  The worker detects the drop of the sink with an `Acquire` load that synchronizes with the drop.
-  Thus the audio adapter must drop the sink on the main thread before `AudioInput::stop` returns.
-  If another thread drops the sink, that thread must first synchronize with the main thread after the end mark.
-  Without this order, the worker can report `Closed` for a normal end.
-- `TextOutput::insert` returns immediately. The adapter sends `Event::InsertDone` through the `EventSink` later,
-  after the end of its clipboard transaction.
-- `TextOutput::cancel` forgets the target of a job that ends without `InsertDone`, and sends no `InsertDone` for it.
-  The clipboard restore still follows a later read.
-- The audio adapter writes the level into a `LevelMeter`. The overlay reads the same `LevelMeter`.
-- `AudioInput::stop` stops the producer after the final samples and returns the capture summary.
-- The worker drains accepted samples and flushes the converter before `finish`.
-- `AudioInput::cancel` stops capture. The driver also cancels the stream and discards queued samples for that generation.
-- `SecretString` does not show its value in `Debug` output.
-- `SecretStore::get` returns `NotFound` when the store has no key for the account.
-  It returns `Unavailable` when the store has the key but the read failed, for example because the user denied access.
-  The user fixes each case differently. Thus the menu shows a different line for each.
-- Bloop reads each API key one time at start, on the main thread, before the run loop.
-  macOS can show an access dialog and block that thread until the user answers. A new key needs a restart of Bloop.
-
-## Menu model
-
-Phase 4 design of 2026-11-07, implemented in Phase 4 iteration 3.
-These plain data types are in `ports/platform.rs`. `bloop-app` builds the model, and `bloop-macos` renders it.
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActionId(pub usize);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MenuModel {
-    pub items: Vec<MenuItem>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MenuItem {
-    Status { title: String },
-    Action { title: String, action: ActionId },
-    Toggle { title: String, action: ActionId, checked: bool },
-    Choice { title: String, options: Vec<ChoiceOption> },
-    Separator,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChoiceOption {
-    pub title: String,
-    pub action: ActionId,
-    pub selected: bool,
-}
-
-/// Main thread only. AppKit calls both methods; they must not panic.
-pub trait MenuSource {
-    fn model(&self) -> MenuModel;
-    fn activate(&self, action: ActionId);
-}
-```
-
-- `bloop-macos` calls `MenuSource::model` each time the menu opens (`menuNeedsUpdate:`). Then it removes all items and renders the model.
-  `StatusMenu::new` also renders the model one time. Thus the menu has its items before the first open.
-- The menu delegate is set on the top-level menu only. The delegate and the item targets are weak references.
-  `StatusMenu` keeps the target alive as long as its status item.
-- `MenuSource::activate` receives the action of a click.
-- A `Status` item gives information only. It has no action, thus AppKit disables it. A status line that opens something is an `Action`.
-- A `Choice` is an item with a submenu. Each option has a checkmark state.
-- `ActionId(n)` is the index of the action in the list that `bloop-app` builds with the model.
-  It is valid only in that model. `bloop-app` logs an unknown identifier at `error!` and ignores it.
-- Each item with an action uses one selector, `menuAction:`. The item tag is `ActionId + 1`. Thus the default tag 0 never starts an action.
-- `tag_of(ActionId) -> Option<isize>` and `action_of(isize) -> Option<ActionId>` are pure functions in `bloop-macos`.
-  They use `checked_add`, `checked_sub`, and `try_from`. A failed conversion logs at `error!` and ignores the click.
-- The renderer adds a separator and "Quit Bloop" after the model items. "Quit Bloop" is not in the model.
-- `MenuSource` runs on the main thread. It has no `Send` bound.
-- AppKit calls `MenuSource` from Objective-C. Thus its methods must not panic.
-- The menu model has no status icon. The status icon does not change: the status lines show each problem.
-
-## Learning from fixes
-
-Phase 6 proposal. Review the signatures before the adapters.
-
-- A pure function in `bloop-core` compares the pasted text and the edited text, and returns the suggestions.
-- A platform port watches the focused field after a `Landed` paste. It returns the edited text at the end of the watch.
-- A new orb view carries the suggestion. The core shows it with the rules of the fallback card.
-- The hub saves or ignores the pair in the dictionary file. The core does not store the dictionary.
-- The field text stays in memory. Types that contain it use a redacting `Debug`.
-
-## Errors
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderError {
-    Network,
-    Timeout,
-    Http(u16),
-    Unauthorized,
-    InvalidResponse,
-}
-
-#[derive(Debug)]
-pub enum StepError {
-    Provider(ProviderError),
-    Rejected(Rejection),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Rejection {
-    Incomplete,
-    Empty,
-    TooShort,
-    TooLong,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Permission {
-    Microphone,
-    Accessibility,
-    InputMonitoring,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioQueueError {
-    Full,
-    Closed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SecretError {
-    NotFound,
-    Unavailable,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppError {
-    PermissionMissing(Permission),
-    Microphone,
-    AudioQueue(AudioQueueError),
-    Provider(ProviderError),
-    InvalidSettings,
-    Internal,
-}
-```
-
-`StepError` and `Rejection` are the Phase 3 errors of the text steps.
-`Rejection::Empty` is for a reply that is empty or contains only whitespace. It does not depend on the character ratio.
-Adapters map protocol and transport failures to these categories without recording response bodies or credentials.
-For an HTTP error, the chat adapter reads at most 16 KiB of the body within the request time limit.
-It logs only the `type` and `code` fields, because the message and the other fields can contain text from the request.
-A value that is not a short ASCII token is left out.
-If the body is missing, too large, or not JSON, the log contains only the status. The body does not change the `ProviderError`.
-A WebSocket handshake error contains the response headers and body. The adapter maps it to `ProviderError` before any log.
-The adapter can log the code and message of a provider `error` event, because they contain no transcript text and no credential.
-`tungstenite` writes the handshake request with the API key to the `log` crate at trace level.
-Bloop installs no `log` bridge. A future bridge must turn off the `tungstenite` target.
-`hyper` writes no log, because its `tracing` feature is off. `hyper-util` and the HTTP/2 crate `h2` send `tracing` events.
-Most of these events are at debug and trace levels. Some warnings report a problem with a socket option, the protocol, or a stream limit.
-These events contain no header value and no body. The Bloop log records only the info level and higher.
-A missing API key in Keychain is `ProviderError::Unauthorized`. The menu status also shows it at start.
-An invalid settings file of the user is `AppError::InvalidSettings`: `config.toml` or `dictionary.toml`, invalid or too large.
-Then each capture fails with the error view, as for a missing API key.
-The settings hub reads both files at each dictation key press and each time the menu opens. Thus a fixed file applies from the next dictation, without restart.
-A missing or invalid prompt is also `InvalidSettings`, but only when the correction is on (owner decision B).
-The menu shows each of these errors with its file, and with its line when it is known.
-`CaptureFailed` carries a failure during capture. `WorkFailed` carries a failure after capture.
-If capture ends before a queued `CaptureFailed` arrives, the core applies it to the matching processing job.
-If the transcription task panics, the worker sends `CaptureFailed` with `AppError::Internal`.
-The core applies this event to the capture or to the processing job of that generation.
-Before reporting a failure, the driver stops audio and network work for that generation, even if capture already ended.
-Neither event retries transcription or permits partial insertion.
-
-## Pipeline
-
-```rust
-pub struct Pipeline {
-    steps: Vec<Arc<dyn TextStep>>,
-}
-
-pub struct StepReport {
-    pub step: &'static str,
-    pub result: StepResult,
-}
-
-pub enum StepResult {
-    Applied,
-    Skipped(SkipReason),
-    Failed(StepError),
-}
-
-pub struct PipelineOutput {
-    pub event: Event,
-    pub report: Vec<StepReport>,
-}
-
-pub struct Processed {
-    pub text: Option<FinalText>,
-    pub report: Vec<StepReport>,
-}
-```
-
-`Pipeline::new(steps)` keeps the steps in the given order.
-`Pipeline::run(&self, generation: Generation, transcript: Transcript, context: &StepContext) -> PipelineOutput` is an `async fn`.
-`Pipeline::process(&self, transcript: Transcript, context: &StepContext) -> Processed` is an `async fn`. It applies the steps without a generation.
-`run` calls `process` and converts its result to the event. Thus the steps and the raw fallback exist one time.
-The evaluation tool calls `process`, because only the core creates a `Generation`.
-The correction toggle is the status menu item "Correct text". `bloop-app` keeps its state in `config.toml`, in the key `[refine] enabled`.
-Each time the menu opens, the settings hub reads the files again, and the checkmark shows the key. If the file or the key does not exist, the state is off.
-An invalid file is `AppError::InvalidSettings`, as for the dictionary. The menu then hides the toggle.
-Each click writes the key through `Hub::set` with `toml_edit`, on the main thread. If the current file is invalid, Bloop does not change it and logs a warning.
-`bloop-app` keeps the settings on the main thread, not in the core. The settings snapshot of each generation contains the correction state.
-Thus a change affects only subsequent generations. It never changes an active capture or a running job.
-When the correction is off, the task runs a pipeline without steps.
-When it is on, the task runs the correction step list with the prompt that `[refine] prompt` selects.
-The hub builds the chat model with the correction time limit `CORRECTION_LIMIT` (8 s, an initial value).
-
-`Speech::correction` is a `Result<Correction, NoCorrection>`. Both types are in `bloop-app`.
-`Correction` owns the prompt name and the correction steps. Only the steps contain the prompt text.
-When the correction is on, the hub resolves the prompt first. Then it gets the chat model.
-When the correction is off, the hub does not read the prompt.
-
-- `NoCorrection::Off`: "Correct text" is off. A job keeps the raw text without a warning.
-- `NoCorrection::ChatUnavailable`: the chat model is not available, for example without an API key.
-  A job logs a warning and keeps the raw text.
-- `NoCorrection::InvalidPrompt`: the correction is on, and the selected prompt is missing or not valid.
-  The log of the new settings snapshot gives the prompt name and the reason.
-  `Spawner::spawn` returns `Err(AppError::InvalidSettings)` before it starts a task.
-  Thus the capture fails with the error view (owner decision B). With the correction off, the value is `Off`, and dictation operates.
-
-The settings hub (Phase 4 iteration 2) applies these rules:
-
-- `NoCorrection::Off` replaces the toggle cell. Thus `[refine] enabled` in the settings snapshot is the only toggle state.
-  When the correction is off, the hub does not read the prompt.
-- Each generation uses the settings snapshot that the driver takes at `StartHoldTimer`.
-  At `StartCapture`, the driver gives the speech objects of that snapshot to `Spawner::spawn`. `Spawner` has no speech objects and no toggle cell.
-- The hub reuses the chat model while `[chat]` does not change. A prompt change builds a new `Correction` with the same chat model.
-  The steps share the chat client through `Arc`.
-- `CORRECTION_LIMIT` stays a constant (owner decision A).
-
-The worker runs this pipeline only after `finish` returns the complete transcript.
-The worker builds the `StepContext` from the language of the dictation.
-Before the steps, the worker logs one `info` line for each job: the correction value and, when it is on, the prompt name.
-The worker logs each `StepReport` at the `info` level: the step name and the `Debug` output of the result.
-An event with `ProviderError::Unauthorized` from the transcription sets the refused key line in the menu.
-This applies when Bloop read a key at start. Else the menu shows the missing key line.
-The event handler of `main.rs` reads each event before the driver. The driver does not change for this rule.
-The line stays until the restart, because Bloop reads the key at start only.
-A refusal of the chat request alone is not tracked: today, the chat provider and the speech provider use the same account.
-The driver does not check the duration or the level of a capture. For silence, the provider returns an empty transcript,
-and step 1 returns `NothingHeard`. The driver writes the `CaptureSummary` to the log only.
-
-1. If the complete transcript is empty or contains only whitespace, `process` returns no text and an empty report. No step runs.
-   Then `run` returns `NothingHeard`.
-2. `process` applies the steps in order. Each step gets the current text, and `Applied` replaces it.
-   If a step skips or fails, the text before that step continues to the next step. Each step adds one `StepReport`.
-3. `process` returns the final text, and `run` returns `TextReady` with it.
-
-Without steps, the final text is the raw transcript, without a copy. This is the path when the correction is off.
-Phase 2 returns the complete raw transcript. Phase 3 adds the optional correction. Raw fallback preserves a complete transcript when correction fails; it never accepts a failed STT session.
-
-| Step | Behavior |
+| Event or condition | Required behavior |
 | --- | --- |
-| `LlmRefine` | Sends one request to a `ChatModel`. The system message is the prompt. The user message is the text between a `<transcript>` line and a `</transcript>` line. The request has no prediction. Rejects an incomplete reply (`Incomplete`) and an empty reply (`Empty`). The short-text skip and the character ratio check are optional and off by default. |
-| `Typography` | Replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) with a normal space immediately before `?`, `!`, `:`, `;`, and `»`, and immediately after `«`. Replaces `’` with `'`. Does not add a space. Does not change line breaks or other characters. |
-| `Trim` | Removes `\n` and `\r` at the start and at the end. Does not remove spaces. |
+| Dictation key down while idle | Create one generation and take its settings snapshot. Start the hold timer. |
+| Short press or combination during the hold | Return to idle without recording or feedback. Ignore the stale timer. |
+| Hold threshold with three existing jobs | Do not start recording. Show the error indicator. |
+| Key release while listening | Record the target, stop capture, create one processing job, and close the indicator. |
+| Escape or other input while listening | Cancel capture and its stream. Do not create a job. |
+| Complete transcript | Process the text and make the matching job ready. Never insert a partial transcript. |
+| Empty transcript | Remove the job and its target. Paste nothing. |
+| Ready jobs | Insert only the first job. Preserve capture order even when work completes in reverse order. |
+| Capture failure after release | Fail the matching processing job and release its resources. |
+| Job failure | Remove the job and unblock later jobs. Show an error only when no capture is active. |
+| System sleep | Cancel capture and all jobs. Ignore their later results. |
+| Unknown generation | Ignore the event. |
+| Copy last result | Copy the text of the latest insertion attempt, when one exists. |
 
-When the correction is on, the step list is `steps::correction(model, prompt)`: `LlmRefine`, `Typography`, `Trim`. When it is off, the list is empty.
-`steps::correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Arc<dyn TextStep>>` is a pure function in `steps/mod.rs`.
-The minimum word count and the character ratio of `LlmRefine` stay off.
-The application and the evaluation tool both use this function. Thus a measured result is the result of the application.
-The step names in the report are `llm_refine`, `typography`, and `trim`.
+A fallback card waits while capture is active. A newer deferred card replaces the previous one.
+A capture failure or system sleep discards the deferred card.
+Escape does not cancel processing jobs. A posted paste command cannot be withdrawn.
 
-`LlmRefine` calculates `max_tokens` in a private function of `steps/refine.rs`: ceil(characters / 2.5 × 1.6) + 32, from 64 to 2,048.
-The characters are the Unicode scalar values of the text, without the delimiters.
+## Streaming and audio
 
-The first evaluation uses one model and `natural-light`, without predicted output.
-The skip below 4 words and the 50% to 160% character ratio are candidate heuristics, not meaning checks.
-Select or remove them against the test set before daily use. Expected spoken corrections must pass.
-For example, "à 2 heures, non, 3 heures" to "à 3 heures" has a 40% ratio.
-`LlmRefine::with_min_words` and `LlmRefine::with_ratio` turn them on. Both are off by default.
-The words are the parts between whitespace. Below the minimum, the step returns `Skipped(TooFewWords)` and sends no request.
-The ratio compares the character counts of the reply and the text. Outside the ratio, the step rejects the reply with `TooShort` or `TooLong`.
-The correction timeout also needs evaluation: a blocked first job delays subsequent insertions.
-Tests must cover timeout to raw fallback, cancellation during correction, and corrections that complete in reverse order.
+- Each generation owns one bounded sample queue and one transcription task.
+- Capture starts without waiting for the provider connection.
+- The worker converts native mono samples to 16 kHz and sends chunks in capture order.
+- The callback does not allocate, lock, perform I/O, or log.
+- A full queue or a lost microphone fails the affected dictation. Queue overflow never silently discards samples to continue a session.
+- System audio overruns are counted and logged at capture end. They do not stop capture.
+- The driver sets the queue end mark before stopping the producer.
+- The producer must be dropped with synchronization after that mark. A producer lost without the mark is a failure.
+- Normal completion drains accepted samples, flushes conversion, and calls `finish` once.
+- `finish` consumes the session and returns one complete transcript.
+- Dropping the session or its pending connection or finish future releases local resources.
+- Cancelling an audio send also discards the session. The chunk is never retried.
+- Partial text stays inside the adapter. A failed stream cannot enter raw fallback.
+- No deadline limits recording duration. Connection, send, and finish deadlines apply separately.
 
-## Required behavior
+The provider adapter owns bounded network buffers.
+The Mistral adapter drains at most 64 pending events before each audio send.
+A complete transcript does not wait for a successful WebSocket close.
 
-| Rule | Requirement |
+## Text pipeline
+
+The pipeline applies steps in order. Each step returns an applied value, a skip reason, or a typed error.
+A failed or skipped step preserves its input for the next step.
+An empty transcript runs no steps and produces `NothingHeard`.
+
+With correction off, the step list is empty and the raw transcript becomes the final text.
+With correction on, the shared list is `LlmRefine`, `Typography`, then `Trim`.
+A failed correction therefore retains the transcript but still applies typography and trim.
+
+- The model receives the prompt as its system message and the transcript between delimiters as its user message.
+- A reply must be complete and non-empty.
+- The output budget is calculated from input length and clamped to 64–2,048 tokens.
+- The short-text skip and character-ratio checks are disabled in the application.
+- The correction request has an eight-second limit. A failure continues with the existing text.
+- The application and `eval` use the same step constructor and pipeline.
+
+A missing or invalid selected prompt blocks dictation when correction is enabled.
+With correction disabled, the prompt is not read.
+This configuration failure differs from a request failure after a complete transcript exists.
+
+## Clipboard transaction
+
+The paste adapter records a target for each generation and removes it when that job ends.
+Before a paste, it checks the frontmost process, input counters, and secure input.
+The clipboard snapshot occurs before this check because promised clipboard data can take time to arrive.
+
+- Each generation posts at most one Command-V event pair.
+- A clipboard read confirms `Landed`; it does not prove insertion into the intended field.
+- The adapter restores saved contents only while its change count still owns the clipboard.
+- Deferred writes to the general clipboard must check their transaction phase and clipboard ownership.
+- Cancellation suppresses the result event. A paste already posted can still cause a read.
+- Before a new insertion saves the clipboard, the adapter finalizes the previous transaction.
+- Normal menu quit returns from the AppKit loop and drops the driver, which finalizes the paste transaction.
+- Forced termination or a process crash cannot guarantee restoration.
+- A deferred fallback must not overwrite a newer clipboard value. An immediate target-check fallback copies the result for manual paste.
+- The recovery card must not assert that text was copied when that write is uncertain.
+
+The clipboard snapshot is limited to 64 items and 64 MiB.
+If some types cannot be read, restoration keeps only the captured types.
+If no valid snapshot exists, automatic restoration is unavailable.
+The latest result remains in memory for **Copy last result** until replaced or the process exits.
+
+## Settings and menu
+
+The hub owns parsed settings, file texts, the current snapshot, and the chat client.
+It runs on the main thread. Its internal borrow must not cross an AppKit call.
+
+- Refresh reads bounded files at key press and menu open.
+- An unchanged set of file texts reuses the current snapshot.
+- The driver takes one snapshot at `StartHoldTimer`; that generation uses it throughout.
+- A prompt change reuses the chat client. A chat configuration change rebuilds it.
+- Invalid configuration or dictionary files block capture with `InvalidSettings`.
+- Menu writes parse the current file first and refuse an invalid file.
+- A write uses a uniquely and exclusively created temporary file in the destination folder.
+- The file is synchronized and closed before rename. An error triggers cleanup of the temporary file.
+- Atomic replacement does not merge simultaneous edits. The last successful replacement wins.
+- Startup creates missing templates and folders without overwriting existing files.
+- API keys are read at startup, outside the event tap. A changed key requires a restart.
+
+The application builds `MenuModel`; the macOS crate renders it.
+The menu refreshes at each open. Action identifiers refer only to the current model.
+The renderer encodes an action as its index plus one. Tag zero is invalid.
+Unknown identifiers and invalid tags are logged and ignored.
+The menu source and Objective-C callbacks must not panic.
+
+## Privacy and errors
+
+Audio, transcript, final-text, prompt, dictionary, and request types must redact their content in `Debug`.
+`TranscriptionOptions` shows the vocabulary count, not the entries.
+Keys use `SecretString` and remain outside settings, command arguments, logs, and error messages.
+
+Provider errors use local categories and HTTP status codes.
+Logs must not contain arbitrary provider error fields, response bodies, or unknown event and finish strings.
+The HTTP adapter discards error bodies. The WebSocket adapter discards error details.
+Logs may record durations, counts, controlled error categories, and nonsecret settings such as the model identifier.
+
+The application installs no bridge from the `log` crate.
+Do not add one without reviewing dependency logs: WebSocket handshake traces can contain authorization headers.
+The evaluation tool writes its selected samples and final text to the terminal by design.
+
+## Verification surfaces
+
+Repository checks are listed in [AGENTS.md](../AGENTS.md).
+Existing tests cover pure state transitions, fake providers, local protocol servers, settings files, and clipboard helpers.
+They do not establish real permission, microphone, network, or AppKit behavior.
+
+For a change to a critical surface, use the relevant checks:
+
+| Surface | Required checks |
 | --- | --- |
-| Generation | `DictationKeyDown` with the capture in `Idle` creates a new generation. The core ignores events for an unknown generation. |
-| One capture | `DictationKeyDown` with the capture outside `Idle` has no effect. Running jobs do not block a new capture. |
-| Job limit | If 3 jobs exist (processing, ready, or pasting) when `HoldElapsed` arrives, the capture does not start and the core shows the error view. A combination during `Pending` stays silent. |
-| Short press | `DictationKeyUp` in `Pending` returns the capture to `Idle` and emits no command. A later `HoldElapsed` for that generation has no effect. |
-| Combination | `OtherInputDuringHold` in `Pending` returns the capture to `Idle` and emits no command. In `Listening`, it emits `CancelCapture` and `CloseOrb`. |
-| Key release | `DictationKeyUp` in `Listening` emits `RecordTarget`, `StopCaptureAndProcess`, and `CloseOrb`, and adds a job. |
-| Order | The core emits `Insert` only for the first job in the queue. |
-| Last result | The core keeps the text of the last `Insert` for `CopyLastResult`. |
-| Escape | `Escape` has the same effect as `OtherInputDuringHold`. It has no effect on jobs. |
-| Sleep | `SystemSleep` cancels the capture and all jobs. If a job already posted its paste command, `CancelWork` cannot remove the text. The core ignores its later `InsertDone`. |
-| Nothing heard | `NothingHeard` removes the job and emits `CancelWork`. The core emits no orb command. |
-| Error | `CaptureFailed` during `Listening` emits `CancelCapture` and shows the error view. For a processing job, `CaptureFailed` has the same effect as `WorkFailed`. This covers stop errors and failures that arrive after release. `WorkFailed` removes the job, emits `CancelWork`, and shows the error view only when no capture is active. |
-| Fallback | `InsertDone` with `Fallback` shows the card with the text of that job. During a capture, the core keeps the card. When the capture ends, the core adds the card command after the commands that the other rules give. A newer card replaces a kept card. `CaptureFailed` during `Listening` and `SystemSleep` delete the kept card: the text stays in the clipboard and in the last result. |
-| Paste | The paste adapter runs the target check. It posts no more than one paste command for each generation. It reports `Landed` only after the target reads the text. |
-| Step failure | The log records the step name and the reason. It does not record the text. |
-| Settings | The driver takes the settings snapshot at `StartHoldTimer`. The snapshot contains the hold threshold, the correction state, and the speech objects. The hold timer and `StartCapture` of that generation use it. A generation without its snapshot fails with `CaptureFailed(Internal)`. Changes never affect an active capture or a running job. |
-| Privacy | `Transcript` and `FinalText` implement a redacting `Debug` that shows only the number of characters. Logs never contain audio or text. |
+| Core and driver | Event order, stale generations, job limits, failure after release, reverse completion, and cleanup |
+| Worker and streaming | Ordered audio, full queue, lost producer, finish, timeout, cancellation, and late results |
+| Text pipeline | Empty text, incomplete reply, correction failure, raw fallback, typography, and trim |
+| Settings and hub | Defaults, invalid and oversized files, comments, failed writes, snapshot isolation, and client reuse |
+| Privacy | Sentinel values in provider responses and text-bearing `Debug` output must not enter logs |
+| Paste lifecycle | Delayed restore, cancellation, a newer clipboard owner, replacement insertion, and shutdown |
 
-These requirements need unit tests. Trait signatures alone do not enforce them.
+Manual checks on the reference Mac must cover:
 
-## Streaming rules
+- Short hold, Right Command combinations, Escape repeats and release, and sleep during capture.
+- Microphone permission and selection, silence, long capture, and consecutive dictations.
+- Paste in native apps, a browser, and a terminal; changed target; secure input; and an unread clipboard item.
+- Clipboard text and image restoration, consecutive pastes, cancellation, and quit during a pending transaction.
+- Menu refresh, checkmarks, submenus, keyboard quit, and file and permission links.
+- Correction on and off, a failed correction, and manual recovery.
 
-These rules apply from Phase 2. Test them with fake ports before implementing the network adapter.
-
-- Each generation owns its audio queue and transcription task. Starting another capture must not replace an earlier job's task.
-- `StartCapture` starts the microphone and opens the provider session asynchronously. Initial audio stays in a bounded queue during setup.
-- Audio chunks retain capture order. The adapter must also bound its internal buffers.
-- `StopCaptureAndProcess` signals the existing task to finish; it never opens a second transcription session.
-- `CancelCapture` carries no generation. The driver keeps the generation of the active capture from `StartCapture`.
-- `CancelWork` stops the task of its generation and calls `TextOutput::cancel`.
-- The task drains accepted audio, flushes conversion, and calls `finish` once. A repeated key release cannot finish it twice.
-- `TextReady` requires a complete transcript and an existing job. Partial transcripts never create jobs.
-- Escape, other input, and microphone loss stop the active capture and its stream. System sleep also cancels all jobs.
-- A full queue, failed connection, or timeout ends the affected session with an error. It never triggers replay or incomplete insertion.
-- Cancellation while connecting, sending, or finishing must release resources. Late results from cancelled generations have no effect.
-- A failure before release returns capture to `Idle`. A failure after release removes its job and unblocks later jobs.
-- Audio queue capacity does not grow with capture duration. Check bounded audio memory during long dictations.
-
-Phase 2 tests must cover release and failure races, provider messages during capture, slow connections, full queues, and cancellation.
-The existing state machine is the starting point. Update its events only when these tests show a need.
+Miri does not cover calls to macOS frameworks. The workspace has no CI.
+Record checks that actually ran, and report all execution gaps.

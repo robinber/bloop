@@ -194,6 +194,55 @@ fn a_cancel_keeps_the_restore_and_drops_the_result() {
 }
 
 #[test]
+fn abandoning_a_transaction_restores_once_and_stops_its_timers() {
+    for read in [false, true] {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        write(&pasteboard, &[item(&[(string_type(), &b"original"[..])])]);
+        let original = contents(&pasteboard);
+        let saved = save(&pasteboard);
+        let written = write(&pasteboard, &[bloop_text()]);
+        let mut transaction = Transaction::default();
+        if read {
+            assert!(transaction.read());
+        }
+
+        assert!(transaction.abandon());
+        restore(&pasteboard, saved, written);
+
+        assert_eq!(contents(&pasteboard), with_transient_marker(original));
+        assert!(!transaction.abandon());
+        assert!(!transaction.read());
+        assert!(!transaction.read_time_out());
+        assert!(!transaction.restore_due());
+        assert_eq!(transaction.result(InsertOutcome::Landed), None);
+        pasteboard.clearContents();
+    }
+}
+
+#[test]
+fn a_new_paste_after_a_cancelled_read_restores_the_original_clipboard() {
+    let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+    write(&pasteboard, &[item(&[(string_type(), &b"original"[..])])]);
+    let original = contents(&pasteboard);
+    let saved = save(&pasteboard);
+    let written = write(&pasteboard, &[bloop_text()]);
+    let mut transaction = Transaction::default();
+    assert!(transaction.read());
+    transaction.cancel();
+
+    if transaction.abandon() {
+        restore(&pasteboard, saved, written);
+    }
+    let saved = save(&pasteboard);
+    let written = write(&pasteboard, &[bloop_text()]);
+    assert!(!transaction.restore_due());
+    restore(&pasteboard, saved, written);
+
+    assert_eq!(contents(&pasteboard), with_transient_marker(original));
+    pasteboard.clearContents();
+}
+
+#[test]
 fn restore_writes_the_saved_items_back_with_the_transient_marker() {
     let pasteboard = NSPasteboard::pasteboardWithUniqueName();
     let first = item(&[

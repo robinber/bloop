@@ -21,7 +21,7 @@ impl App {
         }
     }
 
-    /// Starts the run loop. The "Quit Bloop" menu item ends the process from inside this call.
+    /// Starts the run loop. The "Quit Bloop" menu item stops it, so the caller can release its components.
     pub fn run(&self) {
         self.app.run();
     }

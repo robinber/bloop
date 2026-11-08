@@ -12,7 +12,9 @@ use crate::error::{ProviderError, StepError};
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// The settings that a transcription session applies before the first audio chunk.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Debug` shows the vocabulary count, never the dictionary terms.
+#[derive(Clone, Copy)]
 pub struct TranscriptionOptions<'a> {
     /// The language of the speech, for example `fr`.
     pub language: &'a str,
@@ -20,6 +22,16 @@ pub struct TranscriptionOptions<'a> {
     pub vocabulary: &'a [String],
     /// The sample rate of the audio chunks, in Hz.
     pub sample_rate: NonZeroU32,
+}
+
+impl fmt::Debug for TranscriptionOptions<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranscriptionOptions")
+            .field("language", &self.language)
+            .field("vocabulary_entries", &self.vocabulary.len())
+            .field("sample_rate", &self.sample_rate)
+            .finish()
+    }
 }
 
 /// A speech provider that transcribes an audio stream during the capture.
@@ -174,7 +186,25 @@ pub trait TextStep: Send + Sync {
 mod tests {
     use std::num::NonZeroU32;
 
-    use super::{ChatReply, ChatRequest, Finish, SkipReason, StepOutcome};
+    use super::{ChatReply, ChatRequest, Finish, SkipReason, StepOutcome, TranscriptionOptions};
+
+    #[test]
+    fn transcription_options_debug_hides_the_dictionary_terms() {
+        let vocabulary = vec!["private name".to_owned(), "private term".to_owned()];
+        let options = TranscriptionOptions {
+            language: "fr",
+            vocabulary: &vocabulary,
+            sample_rate: NonZeroU32::new(16_000).unwrap(),
+        };
+
+        let debug = format!("{options:?}");
+
+        assert_eq!(
+            debug,
+            "TranscriptionOptions { language: \"fr\", vocabulary_entries: 2, sample_rate: 16000 }"
+        );
+        assert!(!debug.contains("private"));
+    }
 
     #[test]
     fn debug_shows_the_length_of_the_texts_but_not_the_texts() {

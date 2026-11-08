@@ -87,7 +87,7 @@ fn menu_item(
 ) -> Retained<NSMenuItem> {
     let item = NSMenuItem::alloc(mtm);
     // SAFETY: each action is a selector from `sel!`. `menuAction:` goes to a `MenuTarget`, which
-    // implements it. `terminate:` has no target, thus AppKit sends it through the responder chain
+    // implements it. `stop:` has no target, thus AppKit sends it through the responder chain
     // to `NSApplication`, which implements it.
     unsafe {
         NSMenuItem::initWithTitle_action_keyEquivalent(
@@ -179,7 +179,7 @@ impl MenuTarget {
             menu.addItem(&self.item(mtm, item));
         }
         menu.addItem(&NSMenuItem::separatorItem(mtm));
-        menu.addItem(&menu_item(mtm, "Quit Bloop", Some(sel!(terminate:)), "q"));
+        menu.addItem(&menu_item(mtm, "Quit Bloop", Some(sel!(stop:)), "q"));
     }
 
     fn item(&self, mtm: MainThreadMarker, item: &MenuItem) -> Retained<NSMenuItem> {

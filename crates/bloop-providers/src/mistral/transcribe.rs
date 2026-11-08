@@ -11,7 +11,6 @@ use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
@@ -28,9 +27,6 @@ const URL: &str = "wss://api.mistral.ai/v1/audio/transcriptions/realtime";
 
 /// The largest provider frame and message that the adapter accepts. It bounds the receive buffer.
 const MAX_MESSAGE_SIZE: usize = 1 << 20;
-
-/// The largest part of a provider string that a log contains, in bytes.
-const LOG_EXCERPT: usize = 200;
 
 /// The largest number of provider messages that one `send_audio` reads before it sends the audio.
 /// Thus a flood of provider events cannot keep the send synchronous and block its time limit.
@@ -235,7 +231,7 @@ enum ServerEvent {
     #[serde(rename = "transcription.done")]
     Done { text: Text },
     #[serde(rename = "error")]
-    Error { error: ErrorBody },
+    Error,
     #[serde(other)]
     Other,
 }
@@ -250,15 +246,6 @@ impl fmt::Debug for Text {
             .field("chars", &self.0.chars().count())
             .finish()
     }
-}
-
-/// The Mistral documentation does not give the types of these fields.
-#[derive(Debug, Deserialize)]
-struct ErrorBody {
-    #[serde(default)]
-    message: Value,
-    #[serde(default)]
-    code: Value,
 }
 
 async fn send(ws: &mut Socket, event: &ClientEvent<'_>) -> Result<(), ProviderError> {
@@ -283,14 +270,7 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
     match item {
         Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
             Ok(ServerEvent::Other) => {
-                let event = serde_json::from_str::<Value>(&text);
-                let kind = event
-                    .as_ref()
-                    .map_or("?", |event| event["type"].as_str().unwrap_or("?"));
-                tracing::info!(
-                    kind = ?excerpt(kind),
-                    "the provider sent an event that the adapter does not use"
-                );
+                tracing::info!("the provider sent an event that the adapter does not use");
                 Ok(None)
             }
             Ok(event) => Ok(Some(event)),
@@ -324,23 +304,12 @@ fn decode(item: Option<Result<Message, WsError>>) -> Result<Option<ServerEvent>,
 
 /// Logs the event that the current operation does not accept.
 fn unexpected(event: &ServerEvent) -> ProviderError {
-    if let ServerEvent::Error { error } = event {
-        let code = error.code.to_string();
-        let message = error.message.to_string();
-        tracing::warn!(
-            code = %excerpt(&code),
-            message = %excerpt(&message),
-            "the provider sent an error"
-        );
+    if matches!(event, ServerEvent::Error) {
+        tracing::warn!("the provider sent an error");
     } else {
         tracing::warn!(?event, "the provider sent an unexpected event");
     }
     ProviderError::InvalidResponse
-}
-
-/// Returns the start of `text`: at most `LOG_EXCERPT` bytes, cut at a char boundary.
-fn excerpt(text: &str) -> &str {
-    &text[..text.floor_char_boundary(LOG_EXCERPT)]
 }
 
 /// Maps a WebSocket error without a log of its content: an HTTP refusal contains the response headers and body.
