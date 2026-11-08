@@ -1,6 +1,7 @@
+use std::cell::{Cell, OnceCell};
 use std::fs;
 use std::io;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use bloop_core::error::{Permission, SecretError};
@@ -1171,6 +1172,47 @@ fn choose_adds_the_chosen_app_and_the_hub_is_free_while_the_panel_runs() {
         )
     );
     assert_eq!(titles(submenu(&menu.model(), &["Prompt", "dev"]))[2], NOTES);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_choose_click_while_the_panel_runs_has_no_effect() {
+    let dir = scratch_dir("menu-choose-twice");
+    let text = "schema = 1\n\n[refine]\nenabled = true\n";
+    fs::write(dir.join("config.toml"), text).unwrap();
+    let slot: Rc<OnceCell<Weak<AppMenu>>> = Rc::new(OnceCell::new());
+    let panels = Rc::new(Cell::new(0));
+    let menu = Rc::new(menu_with(&dir, running, |_| {
+        let slot = Rc::clone(&slot);
+        let panels = Rc::clone(&panels);
+        Box::new(move || {
+            panels.set(panels.get() + 1);
+            let menu = slot.get().unwrap().upgrade().unwrap();
+            let model = menu.model();
+            menu.activate(option_at(
+                &model,
+                &["Prompt", "code", "Add application"],
+                "Choose…",
+            ));
+            Some(NOTES.to_owned())
+        })
+    }));
+    assert!(slot.set(Rc::downgrade(&menu)).is_ok());
+    let model = menu.model();
+
+    menu.activate(option_at(
+        &model,
+        &["Prompt", "code", "Add application"],
+        "Choose…",
+    ));
+
+    assert_eq!(panels.get(), 1);
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        format!(
+            "{text}\n[refine.apps]\ncode = [\"{TERMINAL}\", \"{GHOSTTY}\", \"{NOTES}\"]\nnatural-light = [\"{WHATSAPP}\"]\n"
+        )
+    );
     fs::remove_dir_all(&dir).unwrap();
 }
 

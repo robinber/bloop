@@ -130,7 +130,7 @@ The **Prompt** submenu shows and changes the lists. It has one submenu for each 
 - **Choose…** at the end of **Add application**, for an application that is not open. It opens a file panel in the Applications folder. Select the application, then **Open**. When the panel closes, the application that was in front before comes back to the front.
 
 A listed application shows the name of the installed application, else its bundle identifier. An open application shows its name in macOS. A key of `[refine.apps]` that names no prompt also has a submenu, with its applications only, so that you can remove them.
-A dictation that starts while the file panel is open uses the default prompt and pastes into the panel.
+A dictation that starts while the file panel is open uses the default prompt and posts the paste command to the panel. **Quit Bloop** while the panel is open closes the panel only.
 
 To find the bundle identifier of an application, dictate one time in it, then search the log for `the target is recorded`. The line gives `bundle_id`.
 

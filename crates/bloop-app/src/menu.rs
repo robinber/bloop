@@ -6,7 +6,7 @@
 //! `AppKit` calls `AppMenu` from Objective-C, thus nothing here panics. A failed borrow logs an error.
 //! "Choose…" runs a modal file panel. `AppMenu` holds no borrow while it runs, because events keep arriving.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
@@ -104,6 +104,8 @@ pub(crate) struct AppMenu {
     lookups: Lookups,
     /// The last model and its actions. `ActionId(n)` is the index `n` of the actions.
     last: RefCell<(MenuModel, Vec<Action>)>,
+    /// `true` while the file panel of "Choose…" runs.
+    choosing: Cell<bool>,
 }
 
 impl AppMenu {
@@ -114,6 +116,7 @@ impl AppMenu {
             paths,
             lookups,
             last: RefCell::new((MenuModel { items: Vec::new() }, Vec::new())),
+            choosing: Cell::new(false),
         }
     }
 
@@ -140,8 +143,15 @@ impl AppMenu {
 
     /// Asks for an application in the file panel, and adds it to the list of `prompt`.
     /// It runs without a borrow of the menu or the hub: the panel runs the main run loop, which can refresh the hub.
+    /// A "Choose…" click while the panel runs has no effect.
     fn choose_app(&self, prompt: PromptName) {
-        let Some(id) = (self.lookups.choose)() else {
+        if self.choosing.replace(true) {
+            tracing::info!("the application panel is already open, the click has no effect");
+            return;
+        }
+        let chosen = (self.lookups.choose)();
+        self.choosing.set(false);
+        let Some(id) = chosen else {
             return;
         };
         let Ok(app) = AppId::try_from(id) else {
