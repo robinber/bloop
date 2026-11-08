@@ -27,7 +27,10 @@ impl EventSink for MainSink {
 ///
 /// Events that arrive before this call are lost. Call it before the run loop starts.
 pub fn set_handler(_mtm: MainThreadMarker, handler: impl FnMut(Event) + 'static) {
-    let handler: Handler = Box::new(handler);
+    install(Box::new(handler));
+}
+
+fn install(handler: Handler) {
     let installed = HANDLER.try_with(|slot| match slot.try_borrow_mut() {
         Ok(mut slot) => {
             *slot = Some(handler);
@@ -43,6 +46,10 @@ pub fn set_handler(_mtm: MainThreadMarker, handler: impl FnMut(Event) + 'static)
 /// Removes the handler and drops the components it owns after the run loop returns.
 /// Events that arrive later have no handler.
 pub fn clear_handler(_mtm: MainThreadMarker) {
+    remove();
+}
+
+fn remove() {
     let removed = HANDLER.try_with(|slot| {
         let Ok(mut slot) = slot.try_borrow_mut() else {
             return Err(());
@@ -74,5 +81,78 @@ pub(crate) fn deliver(event: Event) {
     });
     if let Ok(Some(event)) = busy {
         DispatchQueue::main().exec_async(move || deliver(event));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::assert_matches;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    use bloop_core::session::Event;
+
+    use super::{HANDLER, Handler, deliver, install, remove};
+
+    fn recording(events: &Rc<RefCell<Vec<Event>>>) -> Handler {
+        let events = Rc::clone(events);
+        Box::new(move |event| events.borrow_mut().push(event))
+    }
+
+    /// Records, when it drops, whether the handler slot is free.
+    struct DropProbe(Rc<Cell<Option<bool>>>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            let free = HANDLER.with(|slot| slot.try_borrow_mut().is_ok());
+            self.0.set(Some(free));
+        }
+    }
+
+    #[test]
+    fn an_event_without_a_handler_has_no_effect() {
+        deliver(Event::Escape);
+        let events = Rc::default();
+        install(recording(&events));
+
+        assert!(events.borrow().is_empty());
+    }
+
+    #[test]
+    fn deliver_runs_the_handler() {
+        let events = Rc::default();
+        install(recording(&events));
+
+        deliver(Event::Escape);
+
+        assert_matches!(events.borrow()[..], [Event::Escape]);
+    }
+
+    #[test]
+    fn a_deliver_inside_the_handler_does_not_run_the_handler_inside_itself() {
+        let calls = Rc::new(Cell::new(0));
+        let counted = Rc::clone(&calls);
+        install(Box::new(move |_| {
+            counted.set(counted.get() + 1);
+            deliver(Event::Escape);
+        }));
+
+        deliver(Event::Escape);
+
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn clearing_drops_the_handler_outside_the_borrow() {
+        let free = Rc::new(Cell::new(None));
+        let probe = DropProbe(Rc::clone(&free));
+        install(Box::new(move |_| {
+            let _ = &probe;
+        }));
+        assert_eq!(free.get(), None);
+
+        remove();
+
+        assert_eq!(free.get(), Some(true));
     }
 }
