@@ -33,7 +33,7 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `[dictation] hold_ms` | `220` | The hold time of the dictation key before the recording starts, from 100 to 1000 ms. The **Hold delay** submenu lists 150, 220, 300, and 400 ms. Another value of the file shows at the end of the list. |
 | `[dictation] language` | `"fr"` | The language of the dictation: two lowercase ASCII letters. Bloop sends it to the speech provider. |
 | `[transcriber] provider` | `"mistral"` | The speech provider. The key is required when the table exists. `mistral` is the only provider in this build. |
-| `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The realtime transcription model. |
+| `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The realtime transcription model. 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, and `-`, because the model goes into the connection URL. |
 | `[transcriber] target_streaming_delay_ms` | `480` | The balance between delay and accuracy, in milliseconds. Bloop sends the value to the provider without a local range check. |
 | `[chat] provider` | `"mistral"` | The correction provider. The key is required when the table exists. |
 | `[chat] model` | `"mistral-medium-latest"` | The correction model. The **Model** submenu selects it. |
@@ -44,7 +44,7 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `[refine.apps]` | The default lists | The applications of each prompt: one key for each prompt name, with a list of bundle identifiers. A bundle identifier has 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`. See [Prompt by application](#prompt-by-application). |
 
 The sampling temperature of the correction is 0. The file cannot change it.
-Model identifiers and provider options go to the API as they are. A valid file does not guarantee that the provider accepts them.
+Bloop checks only the characters of the transcription model. The chat models and the provider options go to the API as they are. A valid file does not guarantee that the provider accepts a model or an option.
 
 ### Changes from the menu
 
@@ -66,7 +66,7 @@ An invalid file shows one line in the menu and hides **Correct text** and the su
   The same application in two lists of `[refine.apps]` also gives this error, with the line of the `[refine.apps]` header.
 - `config.toml: file too large` and `config.toml: file not readable`.
 
-In `[transcriber]` and `[chat]`, an unknown key or a wrong type gives the line of the table header. Select the line to open the file.
+In `[transcriber]` and `[chat]`, an unknown key, a wrong type, or an invalid transcription model gives the line of the table header. Select the line to open the file.
 
 ## Prompts
 

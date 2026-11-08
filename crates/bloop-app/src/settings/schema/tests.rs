@@ -238,6 +238,13 @@ fn a_wrong_type_in_a_provider_table_gives_the_line_of_the_table() {
 }
 
 #[test]
+fn a_transcription_model_with_a_space_is_an_invalid_setting() {
+    let text = "schema = 1\n\n[transcriber]\nprovider = \"mistral\"\nmodel = \"voxtral mini\"\n";
+
+    assert_eq!(error_line(text), Some(3));
+}
+
+#[test]
 fn a_missing_provider_table_gives_the_default_config() {
     let settings = parse("schema = 1\n\n[refine]\nenabled = true\n").unwrap();
 
