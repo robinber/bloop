@@ -181,9 +181,9 @@ Only the transcription reports a refused key in the menu. A failed correction re
 | Accessibility | The active event tap, which blocks Escape during a dictation, and the paste command | **Privacy & Security > Accessibility** |
 
 At start, Bloop asks macOS for each missing permission. macOS shows its own request one time for each permission. After that, enable Bloop in System Settings.
-The menu lists each missing permission as **Allow Microphone access…**, **Allow Accessibility access…**, or **Allow Input Monitoring…**, and a click opens its pane.
+The menu lists each missing permission as **Allow Microphone access…**, **Allow Accessibility access…**, or **Allow Input Monitoring…**, and a click opens its pane. **Then open Bloop again** follows the list.
 macOS can keep the old result until Bloop starts again. After you change a permission, quit and open Bloop again.
-When macOS refuses the event tap, the menu shows **Open Bloop again to use the dictation key**.
+When macOS refuses the event tap and the menu shows no permission and no API key line, it shows **Open Bloop again to use the dictation key**.
 
 Bloop records with the default input device. When the default input is a Bluetooth device, Bloop records with the built-in microphone of the Mac instead, when the Mac has one.
 
