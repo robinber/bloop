@@ -297,6 +297,8 @@ async fn stream(
 /// Sends `samples`, at `convert::RATE`, in chunks, and returns the number of chunks.
 async fn send(
     session: &mut dyn TranscriptionSession,
+    // `&mut` here, in `watch`, and in `queue_failure`: `Reader` is not `Sync`, so a `&Reader` held across an
+    // `.await` would make the transcription future non-`Send`, which `Handle::spawn` rejects.
     reader: &mut Reader,
     limit: Duration,
     samples: &[f32],
