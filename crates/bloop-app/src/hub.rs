@@ -4,7 +4,8 @@
 //! `dictionary.toml`, and one prompt when the correction is on. It compares each text with its last text.
 //! At a key press, the prompt is the prompt whose list contains the frontmost application, else the selected prompt.
 //! The lists are the `[refine.apps]` table of the file, or the default lists that `main` computes at start.
-//! When the menu opens, it is the selected prompt.
+//! When the menu opens, it is the selected prompt. A menu open also lists the prompts folder and, with the correction
+//! on, reads each other prompt that has a non-empty list, to report its error.
 //! It builds a new snapshot only after a change, and it builds the chat model again only when `[chat]` changes.
 //! It reads the API keys one time at start, because a Keychain read can wait for a dialog.
 //! It keeps the refused key state until the next start.

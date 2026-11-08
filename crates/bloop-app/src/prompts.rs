@@ -97,7 +97,8 @@ impl fmt::Debug for Prompt {
     }
 }
 
-/// Why the selected prompt is not available. It contains no file content.
+/// Why a prompt is not available: the selected prompt, or the prompt of an application list.
+/// It contains no file content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PromptError {
     /// No file of the prompts folder and no built-in prompt has the name.

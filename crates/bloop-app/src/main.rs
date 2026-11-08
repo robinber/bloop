@@ -101,7 +101,8 @@ fn main() -> ExitCode {
         spawner,
         HubSnapshots::new(Rc::clone(&hub), workspace::frontmost_app),
     );
-    // Install the tap after the slow setup: macOS disables a tap that gets events before the run loop runs.
+    // Install the tap late: macOS disables a tap that gets events before the run loop runs.
+    // The status menu builds its first model after the tap, because the menu shows whether the tap operates.
     let tap = KeyTap::install(mtm);
     if tap.is_none() {
         tracing::error!(

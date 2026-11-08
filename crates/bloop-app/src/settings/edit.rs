@@ -12,8 +12,8 @@ use crate::prompts::{self, AppLists};
 /// Returns `text` with the keys of `change` set. The other text does not change.
 /// A missing table goes at the end of the text. A missing `[refine.apps]` goes directly after `[refine]`.
 ///
-/// `settings` are the current settings of `text`. A `[chat]` table without `provider` is invalid.
-/// Thus, when a model change creates the table, or the table has no `provider` key, the change also writes `provider`.
+/// `settings` are the current settings of `text`. `parse` rejects a `[chat]` table without `provider`.
+/// Thus only a model change that creates the table finds no `provider` key, and it also writes the provider of `settings`.
 /// An application change computes the new lists from the lists of `settings` and `defaults`, never from an older menu.
 pub(super) fn with_change(
     text: &str,
