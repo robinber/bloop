@@ -105,8 +105,8 @@ mod tests {
 written = "objc2"
 
 [[entry]]
-heard = "comme Tabby"
-written = "comme Taby"
+heard = "rust fmt"
+written = "rustfmt"
 "#;
 
     fn parse_error(text: &str) -> Invalid {
@@ -117,7 +117,7 @@ written = "comme Taby"
     fn a_valid_file_gives_its_written_forms_in_order() {
         let dictionary = parse(VALID).unwrap();
 
-        assert_eq!(dictionary.written_forms(), ["objc2", "comme Taby"]);
+        assert_eq!(dictionary.written_forms(), ["objc2", "rustfmt"]);
         assert_eq!(format!("{dictionary:?}"), "Dictionary { entries: 2 }");
     }
 
@@ -154,7 +154,7 @@ written = "comme Taby"
 
     #[test]
     fn a_syntax_error_gives_its_line() {
-        let text = "[[entry]]\nwritten = \"objc2\"\n\n[[entry]]\nwritten = \"comme Taby\n";
+        let text = "[[entry]]\nwritten = \"objc2\"\n\n[[entry]]\nwritten = \"rustfmt\n";
 
         assert_eq!(parse_error(text), Invalid::Parse { line: Some(5) });
     }
@@ -185,7 +185,7 @@ written = "comme Taby"
 
     #[test]
     fn an_entry_without_a_written_form_is_an_error() {
-        let text = "[[entry]]\nwritten = \"objc2\"\n\n[[entry]]\nheard = \"comme Tabby\"\n";
+        let text = "[[entry]]\nwritten = \"objc2\"\n\n[[entry]]\nheard = \"rust fmt\"\n";
 
         assert_eq!(parse_error(text), Invalid::Parse { line: Some(4) });
     }

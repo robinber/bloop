@@ -62,16 +62,13 @@ mod tests {
     fn written_forms_keep_the_entry_order_without_repeats() {
         let dictionary = Dictionary::new(vec![
             entry(None, "objc2"),
-            entry(Some("comme Tabby"), "comme Taby"),
+            entry(Some("rust fmt"), "rustfmt"),
             entry(Some("obj c 2"), "objc2"),
             entry(None, "Voxtral"),
-            entry(Some("comme tabi"), "comme Taby"),
+            entry(Some("rust format"), "rustfmt"),
         ]);
 
-        assert_eq!(
-            dictionary.written_forms(),
-            ["objc2", "comme Taby", "Voxtral"]
-        );
+        assert_eq!(dictionary.written_forms(), ["objc2", "rustfmt", "Voxtral"]);
     }
 
     #[test]
@@ -86,7 +83,7 @@ mod tests {
     fn debug_shows_the_number_of_entries_but_not_their_text() {
         let dictionary = Dictionary::new(vec![
             entry(None, "objc2"),
-            entry(Some("comme Tabby"), "comme Taby"),
+            entry(Some("rust fmt"), "rustfmt"),
         ]);
 
         let debug = format!("{dictionary:?}");

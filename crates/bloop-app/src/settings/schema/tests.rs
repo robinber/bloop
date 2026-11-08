@@ -194,7 +194,7 @@ fn an_unknown_key_in_each_table_is_an_error_with_its_line() {
 }
 
 #[test]
-fn the_dictation_key_is_not_a_setting_yet() {
+fn the_dictation_key_is_not_a_setting() {
     assert_eq!(
         error_line("[dictation]\nkey = \"right_command\"\n"),
         Some(2)

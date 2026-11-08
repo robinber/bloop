@@ -49,7 +49,7 @@ fn the_change_replaces_the_value() {
 
 #[test]
 fn the_change_keeps_the_comments_and_the_spacing() {
-    let text = "# Bloop settings\nschema = 1\n\n\n# The correction\n[refine]  # menu\n  # Set from the menu\n  enabled   =   false   # off for now\n\n# End\n";
+    let text = "# Bloop settings\nschema = 1\n\n\n# The correction\n[refine]  # menu\n  # Set from the menu\n  enabled   =   false   # off by default\n\n# End\n";
 
     assert_eq!(
         correction(text, true),
