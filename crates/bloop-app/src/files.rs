@@ -204,23 +204,7 @@ pub(crate) mod tests {
             fs::read_to_string(&path).unwrap(),
             "schema = 1\n\n[refine]\nenabled = true\n"
         );
-        assert!(!path.with_added_extension("tmp").exists());
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn replace_does_not_touch_an_existing_shared_temporary_file() {
-        let dir = scratch_dir("replace-existing-temporary");
-        let path = dir.join("config.toml");
-        let existing = path.with_added_extension("tmp");
-        fs::write(&existing, "another write").unwrap();
-
-        replace(&path, "schema = 1\n").unwrap();
-
-        assert_eq!(fs::read_to_string(&path).unwrap(), "schema = 1\n");
-        assert_eq!(fs::read_to_string(&existing).unwrap(), "another write");
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -284,7 +284,11 @@ mod tests {
 
         write(&path, &Change::Correction(false), &AppLists::new()).unwrap();
         assert!(!read(&path).unwrap().unwrap().refine.enabled);
-        assert!(!path.with_added_extension("tmp").exists());
+        let names: Vec<_> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["config.toml"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 
