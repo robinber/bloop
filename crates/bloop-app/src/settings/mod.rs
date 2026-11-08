@@ -122,13 +122,18 @@ pub(crate) fn prepare(paths: &Paths) {
 
 /// Writes `change` to the file at `path`, after it checks the current file.
 /// When the file does not exist, it starts from the template, and it creates the folder.
+/// When the file exists and the change keeps its text, it writes nothing, so that an editor of the file sees no change.
 /// `defaults` are the application lists that apply while the file has no `[refine.apps]` table.
 pub(crate) fn write(path: &Path, change: &Change, defaults: &AppLists) -> Result<(), NotSaved> {
-    let text = files::read_bounded(path, LIMIT)
-        .map_err(|error| NotSaved::Invalid(error.into()))?
-        .unwrap_or_else(template::template);
+    let current =
+        files::read_bounded(path, LIMIT).map_err(|error| NotSaved::Invalid(error.into()))?;
+    let exists = current.is_some();
+    let text = current.unwrap_or_else(template::template);
     let settings = parse(&text).map_err(NotSaved::Invalid)?;
     let new = edit::with_change(&text, change, &settings, defaults).map_err(NotSaved::Invalid)?;
+    if exists && new == text {
+        return Ok(());
+    }
     if u64::try_from(new.len()).map_or(true, |len| len > LIMIT) {
         return Err(NotSaved::Invalid(Invalid::TooLarge));
     }
@@ -138,10 +143,12 @@ pub(crate) fn write(path: &Path, change: &Change, defaults: &AppLists) -> Result
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::os::unix::fs::MetadataExt as _;
     use std::path::Path;
 
     use super::{
-        AppId, Change, Invalid, LIMIT, NotSaved, Paths, PromptName, Settings, parse, prepare, write,
+        AppId, Change, HoldMs, Invalid, LIMIT, NotSaved, Paths, PromptName, Settings, parse,
+        prepare, write,
     };
     use crate::dictionary;
     use crate::files::read_bounded;
@@ -278,6 +285,33 @@ mod tests {
         write(&path, &Change::Correction(false), &AppLists::new()).unwrap();
         assert!(!read(&path).unwrap().unwrap().refine.enabled);
         assert!(!path.with_added_extension("tmp").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_change_to_the_current_value_keeps_the_file() {
+        let dir = scratch_dir("settings-unchanged");
+        let path = dir.join("config.toml");
+        let text = "schema = 1\n\n[dictation]\nhold_ms = 300\n\n[chat]\nprovider = \"mistral\"\nmodel = \"mistral-small-latest\"\n\n[refine]\nenabled = true\nprompt = \"code\"\n\n[refine.apps]\ncode = [\"com.apple.Terminal\"]\n";
+        fs::write(&path, text).unwrap();
+        let inode = fs::metadata(&path).unwrap().ino();
+        let code = PromptName::try_from("code".to_owned()).unwrap();
+        let changes = [
+            Change::Correction(true),
+            Change::Prompt(code.clone()),
+            Change::Model("mistral-small-latest".to_owned()),
+            Change::Hold(HoldMs::try_from(300).unwrap()),
+            Change::AddApp {
+                prompt: code,
+                app: AppId::try_from("com.apple.Terminal".to_owned()).unwrap(),
+            },
+        ];
+
+        for change in &changes {
+            assert_eq!(write(&path, change, &AppLists::new()), Ok(()), "{change:?}");
+            assert_eq!(fs::metadata(&path).unwrap().ino(), inode, "{change:?}");
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
         fs::remove_dir_all(&dir).unwrap();
     }
 

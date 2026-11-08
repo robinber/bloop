@@ -55,6 +55,7 @@ A changed list keeps the comment above its key, but loses the comments inside a 
 
 Bloop parses the current file before a write and refuses to change an invalid file. It also refuses a change that makes the file larger than 64 KiB.
 The write goes to a temporary file in the same folder, which then replaces `config.toml`.
+A choice that keeps the text of the file, such as the current model, writes nothing.
 Each time you open the menu, the checkmarks show the values of the file, including a change that you made by hand.
 
 ### Errors
