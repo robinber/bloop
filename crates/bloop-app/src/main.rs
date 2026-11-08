@@ -44,6 +44,7 @@ const CORRECTION_LIMIT: Duration = Duration::from_secs(8);
 
 fn main() -> ExitCode {
     let Some(mtm) = MainThreadMarker::new() else {
+        eprintln!("bloop: main does not run on the main thread");
         return ExitCode::FAILURE;
     };
     if let Err(error) = logging::init() {
