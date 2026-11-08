@@ -326,6 +326,22 @@ fn work_failure_does_not_interrupt_an_active_capture() {
 }
 
 #[test]
+fn work_failure_during_the_hold_shows_no_error_view() {
+    let mut core = Core::new();
+    let job = start_job(&mut core);
+    press(&mut core);
+
+    assert_eq!(
+        core.handle(Event::WorkFailed(
+            job,
+            AppError::Provider(ProviderError::Network)
+        )),
+        vec![Command::CancelWork(job)]
+    );
+    assert_eq!(core.handle(Event::DictationKeyUp), vec![]);
+}
+
+#[test]
 fn capture_failure_cancels_the_capture_and_shows_the_error_view() {
     let mut core = Core::new();
     let generation = start_listening(&mut core);
@@ -355,6 +371,22 @@ fn capture_failure_after_release_ends_the_job() {
 }
 
 #[test]
+fn capture_failure_of_the_live_capture_keeps_the_queued_jobs() {
+    let mut core = Core::new();
+    let job = start_job(&mut core);
+    let current = start_listening(&mut core);
+
+    assert_eq!(
+        core.handle(Event::CaptureFailed(current, AppError::Microphone)),
+        vec![Command::CancelCapture, Command::ShowOrb(OrbView::Error)]
+    );
+    assert_eq!(
+        core.handle(Event::TextReady(job, text("bonjour"))),
+        vec![Command::Insert(job, text("bonjour"))]
+    );
+}
+
+#[test]
 fn late_failures_of_a_pasting_job_are_ignored() {
     let mut core = Core::new();
     let first = start_job(&mut core);
@@ -375,6 +407,30 @@ fn late_failures_of_a_pasting_job_are_ignored() {
     assert_eq!(core.handle(Event::NothingHeard(first)), vec![]);
     assert_eq!(
         core.handle(Event::CaptureFailed(first, AppError::Microphone)),
+        vec![]
+    );
+    assert_eq!(
+        core.handle(Event::InsertDone(first, InsertOutcome::Landed)),
+        vec![Command::Insert(second, text("deux"))]
+    );
+}
+
+#[test]
+fn insert_done_of_a_job_that_is_not_inserting_is_ignored() {
+    let mut core = Core::new();
+    let first = start_job(&mut core);
+    let second = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(first, text("un"))),
+        vec![Command::Insert(first, text("un"))]
+    );
+    assert_eq!(core.handle(Event::TextReady(second, text("deux"))), vec![]);
+
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            second,
+            InsertOutcome::Fallback(FallbackReason::TargetChanged)
+        )),
         vec![]
     );
     assert_eq!(
@@ -479,6 +535,41 @@ fn deferred_card_shows_after_a_short_press() {
     assert_eq!(
         core.handle(Event::DictationKeyUp),
         vec![Command::ShowOrb(OrbView::Card(text("bonjour")))]
+    );
+}
+
+#[test]
+fn card_deferred_during_the_hold_shows_at_the_key_release() {
+    let mut core = Core::new();
+    let job = start_job(&mut core);
+    assert_eq!(
+        core.handle(Event::TextReady(job, text("bonjour"))),
+        vec![Command::Insert(job, text("bonjour"))]
+    );
+    let current = press(&mut core);
+    assert_eq!(
+        core.handle(Event::InsertDone(
+            job,
+            InsertOutcome::Fallback(FallbackReason::SecureInput)
+        )),
+        vec![]
+    );
+
+    assert_eq!(
+        core.handle(Event::HoldElapsed(current)),
+        vec![
+            Command::StartCapture(current),
+            Command::ShowOrb(OrbView::Listening)
+        ]
+    );
+    assert_eq!(
+        core.handle(Event::DictationKeyUp),
+        vec![
+            Command::RecordTarget(current),
+            Command::StopCaptureAndProcess(current),
+            Command::CloseOrb,
+            Command::ShowOrb(OrbView::Card(text("bonjour")))
+        ]
     );
 }
 
