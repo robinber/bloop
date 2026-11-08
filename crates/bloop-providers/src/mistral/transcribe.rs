@@ -8,14 +8,12 @@ use bloop_core::domain::{AudioChunk, Transcript};
 use bloop_core::error::ProviderError;
 use bloop_core::ports::ai::{self, BoxFuture, TranscriptionOptions, TranscriptionSession};
 use futures_util::{FutureExt as _, SinkExt as _, StreamExt as _};
-use secrecy::zeroize::Zeroizing;
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
-use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::header::AUTHORIZATION;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
@@ -97,13 +95,9 @@ impl Transcriber {
         let mut request = format!("{}?model={}", self.url, self.config.model)
             .into_client_request()
             .map_err(transport_error)?;
-        let bearer = Zeroizing::new(format!("Bearer {}", self.key.expose_secret()));
-        let mut authorization = HeaderValue::from_str(&bearer).map_err(|_| {
-            tracing::warn!("the API key is not a valid HTTP header value");
-            ProviderError::Unauthorized
-        })?;
-        authorization.set_sensitive(true);
-        request.headers_mut().insert(AUTHORIZATION, authorization);
+        request
+            .headers_mut()
+            .insert(AUTHORIZATION, http::bearer(&self.key)?);
         Ok(request)
     }
 }

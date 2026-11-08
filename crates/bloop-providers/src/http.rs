@@ -1,5 +1,5 @@
 //! The HTTP client of the chat adapters, and the conversion of HTTP failures to `ProviderError`.
-//! The WebSocket adapter maps the status of a refused handshake with `status_error` too.
+//! The WebSocket adapter also uses `bearer` for its `Authorization` header and `status_error` for a refused handshake.
 //!
 //! The logs contain only the HTTP status and local failure categories.
 //! Error response bodies are not read or logged.
@@ -11,11 +11,14 @@ use std::time::Duration;
 use bloop_core::error::ProviderError;
 use http_body_util::{BodyExt as _, Full, LengthLimitError, Limited};
 use hyper::body::Bytes;
+use hyper::header::HeaderValue;
 use hyper::{Request, Version};
 use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::{self, connect::HttpConnector};
 use hyper_util::rt::TokioExecutor;
 use native_tls::TlsConnector;
+use secrecy::zeroize::Zeroizing;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::de::DeserializeOwned;
 use tokio::time::{Instant, timeout_at};
 
@@ -52,6 +55,17 @@ pub(crate) fn client(limit: Duration) -> Result<Client, ProviderError> {
     let inner = legacy::Client::builder(TokioExecutor::new())
         .build(HttpsConnector::from((http, tls.into())));
     Ok(Client { inner, limit })
+}
+
+/// Returns the `Authorization` value of `key`, marked sensitive so that its `Debug` shows no key.
+pub(crate) fn bearer(key: &SecretString) -> Result<HeaderValue, ProviderError> {
+    let bearer = Zeroizing::new(format!("Bearer {}", key.expose_secret()));
+    let mut value = HeaderValue::from_str(&bearer).map_err(|_| {
+        tracing::warn!("the API key is not a valid HTTP header value");
+        ProviderError::Unauthorized
+    })?;
+    value.set_sensitive(true);
+    Ok(value)
 }
 
 /// Sends `request` with `client` and decodes the JSON body of a successful response.
@@ -156,7 +170,9 @@ mod tests {
     use std::fmt;
     use std::io;
 
-    use super::timed_out;
+    use bloop_core::error::ProviderError;
+
+    use super::{bearer, timed_out};
 
     /// An error with an I/O source, as the connector returns it.
     #[derive(Debug)]
@@ -181,5 +197,22 @@ mod tests {
 
         assert!(timed_out(&expired));
         assert!(!timed_out(&refused));
+    }
+
+    #[test]
+    fn the_bearer_value_carries_the_key_and_is_sensitive() {
+        let value = bearer(&"test-key".into()).unwrap();
+
+        assert_eq!(value, "Bearer test-key");
+        assert!(value.is_sensitive());
+        assert!(!format!("{value:?}").contains("test-key"));
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_header_value_is_unauthorized() {
+        assert_eq!(
+            bearer(&"test\nkey".into()).err(),
+            Some(ProviderError::Unauthorized)
+        );
     }
 }

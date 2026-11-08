@@ -7,9 +7,8 @@ use bloop_core::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish
 use http_body_util::Full;
 use hyper::Request;
 use hyper::body::Bytes;
-use hyper::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
-use secrecy::zeroize::Zeroizing;
-use secrecy::{ExposeSecret as _, SecretString};
+use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 use super::ChatConfig;
@@ -99,22 +98,12 @@ impl Chat {
         })?;
         Request::post(&self.url)
             .header(CONTENT_TYPE, "application/json")
-            .header(AUTHORIZATION, self.authorization()?)
+            .header(AUTHORIZATION, http::bearer(&self.key)?)
             .body(Full::from(json))
             .map_err(|_| {
                 tracing::warn!("the adapter cannot build the request");
                 ProviderError::Network
             })
-    }
-
-    fn authorization(&self) -> Result<HeaderValue, ProviderError> {
-        let bearer = Zeroizing::new(format!("Bearer {}", self.key.expose_secret()));
-        let mut authorization = HeaderValue::from_str(&bearer).map_err(|_| {
-            tracing::warn!("the API key is not a valid HTTP header value");
-            ProviderError::Unauthorized
-        })?;
-        authorization.set_sensitive(true);
-        Ok(authorization)
     }
 }
 
@@ -461,7 +450,7 @@ mod tests {
 
         let received = server.await.unwrap();
         assert_eq!(received.header("authorization"), [format!("Bearer {KEY}")]);
-        assert!(chat.authorization().unwrap().is_sensitive());
+        assert!(http::bearer(&chat.key).unwrap().is_sensitive());
     }
 
     #[tokio::test]
