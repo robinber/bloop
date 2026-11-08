@@ -45,9 +45,11 @@ pub trait AudioInput {
 
     /// Stops the capture after its last samples, drops the sink, and returns the measures of the capture.
     ///
+    /// A device failure during the capture does not reach this result: it arrives as `CaptureFailed`.
+    ///
     /// # Errors
     ///
-    /// The microphone failed during the capture.
+    /// `Internal` when no capture of `generation` is active.
     fn stop(&mut self, generation: Generation) -> Result<CaptureSummary, AppError>;
 
     /// Stops the capture and drops the sink.
