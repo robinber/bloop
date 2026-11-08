@@ -149,7 +149,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Duration;
 
-    use super::{ArgsError, Command, Options, parse};
+    use super::{
+        ArgsError, Command, DEFAULT_LIMIT, DEFAULT_PROMPT, DEFAULT_SET, LIMIT_MS, Options, USAGE,
+        parse,
+    };
     use crate::set::Split;
 
     fn arguments(list: &[&str]) -> Vec<OsString> {
@@ -203,6 +206,18 @@ mod tests {
                 limit: Duration::from_millis(8_000),
             }
         );
+    }
+
+    #[test]
+    fn the_usage_gives_the_defaults_and_the_limit_range_of_the_parser() {
+        for text in [
+            format!("(default: {DEFAULT_SET})"),
+            format!("(default: {DEFAULT_PROMPT})"),
+            format!("(default: {})", DEFAULT_LIMIT.as_millis()),
+            format!("from {} to {} ms", LIMIT_MS.start(), LIMIT_MS.end()),
+        ] {
+            assert!(USAGE.contains(&text), "{text}");
+        }
     }
 
     #[test]
