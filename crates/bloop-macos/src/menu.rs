@@ -133,6 +133,8 @@ define_class!(
     struct MenuTarget;
 
     impl MenuTarget {
+        // SAFETY: AppKit sends a menu item action as `- (void)menuAction:(id)sender`, with the
+        // item or nil as the sender. The nullable object argument and the empty result match it.
         /// Gives the action of the clicked item to the source. A tag without an action logs an error.
         #[unsafe(method(menuAction:))]
         fn menu_action(&self, sender: Option<&AnyObject>) {
