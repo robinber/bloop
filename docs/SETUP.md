@@ -50,6 +50,8 @@ Model identifiers and provider options go to the API as they are. A valid file d
 
 **Correct text** and the **Prompt**, **Model**, and **Hold delay** submenus write their key to `config.toml`. Bloop keeps the comments and the other keys.
 A missing table goes at the end of the file. A model change writes the `provider` key of `[chat]` when the table does not have it.
+**Prompt by app** writes the lists of `[refine.apps]` that change. A list without a key gets its key with the whole list. A new `[refine.apps]` table goes directly after `[refine]`.
+A changed list keeps the comment above its key, but loses the comments inside a list on several lines.
 
 Bloop parses the current file before a write and refuses to change an invalid file. It also refuses a change that makes the file larger than 64 KiB.
 The write goes to a temporary file in the same folder, which then replaces `config.toml`.
@@ -116,6 +118,13 @@ mail = ["com.apple.mail"]
 - A key can name your own prompt, such as `mail` for `prompts/mail.md`.
 - An application in a key leaves the built-in lists. The same application in two keys is an error. An application repeated in one list counts one time.
 
+The **Prompt by app** submenu shows and changes the lists. Its first line gives the prompt of the application in front, for example `Ghostty uses code` or `Notes uses the default prompt`. Then it has one submenu for each prompt, with its applications:
+
+- Select an application to remove it from the list.
+- Select **Add** followed by the name of the application in front to add it to the list. Bloop removes it from the other lists.
+
+The submenus show the name of the installed application, else the name of the built-in list, else the bundle identifier. A key of `[refine.apps]` that names no prompt also has a submenu, without **Add**, so that you can remove its applications.
+
 To find the bundle identifier of an application, dictate one time in it, then search the log for `the target is recorded`. The line gives `bundle_id`.
 
 When the prompt of a list is missing or not valid and **Correct text** is on, each dictation in its applications fails, and the menu shows `Prompt "name": not found` or `Prompt "name": not valid`. The other applications operate.
@@ -175,7 +184,7 @@ Bloop records with the default input device. When the default input is a Bluetoo
 Bloop writes its log to `~/Library/Logs/Bloop/bloop.log`.
 At start, a file larger than 5 MiB moves to `bloop.log.1` and replaces the previous backup. The active file can grow beyond 5 MiB until the next start.
 
-The log contains the events and commands of each dictation, durations, sample and character counts, the nonsecret settings of each snapshot, the bundle identifier of the application in front at key press and the prompt that it selects when **Correct text** is on, the name and bundle identifier of the application in front at key release, controlled error categories and HTTP status codes, and the location of a panic.
+The log contains the events and commands of each dictation, durations, sample and character counts, the nonsecret settings of each snapshot, the bundle identifier of the application in front at key press and the prompt that it selects when **Correct text** is on, the bundle identifier of an application that you add or remove in the menu, the name and bundle identifier of the application in front at key release, controlled error categories and HTTP status codes, and the location of a panic.
 It never contains audio, transcript text, prompt text, dictionary entries, file content, or the API key.
 
 ## Troubleshooting

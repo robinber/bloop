@@ -29,7 +29,7 @@ use secrecy::SecretString;
 use crate::dictionary;
 use crate::driver::Snapshots;
 use crate::files::{self, FileError};
-use crate::prompts::{self, Prompt, PromptError};
+use crate::prompts::{self, AppLists, Prompt, PromptError};
 use crate::settings::{self, Change, HoldMs, Paths, PromptName, Settings};
 use crate::worker::{Correction, Limits, NoCorrection, Speech};
 
@@ -55,6 +55,8 @@ pub(crate) struct View {
     pub(crate) key_refused: bool,
     /// The built-in prompt names and the prompt file names, sorted and without duplicates.
     pub(crate) prompts: Vec<PromptName>,
+    /// The applications of each prompt. It is empty when the settings are invalid.
+    pub(crate) lists: AppLists,
 }
 
 /// The values of valid settings that the status menu shows.
@@ -203,6 +205,11 @@ impl Hub {
             Ok(settings) if settings.refine.enabled => routed_errors(settings, &self.paths.prompts),
             _ => Vec::new(),
         };
+        let lists = state
+            .settings
+            .as_ref()
+            .map(prompts::app_lists)
+            .unwrap_or_default();
         Some(View {
             settings: match &state.settings {
                 Ok(settings) => Ok(Summary {
@@ -219,6 +226,7 @@ impl Hub {
             dictionary: state.vocabulary.as_ref().err().copied(),
             key_refused: self.key_refused.get(),
             prompts,
+            lists,
         })
     }
 

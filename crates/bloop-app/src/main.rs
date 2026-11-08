@@ -36,7 +36,7 @@ use tokio::runtime::Builder;
 
 use crate::driver::Driver;
 use crate::hub::{Hub, HubSnapshots};
-use crate::menu::{AppMenu, Facts};
+use crate::menu::{AppMenu, Facts, Lookups};
 use crate::settings::Paths;
 use crate::worker::Spawner;
 
@@ -107,7 +107,12 @@ fn main() -> ExitCode {
         tap: tap.is_some(),
         key: hub.key_error(),
     };
-    let _menu = StatusMenu::new(mtm, Box::new(AppMenu::new(Rc::clone(&hub), facts, paths)));
+    let lookups = Lookups {
+        frontmost: workspace::frontmost_app,
+        name: workspace::app_name,
+    };
+    let menu = AppMenu::new(Rc::clone(&hub), facts, paths, lookups);
+    let _menu = StatusMenu::new(mtm, Box::new(menu));
     events::set_handler(mtm, move |event| {
         hub.note(&event);
         driver.handle(event);

@@ -135,26 +135,15 @@ pub enum MenuItem {
         /// `true` shows the checkmark.
         checked: bool,
     },
-    /// An item with a submenu. Each option has a checkmark state.
-    Choice {
+    /// An item with a submenu. A list of choices is a submenu of `Toggle` items.
+    Submenu {
         /// The text of the item.
         title: String,
-        /// The items of the submenu.
-        options: Vec<ChoiceOption>,
+        /// The items of the submenu, in display order.
+        items: Vec<MenuItem>,
     },
     /// A line between groups of items.
     Separator,
-}
-
-/// One option of a [`MenuItem::Choice`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChoiceOption {
-    /// The text of the option.
-    pub title: String,
-    /// The action of a click.
-    pub action: ActionId,
-    /// `true` shows the checkmark.
-    pub selected: bool,
 }
 
 /// Gives the content of the status menu and receives its clicks. Main thread only.

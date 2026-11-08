@@ -4,7 +4,8 @@
 //! A missing key has its default value.
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
 //! It also writes a commented empty `dictionary.toml` when that file does not exist.
-//! Each menu choice writes one key: a `Change`. The comments and the other keys stay.
+//! Each menu choice writes one key, or the lists of `[refine.apps]` that it changes: a `Change`.
+//! The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
 
 mod edit;
@@ -73,7 +74,7 @@ impl From<FileError> for Invalid {
     }
 }
 
-/// A change of one setting from the status menu: one key of `config.toml`.
+/// A change of one setting from the status menu: one key of `config.toml`, or the lists of `[refine.apps]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Change {
     /// `[refine] enabled`: the state of "Correct text".
@@ -84,6 +85,10 @@ pub(crate) enum Change {
     Model(String),
     /// `[dictation] hold_ms`.
     Hold(HoldMs),
+    /// `[refine.apps]`: adds `app` to the list of `prompt`, and removes it from every other list.
+    AddApp { prompt: PromptName, app: AppId },
+    /// `[refine.apps]`: removes `app` from the list of `prompt`.
+    RemoveApp { prompt: PromptName, app: AppId },
 }
 
 /// Why Bloop did not save a change. It contains no file content.
@@ -120,8 +125,7 @@ pub(crate) fn write(path: &Path, change: &Change) -> Result<(), NotSaved> {
         .map_err(|error| NotSaved::Invalid(error.into()))?
         .unwrap_or_else(template::template);
     let settings = parse(&text).map_err(NotSaved::Invalid)?;
-    let new =
-        edit::with_change(&text, change, settings.chat.provider()).map_err(NotSaved::Invalid)?;
+    let new = edit::with_change(&text, change, &settings).map_err(NotSaved::Invalid)?;
     if u64::try_from(new.len()).map_or(true, |len| len > LIMIT) {
         return Err(NotSaved::Invalid(Invalid::TooLarge));
     }
@@ -133,7 +137,9 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use super::{Change, Invalid, LIMIT, NotSaved, Paths, Settings, parse, prepare, write};
+    use super::{
+        AppId, Change, Invalid, LIMIT, NotSaved, Paths, PromptName, Settings, parse, prepare, write,
+    };
     use crate::dictionary;
     use crate::files::read_bounded;
     use crate::files::tests::scratch_dir;
@@ -224,6 +230,29 @@ mod tests {
         assert_eq!(read(&path), Ok(Some(Settings::default())));
         assert_eq!(
             write(&path, &Change::Correction(true)),
+            Err(NotSaved::Invalid(Invalid::TooLarge))
+        );
+        assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_application_change_that_makes_the_file_larger_than_the_limit_is_not_saved() {
+        let dir = scratch_dir("settings-grows-apps");
+        let path = dir.join("config.toml");
+        let head = "schema = 1\n";
+        let text = format!(
+            "{head}{}\n",
+            "#".repeat(usize::try_from(LIMIT).unwrap() - head.len() - 64)
+        );
+        fs::write(&path, &text).unwrap();
+        let change = Change::AddApp {
+            prompt: PromptName::try_from("mail".to_owned()).unwrap(),
+            app: AppId::try_from("com.apple.Terminal".to_owned()).unwrap(),
+        };
+
+        assert_eq!(
+            write(&path, &change),
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read(&path).unwrap(), text.as_bytes());

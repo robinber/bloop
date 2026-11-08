@@ -1,4 +1,4 @@
-//! Opens a file or a folder, and reads the frontmost application, through `NSWorkspace`.
+//! Opens a file or a folder, and reads the frontmost application and the names of applications, through `NSWorkspace`.
 //!
 //! The log gives no path, because a path contains the name of the user.
 
@@ -16,6 +16,17 @@ pub fn frontmost_app() -> Option<String> {
         return None;
     }
     app.bundleIdentifier().map(|id| id.to_string())
+}
+
+/// Returns the name of the installed application with the bundle identifier `id`: its file name without `.app`.
+/// Returns `None` when macOS finds no application with this identifier.
+#[must_use]
+pub fn app_name(id: &str) -> Option<String> {
+    let url = NSWorkspace::sharedWorkspace()
+        .URLForApplicationWithBundleIdentifier(&NSString::from_str(id))?;
+    let file = url.lastPathComponent()?.to_string();
+    let name = file.strip_suffix(".app").unwrap_or(&file);
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 /// Returns `true` when `pid` is the process identifier of Bloop.
@@ -56,7 +67,13 @@ pub fn open_folder(path: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_own_process;
+    use super::{app_name, is_own_process};
+
+    #[test]
+    fn the_name_of_an_installed_application_is_its_file_name_without_app() {
+        assert_eq!(app_name("com.apple.finder").as_deref(), Some("Finder"));
+        assert_eq!(app_name("com.example.bloop.absent"), None);
+    }
 
     #[test]
     fn only_the_process_identifier_of_bloop_is_its_own() {

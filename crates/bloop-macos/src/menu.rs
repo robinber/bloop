@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use bloop_core::ports::platform::{ActionId, ChoiceOption, MenuItem, MenuSource};
+use bloop_core::ports::platform::{ActionId, MenuItem, MenuSource};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{
@@ -195,23 +195,17 @@ impl MenuTarget {
                 item.setState(check(*checked));
                 item
             }
-            MenuItem::Choice { title, options } => {
+            MenuItem::Submenu { title, items } => {
+                let submenu = NSMenu::new(mtm);
+                for child in items {
+                    submenu.addItem(&self.item(mtm, child));
+                }
                 let item = menu_item(mtm, title, None, "");
-                item.setSubmenu(Some(&self.submenu(mtm, options)));
+                item.setSubmenu(Some(&submenu));
                 item
             }
             MenuItem::Separator => NSMenuItem::separatorItem(mtm),
         }
-    }
-
-    fn submenu(&self, mtm: MainThreadMarker, options: &[ChoiceOption]) -> Retained<NSMenu> {
-        let menu = NSMenu::new(mtm);
-        for option in options {
-            let item = self.action_item(mtm, &option.title, option.action);
-            item.setState(check(option.selected));
-            menu.addItem(&item);
-        }
-        menu
     }
 
     /// Returns an item that gives `action` to the source. Without a valid tag, the item has no action.

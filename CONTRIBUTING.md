@@ -85,7 +85,7 @@ No test covers the real permissions, microphone, network, or AppKit behavior. Af
 | `bloop-macos/src/keys.rs` | Short hold, Right Command combinations, Escape press, repeats, and release, and sleep during a capture. |
 | `bloop-audio` | Microphone permission and device selection, silence, a long capture, and consecutive dictations. |
 | `bloop-macos/src/paste.rs` and `paste/clipboard.rs` | Paste in a native application, a browser, and a terminal; a changed target; secure input; an unread clipboard item; text and image restoration; consecutive pastes; cancellation; and quit during a pending transaction. |
-| `bloop-macos/src/menu.rs` and `bloop-app/src/menu.rs` | Refresh at open, checkmarks, submenus, ⌘Q, and the file and permission links. |
+| `bloop-macos/src/menu.rs` and `bloop-app/src/menu.rs` | Refresh at open, checkmarks, submenus, ⌘Q, and the file and permission links. In **Prompt by app**, the status line and the **Add** item name the application that was in front before the click on the menu bar item, and **Add** and a click on an application change `config.toml`. |
 | Correction | Correction on and off, a failed correction, and manual recovery with **Copy last result**. |
 | Prompt by application: `bloop-macos/src/workspace.rs` and `bloop-app/src/hub.rs` | With the correction on, a dictation in Ghostty uses `code`, in WhatsApp uses `natural-light`, and in Notes uses the default prompt. Check the `the dictation prompt is chosen` log line. |
 

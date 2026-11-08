@@ -114,13 +114,14 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | --- | --- |
 | **Correct text** | Turns the correction on or off for the next dictations. The checkmark shows the value of the settings file. |
 | **Prompt** | Selects the default correction prompt: the built-in `natural-light` and `code`, and the `.md` files of your prompts folder. |
+| **Prompt by app** | Shows the prompt of the application in front and the applications of each prompt. Select an application to remove it from a list, or **Add** to add the application in front. |
 | **Model** | Selects the correction model from the list in the settings file. |
 | **Hold delay** | Selects the hold time of the dictation key: 150, 220, 300, or 400 ms. |
 | **Copy last result** | Copies the text of the latest dictation that Bloop tried to paste. |
 | **Open config.toml…**, **Open prompts folder…**, **Open dictionary…** | Open the settings file, the prompts folder, and the dictionary file. |
 | **Quit Bloop** (⌘Q) | Quits. Bloop first restores a clipboard that a paste still holds. |
 
-Each choice writes its key to `config.toml` and keeps your comments. A change applies from the next dictation.
+Each choice writes its key, or its lists, to `config.toml` and keeps your comments. A change applies from the next dictation.
 With **Correct text** on, the application in front selects the prompt: a terminal, a code editor, or Claude uses `code`, a messaging application uses `natural-light`, and another application uses the default prompt. The [configuration guide](docs/SETUP.md#prompt-by-application) lists the applications and how to change them.
 The top of the menu reports what needs your attention: a missing permission, a missing or refused API key, or an invalid file with its line.
 

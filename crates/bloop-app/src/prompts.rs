@@ -20,8 +20,16 @@ pub(crate) struct BuiltIn {
     pub(crate) name: &'static str,
     /// The instructions to the chat model.
     pub(crate) text: &'static str,
-    /// The bundle identifiers of the applications that use the prompt when `[refine.apps]` has no key for it.
-    pub(crate) apps: &'static [&'static str],
+    /// The applications that use the prompt when `[refine.apps]` has no key for it.
+    pub(crate) apps: &'static [App],
+}
+
+/// An application of a built-in list.
+pub(crate) struct App {
+    /// The name that the menu shows when macOS does not find the application.
+    pub(crate) name: &'static str,
+    /// The bundle identifier.
+    pub(crate) id: &'static str,
 }
 
 impl BuiltIn {
@@ -39,11 +47,26 @@ pub(crate) const NATURAL_LIGHT: BuiltIn = BuiltIn {
     name: "natural-light",
     text: include_str!("../../../prompts/natural-light.md"),
     apps: &[
-        "com.apple.MobileSMS",
-        "net.whatsapp.WhatsApp",
-        "ru.keepcoder.Telegram",
-        "org.telegram.desktop",
-        "org.whispersystems.signal-desktop",
+        App {
+            name: "Messages",
+            id: "com.apple.MobileSMS",
+        },
+        App {
+            name: "WhatsApp",
+            id: "net.whatsapp.WhatsApp",
+        },
+        App {
+            name: "Telegram",
+            id: "ru.keepcoder.Telegram",
+        },
+        App {
+            name: "Telegram Desktop",
+            id: "org.telegram.desktop",
+        },
+        App {
+            name: "Signal",
+            id: "org.whispersystems.signal-desktop",
+        },
     ],
 };
 
@@ -52,15 +75,42 @@ const CODE: BuiltIn = BuiltIn {
     name: "code",
     text: include_str!("../../../prompts/code.md"),
     apps: &[
-        "com.apple.Terminal",
-        "com.mitchellh.ghostty",
-        "com.googlecode.iterm2",
-        "dev.warp.Warp-Stable",
-        "com.microsoft.VSCode",
-        "com.todesktop.230313mzl4w4u92",
-        "dev.zed.Zed",
-        "com.apple.dt.Xcode",
-        "com.anthropic.claudefordesktop",
+        App {
+            name: "Terminal",
+            id: "com.apple.Terminal",
+        },
+        App {
+            name: "Ghostty",
+            id: "com.mitchellh.ghostty",
+        },
+        App {
+            name: "iTerm2",
+            id: "com.googlecode.iterm2",
+        },
+        App {
+            name: "Warp",
+            id: "dev.warp.Warp-Stable",
+        },
+        App {
+            name: "Visual Studio Code",
+            id: "com.microsoft.VSCode",
+        },
+        App {
+            name: "Cursor",
+            id: "com.todesktop.230313mzl4w4u92",
+        },
+        App {
+            name: "Zed",
+            id: "dev.zed.Zed",
+        },
+        App {
+            name: "Xcode",
+            id: "com.apple.dt.Xcode",
+        },
+        App {
+            name: "Claude",
+            id: "com.anthropic.claudefordesktop",
+        },
     ],
 };
 
@@ -180,7 +230,7 @@ pub(crate) fn app_lists(settings: &Settings) -> AppLists {
         let list = prompt
             .apps
             .iter()
-            .filter_map(|&app| AppId::try_from(app.to_owned()).ok())
+            .filter_map(|app| AppId::try_from(app.id.to_owned()).ok())
             .filter(|app| !apps.iter().any(|(_, list)| list.contains(app)))
             .collect();
         lists.insert(name, list);
@@ -195,6 +245,15 @@ pub(crate) fn route<'a>(lists: &'a AppLists, app: Option<&str>) -> Option<&'a Pr
         .iter()
         .find(|(_, list)| list.iter().any(|id| id.as_str() == app))
         .map(|(prompt, _)| prompt)
+}
+
+/// Returns the name of the application `id` in the built-in lists, or `None` when no built-in list contains it.
+pub(crate) fn built_in_name(id: &str) -> Option<&'static str> {
+    BUILT_IN
+        .iter()
+        .flat_map(|prompt| prompt.apps)
+        .find(|app| app.id == id)
+        .map(|app| app.name)
 }
 
 /// Returns the prompt name of the file name `file`: its name without `.md`, when it is UTF-8 and a valid prompt name.
@@ -212,8 +271,8 @@ mod tests {
     use std::os::unix::ffi::OsStrExt as _;
 
     use super::{
-        BUILT_IN, CODE, LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, app_lists, name_of,
-        names, resolve, route,
+        BUILT_IN, BuiltIn, CODE, LIMIT, NATURAL_LIGHT, Prompt, PromptError, Source, app_lists,
+        built_in_name, name_of, names, resolve, route,
     };
     use crate::files::tests::scratch_dir;
     use crate::settings::{AppId, PromptName, Settings, parse};
@@ -427,18 +486,31 @@ mod tests {
         list.iter().map(AppId::as_str).collect()
     }
 
+    fn built_in_ids(prompt: &BuiltIn) -> Vec<&'static str> {
+        prompt.apps.iter().map(|app| app.id).collect()
+    }
+
     #[test]
     fn each_built_in_application_is_a_valid_bundle_identifier_in_one_list() {
         let mut seen = Vec::new();
         for prompt in &BUILT_IN {
-            for &app in prompt.apps {
-                assert!(AppId::try_from(app.to_owned()).is_ok(), "{app}");
-                assert!(!seen.contains(&app), "{app}");
-                seen.push(app);
+            for app in prompt.apps {
+                assert!(AppId::try_from(app.id.to_owned()).is_ok(), "{}", app.id);
+                assert!(!seen.contains(&app.id), "{}", app.id);
+                assert!(!app.name.is_empty(), "{}", app.id);
+                seen.push(app.id);
             }
         }
         assert_eq!(seen.len(), 14);
-        assert!(CODE.apps.contains(&"com.anthropic.claudefordesktop"));
+        assert_eq!(
+            built_in_name("com.anthropic.claudefordesktop"),
+            Some("Claude")
+        );
+        assert_eq!(
+            built_in_name("org.telegram.desktop"),
+            Some("Telegram Desktop")
+        );
+        assert_eq!(built_in_name("com.apple.Notes"), None);
     }
 
     #[test]
@@ -449,7 +521,7 @@ mod tests {
         for prompt in &BUILT_IN {
             assert_eq!(
                 ids(&lists[&name(prompt.name)]),
-                prompt.apps,
+                built_in_ids(prompt),
                 "{}",
                 prompt.name
             );
@@ -480,14 +552,13 @@ mod tests {
             ids(&lists[&name("mail")]),
             ["com.mitchellh.ghostty", "com.apple.mail"]
         );
-        let code: Vec<&str> = CODE
-            .apps
-            .iter()
-            .copied()
-            .filter(|&app| app != "com.mitchellh.ghostty")
-            .collect();
+        let mut code = built_in_ids(&CODE);
+        code.retain(|&app| app != "com.mitchellh.ghostty");
         assert_eq!(ids(&lists[&name("code")]), code);
-        assert_eq!(ids(&lists[&name("natural-light")]), NATURAL_LIGHT.apps);
+        assert_eq!(
+            ids(&lists[&name("natural-light")]),
+            built_in_ids(&NATURAL_LIGHT)
+        );
     }
 
     #[test]

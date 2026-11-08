@@ -866,3 +866,40 @@ fn prompt_name(hub: &Hub) -> Option<String> {
         .as_ref()
         .map(|(name, _)| name.as_str().to_owned())
 }
+
+#[test]
+fn set_moves_an_app_and_the_next_dictation_uses_its_new_prompt() {
+    let dir = folder("hub-route-set", ON);
+    let hub = start(&dir);
+    assert_eq!(prompt_of(&hub, Some(GHOSTTY)).as_deref(), Some("code"));
+    let ghostty = settings::AppId::try_from(GHOSTTY.to_owned()).unwrap();
+
+    hub.set(&Change::AddApp {
+        prompt: name("natural-light"),
+        app: ghostty.clone(),
+    });
+    assert_eq!(
+        prompt_of(&hub, Some(GHOSTTY)).as_deref(),
+        Some("natural-light")
+    );
+    assert!(!view(&hub).lists[&name("code")].contains(&ghostty));
+
+    hub.set(&Change::RemoveApp {
+        prompt: name("natural-light"),
+        app: ghostty.clone(),
+    });
+    let lists = view(&hub).lists;
+    assert!(
+        lists.values().all(|list| !list.contains(&ghostty)),
+        "{lists:?}"
+    );
+    assert_eq!(
+        prompt_of(&hub, Some(WHATSAPP)).as_deref(),
+        Some("natural-light")
+    );
+    assert_eq!(
+        prompt_of(&hub, Some("com.apple.Terminal")).as_deref(),
+        Some("code")
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}

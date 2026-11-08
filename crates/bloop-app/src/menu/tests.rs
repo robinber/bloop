@@ -4,21 +4,23 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use bloop_core::error::{Permission, SecretError};
-use bloop_core::ports::platform::{
-    ActionId, ChoiceOption, MenuItem, MenuModel, MenuSource as _, SecretStore,
-};
+use bloop_core::ports::platform::{ActionId, MenuItem, MenuModel, MenuSource as _, SecretStore};
 use bloop_providers::ChatConfig;
 use secrecy::SecretString;
 
-use super::{Action, AppMenu, Facts, build};
+use super::{Action, AppMenu, Apps, Facts, Lookups, build};
 use crate::dictionary;
 use crate::files::tests::scratch_dir;
 use crate::hub::{Hub, Summary, View};
-use crate::prompts::PromptError;
-use crate::settings::{self, HoldMs, Paths, PromptName};
+use crate::prompts::{AppLists, PromptError};
+use crate::settings::{self, AppId, HoldMs, Paths, PromptName};
 
 const READY: &str = "Ready: hold Right Command to dictate";
 const RESTART: &str = "Then open Bloop again";
+const TERMINAL: &str = "com.apple.Terminal";
+const GHOSTTY: &str = "com.mitchellh.ghostty";
+const WHATSAPP: &str = "net.whatsapp.WhatsApp";
+const NOTES: &str = "com.apple.Notes";
 
 fn facts() -> Facts {
     Facts {
@@ -49,6 +51,7 @@ fn view() -> View {
         dictionary: None,
         key_refused: false,
         prompts: vec![name("dev"), name("natural-light")],
+        lists: AppLists::new(),
     }
 }
 
@@ -60,21 +63,60 @@ fn hold(ms: u64) -> HoldMs {
     HoldMs::try_from(ms).unwrap()
 }
 
+fn id(value: &str) -> AppId {
+    AppId::try_from(value.to_owned()).unwrap()
+}
+
+fn lists(lists: &[(&str, &[&str])]) -> AppLists {
+    lists
+        .iter()
+        .map(|(prompt, apps)| (name(prompt), apps.iter().map(|app| id(app)).collect()))
+        .collect()
+}
+
+/// The applications of the tests: `frontmost` in front, and "Mac Terminal" as the name that macOS gives to Terminal.
+fn apps(frontmost: Option<&str>) -> Apps {
+    Apps {
+        frontmost: frontmost.map(id),
+        names: [(id(TERMINAL), "Mac Terminal".to_owned())].into(),
+    }
+}
+
+/// A view with the prompts `code`, `dev`, and `natural-light`, and their lists.
+fn routing() -> View {
+    View {
+        prompts: vec![name("code"), name("dev"), name("natural-light")],
+        lists: lists(&[
+            ("code", &[TERMINAL, GHOSTTY]),
+            ("natural-light", &[WHATSAPP]),
+        ]),
+        ..view()
+    }
+}
+
+/// Returns the items of the submenu at `path`: the title of each submenu from the top of the menu.
+fn submenu<'a>(model: &'a MenuModel, path: &[&str]) -> &'a [MenuItem] {
+    let mut items = model.items.as_slice();
+    for title in path {
+        items = items
+            .iter()
+            .find_map(|item| match item {
+                MenuItem::Submenu { title: name, items } if name == title => Some(items.as_slice()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no submenu {path:?}: {model:?}"));
+    }
+    items
+}
+
 /// Returns the options of the list `title`: the title of each option, and `true` for the selected option.
 fn options(model: &MenuModel, title: &str) -> Vec<(String, bool)> {
-    model
-        .items
+    submenu(model, &[title])
         .iter()
-        .find_map(|item| match item {
-            MenuItem::Choice {
-                title: list,
-                options,
-            } if list == title => Some(options),
-            _ => None,
+        .map(|item| match item {
+            MenuItem::Toggle { title, checked, .. } => (title.clone(), *checked),
+            other => panic!("{other:?}"),
         })
-        .unwrap_or_else(|| panic!("no list {title}: {model:?}"))
-        .iter()
-        .map(|option| (option.title.clone(), option.selected))
         .collect()
 }
 
@@ -87,7 +129,7 @@ fn shown(titles: &[&str], selected: &str) -> Vec<(String, bool)> {
 
 /// Returns the items before the first separator, with the action of each item from the action list.
 fn status(facts: &Facts, view: &View) -> Vec<(String, Option<Action>)> {
-    let (model, actions) = build(facts, view);
+    let (model, actions) = build(facts, view, &Apps::default());
     model
         .items
         .iter()
@@ -108,31 +150,48 @@ fn opens(title: &str, action: Action) -> (String, Option<Action>) {
     (title.to_owned(), Some(action))
 }
 
-fn titles(model: &MenuModel) -> Vec<&str> {
-    model
-        .items
+/// Returns the title of each item of `items`, and `---` for a separator.
+fn titles(items: &[MenuItem]) -> Vec<&str> {
+    items
         .iter()
         .map(|item| match item {
             MenuItem::Status { title }
             | MenuItem::Action { title, .. }
             | MenuItem::Toggle { title, .. }
-            | MenuItem::Choice { title, .. } => title.as_str(),
+            | MenuItem::Submenu { title, .. } => title.as_str(),
             MenuItem::Separator => "---",
         })
         .collect()
 }
 
+/// Returns the action identifier of each item of `items` and of their submenus, in display order.
+fn action_ids(items: &[MenuItem]) -> Vec<ActionId> {
+    items
+        .iter()
+        .flat_map(|item| match item {
+            MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => vec![*action],
+            MenuItem::Submenu { items, .. } => action_ids(items),
+            MenuItem::Status { .. } | MenuItem::Separator => Vec::new(),
+        })
+        .collect()
+}
+
+fn model(view: &View) -> (MenuModel, Vec<Action>) {
+    build(&facts(), view, &Apps::default())
+}
+
 #[test]
 fn with_nothing_to_do_the_menu_says_how_to_dictate_and_shows_each_item() {
-    let (model, actions) = build(&facts(), &view());
+    let (model, actions) = model(&view());
 
     assert_eq!(
-        titles(&model),
+        titles(&model.items),
         [
             READY,
             "---",
             "Correct text",
             "Prompt",
+            "Prompt by app",
             "Model",
             "Hold delay",
             "---",
@@ -164,7 +223,7 @@ fn with_nothing_to_do_the_menu_says_how_to_dictate_and_shows_each_item() {
 
 #[test]
 fn each_list_has_a_checkmark_on_the_current_value() {
-    let (model, _) = build(&facts(), &view());
+    let (model, _) = model(&view());
 
     assert_eq!(
         options(&model, "Prompt"),
@@ -194,7 +253,7 @@ fn a_current_value_outside_its_list_is_added_at_the_end_and_selected() {
         }),
         ..view()
     };
-    let (model, actions) = build(&facts(), &view);
+    let (model, actions) = model(&view);
 
     assert_eq!(
         options(&model, "Prompt"),
@@ -238,7 +297,7 @@ fn a_model_listed_twice_has_one_option() {
     };
 
     assert_eq!(
-        options(&build(&facts(), &view).0, "Model"),
+        options(&model(&view).0, "Model"),
         shown(
             &["mistral-small-latest", "mistral-medium-latest"],
             "mistral-medium-latest"
@@ -254,28 +313,188 @@ fn each_action_id_is_the_index_of_its_action() {
     };
     let view = View {
         dictionary: Some(dictionary::Invalid::Parse { line: Some(2) }),
-        ..view()
+        ..routing()
     };
-    let (model, actions) = build(&facts, &view);
+    let (model, actions) = build(&facts, &view, &apps(Some(NOTES)));
 
-    let ids: Vec<ActionId> = model
-        .items
-        .iter()
-        .flat_map(|item| match item {
-            MenuItem::Action { action, .. } | MenuItem::Toggle { action, .. } => vec![*action],
-            MenuItem::Choice { options, .. } => options
-                .iter()
-                .map(|ChoiceOption { action, .. }| *action)
-                .collect(),
-            MenuItem::Status { .. } | MenuItem::Separator => Vec::new(),
-        })
-        .collect();
+    let ids = action_ids(&model.items);
 
     assert_eq!(ids, (0..actions.len()).map(ActionId).collect::<Vec<_>>());
+    assert!(
+        actions.contains(&Action::RemoveApp {
+            prompt: name("code"),
+            app: id(GHOSTTY)
+        }),
+        "{actions:?}"
+    );
     assert_eq!(actions[0], Action::OpenPermission(Permission::Microphone));
     assert_eq!(actions[1], Action::OpenDictionary);
     assert_eq!(actions[2], Action::ToggleCorrection);
-    assert_eq!(actions[3], Action::Prompt(name("dev")));
+    assert_eq!(actions[3], Action::Prompt(name("code")));
+}
+
+/// Returns the items of the submenu of `prompt` in "Prompt by app": the title of each item, and its action.
+fn app_items(model: &(MenuModel, Vec<Action>), prompt: &str) -> Vec<(String, Option<Action>)> {
+    let (model, actions) = model;
+    submenu(model, &["Prompt by app", prompt])
+        .iter()
+        .map(|item| match item {
+            MenuItem::Toggle {
+                title,
+                action,
+                checked: true,
+            }
+            | MenuItem::Action { title, action } => {
+                (title.clone(), Some(actions[action.0].clone()))
+            }
+            MenuItem::Status { title } => (title.clone(), None),
+            MenuItem::Separator => ("---".to_owned(), None),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+fn remove(prompt: &str, title: &str, app: &str) -> (String, Option<Action>) {
+    let action = Action::RemoveApp {
+        prompt: name(prompt),
+        app: id(app),
+    };
+    (title.to_owned(), Some(action))
+}
+
+fn add(prompt: &str, title: &str, app: &str) -> (String, Option<Action>) {
+    let action = Action::AddApp {
+        prompt: name(prompt),
+        app: id(app),
+    };
+    (title.to_owned(), Some(action))
+}
+
+#[test]
+fn prompt_by_app_lists_the_apps_of_each_prompt_with_a_checkmark() {
+    let model = build(&facts(), &routing(), &apps(None));
+
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app"])),
+        ["code", "dev", "natural-light"]
+    );
+    assert_eq!(
+        app_items(&model, "code"),
+        [
+            remove("code", "Mac Terminal", TERMINAL),
+            remove("code", "Ghostty", GHOSTTY),
+        ]
+    );
+    assert_eq!(app_items(&model, "dev"), [text("No application")]);
+    assert_eq!(
+        app_items(&model, "natural-light"),
+        [remove("natural-light", "WhatsApp", WHATSAPP)]
+    );
+}
+
+#[test]
+fn the_frontmost_app_gets_a_status_line_and_an_add_item_in_each_list_without_it() {
+    let model = build(&facts(), &routing(), &apps(Some(NOTES)));
+
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app"])),
+        [
+            "com.apple.Notes uses the default prompt",
+            "---",
+            "code",
+            "dev",
+            "natural-light"
+        ]
+    );
+    assert_eq!(
+        app_items(&model, "code"),
+        [
+            remove("code", "Mac Terminal", TERMINAL),
+            remove("code", "Ghostty", GHOSTTY),
+            text("---"),
+            add("code", "Add com.apple.Notes", NOTES),
+        ]
+    );
+    assert_eq!(
+        app_items(&model, "dev"),
+        [add("dev", "Add com.apple.Notes", NOTES)]
+    );
+}
+
+#[test]
+fn the_status_line_names_the_prompt_of_a_listed_frontmost_app_and_its_list_has_no_add_item() {
+    let model = build(&facts(), &routing(), &apps(Some(GHOSTTY)));
+
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app"]))[0],
+        "Ghostty uses code"
+    );
+    assert_eq!(
+        app_items(&model, "code"),
+        [
+            remove("code", "Mac Terminal", TERMINAL),
+            remove("code", "Ghostty", GHOSTTY),
+        ]
+    );
+    assert_eq!(
+        app_items(&model, "natural-light"),
+        [
+            remove("natural-light", "WhatsApp", WHATSAPP),
+            text("---"),
+            add("natural-light", "Add Ghostty", GHOSTTY),
+        ]
+    );
+}
+
+#[test]
+fn an_app_name_is_the_name_of_macos_then_the_built_in_name_then_the_bundle_identifier() {
+    let view = View {
+        lists: lists(&[("code", &[TERMINAL, GHOSTTY, "com.example.editor"])]),
+        ..routing()
+    };
+    let model = build(&facts(), &view, &apps(Some(TERMINAL)));
+
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app", "code"])),
+        ["Mac Terminal", "Ghostty", "com.example.editor"]
+    );
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app"]))[0],
+        "Mac Terminal uses code"
+    );
+}
+
+#[test]
+fn a_key_of_another_prompt_name_lists_its_apps_without_an_add_item() {
+    let view = View {
+        lists: lists(&[
+            ("code", &[TERMINAL]),
+            ("mail", &["com.apple.mail"]),
+            ("unused", &[]),
+        ]),
+        ..routing()
+    };
+    let model = build(&facts(), &view, &apps(Some(NOTES)));
+
+    assert_eq!(
+        titles(submenu(&model.0, &["Prompt by app"])),
+        [
+            "com.apple.Notes uses the default prompt",
+            "---",
+            "code",
+            "dev",
+            "natural-light",
+            "mail"
+        ]
+    );
+    assert_eq!(
+        app_items(&model, "mail"),
+        [remove("mail", "com.apple.mail", "com.apple.mail")]
+    );
+    assert_eq!(
+        app_items(&model, "natural-light"),
+        [add("natural-light", "Add com.apple.Notes", NOTES)]
+    );
 }
 
 #[test]
@@ -285,7 +504,7 @@ fn the_checkmark_of_correct_text_follows_the_settings() {
             settings: Ok(summary(correction)),
             ..view()
         };
-        let (model, _) = build(&facts(), &view);
+        let (model, _) = model(&view);
 
         assert!(
             model.items.contains(&MenuItem::Toggle {
@@ -407,11 +626,11 @@ fn an_invalid_config_opens_the_file_and_hides_correct_text() {
             settings: Err(error),
             ..view()
         };
-        let (model, _) = build(&facts(), &view);
+        let (model, _) = model(&view);
 
         assert_eq!(status(&facts(), &view), [opens(title, Action::OpenConfig)]);
         assert_eq!(
-            titles(&model),
+            titles(&model.items),
             [
                 title,
                 "---",
@@ -442,7 +661,7 @@ fn a_prompt_error_opens_the_prompts_folder() {
         };
 
         assert_eq!(status(&facts(), &view), [opens(title, Action::OpenPrompts)]);
-        assert!(titles(&build(&facts(), &view).0).contains(&"Correct text"));
+        assert!(titles(&model(&view).0.items).contains(&"Correct text"));
     }
 }
 
@@ -563,9 +782,19 @@ impl SecretStore for Keys {
 }
 
 fn app_menu(dir: &std::path::Path) -> AppMenu {
+    menu_in(dir, || Some(GHOSTTY.to_owned()))
+}
+
+/// Returns the menu of the settings folder `dir`, with the frontmost application of `frontmost`.
+/// The only installed application is Terminal, with the name "Mac Terminal".
+fn menu_in(dir: &std::path::Path, frontmost: fn() -> Option<String>) -> AppMenu {
     let paths = Paths::new(dir);
     let hub = Rc::new(Hub::start(paths.clone(), &Keys, Duration::from_secs(8)));
-    AppMenu::new(hub, facts(), paths)
+    let lookups = Lookups {
+        frontmost,
+        name: |id| (id == TERMINAL).then(|| "Mac Terminal".to_owned()),
+    };
+    AppMenu::new(hub, facts(), paths, lookups)
 }
 
 fn toggle(model: &MenuModel) -> (ActionId, bool) {
@@ -625,10 +854,10 @@ fn an_unknown_action_has_no_effect() {
     let text = "schema = 1\n";
     fs::write(dir.join("config.toml"), text).unwrap();
     let menu = app_menu(&dir);
-    let actions = build(&facts(), &view()).1.len();
 
     menu.activate(ActionId(0));
     menu.model();
+    let actions = menu.last.borrow().1.len();
     menu.activate(ActionId(actions));
     menu.activate(ActionId(usize::MAX));
 
@@ -636,21 +865,27 @@ fn an_unknown_action_has_no_effect() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-fn option(model: &MenuModel, list: &str, title: &str) -> ActionId {
-    model
-        .items
+/// Returns the action of the item `title` in the submenu at `path`.
+fn option_at(model: &MenuModel, path: &[&str], title: &str) -> ActionId {
+    submenu(model, path)
         .iter()
         .find_map(|item| match item {
-            MenuItem::Choice {
+            MenuItem::Action {
                 title: name,
-                options,
-            } if name == list => options
-                .iter()
-                .find(|option| option.title == title)
-                .map(|option| option.action),
+                action,
+            }
+            | MenuItem::Toggle {
+                title: name,
+                action,
+                ..
+            } if name == title => Some(*action),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("no option {title} in {list}: {model:?}"))
+        .unwrap_or_else(|| panic!("no item {title} in {path:?}: {model:?}"))
+}
+
+fn option(model: &MenuModel, list: &str, title: &str) -> ActionId {
+    option_at(model, &[list], title)
 }
 
 #[test]
@@ -690,7 +925,7 @@ fn a_click_on_each_list_option_writes_its_key() {
         options(&model, "Hold delay"),
         shown(&["150 ms", "220 ms", "300 ms", "400 ms"], "400 ms")
     );
-    assert_eq!(titles(&model).first(), Some(&READY));
+    assert_eq!(titles(&model.items).first(), Some(&READY));
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -708,6 +943,66 @@ fn with_invalid_settings_a_click_on_an_old_list_option_changes_nothing() {
     assert_eq!(
         fs::read_to_string(dir.join("config.toml")).unwrap(),
         invalid
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_click_on_add_moves_the_frontmost_app_and_the_next_model_shows_it() {
+    let dir = scratch_dir("menu-add-app");
+    let text = "schema = 1\n\n[refine]\nenabled = true\n";
+    fs::write(dir.join("config.toml"), text).unwrap();
+    let menu = app_menu(&dir);
+    let model = menu.model();
+    assert_eq!(
+        titles(submenu(&model, &["Prompt by app"]))[0],
+        "Ghostty uses code"
+    );
+
+    menu.activate(option_at(
+        &model,
+        &["Prompt by app", "natural-light"],
+        "Add Ghostty",
+    ));
+
+    let new = fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert_eq!(
+        new,
+        format!(
+            "{text}\n[refine.apps]\nnatural-light = [\"com.apple.MobileSMS\", \"net.whatsapp.WhatsApp\", \"ru.keepcoder.Telegram\", \"org.telegram.desktop\", \"org.whispersystems.signal-desktop\", \"{GHOSTTY}\"]\ncode = [\"com.apple.Terminal\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"com.microsoft.VSCode\", \"com.todesktop.230313mzl4w4u92\", \"dev.zed.Zed\", \"com.apple.dt.Xcode\", \"com.anthropic.claudefordesktop\"]\n"
+        )
+    );
+    let model = menu.model();
+    assert_eq!(
+        titles(submenu(&model, &["Prompt by app"]))[0],
+        "Ghostty uses natural-light"
+    );
+    assert!(!titles(submenu(&model, &["Prompt by app", "code"])).contains(&"Ghostty"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_click_on_an_app_of_a_built_in_list_writes_the_rest_of_the_list() {
+    let dir = scratch_dir("menu-remove-app");
+    fs::write(dir.join("config.toml"), "schema = 1\n").unwrap();
+    let menu = menu_in(&dir, || None);
+    let model = menu.model();
+    assert_eq!(titles(submenu(&model, &["Prompt by app"]))[0], "code");
+
+    menu.activate(option_at(
+        &model,
+        &["Prompt by app", "natural-light"],
+        "WhatsApp",
+    ));
+
+    assert_eq!(
+        fs::read_to_string(dir.join("config.toml")).unwrap(),
+        "schema = 1\n\n[refine.apps]\nnatural-light = [\"com.apple.MobileSMS\", \"ru.keepcoder.Telegram\", \"org.telegram.desktop\", \"org.whispersystems.signal-desktop\"]\n"
+    );
+    let model = menu.model();
+    assert_eq!(
+        titles(submenu(&model, &["Prompt by app", "natural-light"])),
+        ["Messages", "Telegram", "Telegram Desktop", "Signal"]
     );
     fs::remove_dir_all(&dir).unwrap();
 }
