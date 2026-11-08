@@ -13,8 +13,6 @@ pub use typography::Typography;
 use crate::ports::ai::{ChatModel, TextStep};
 
 /// Returns the steps of the correction, in order: `LlmRefine` with `model` and `prompt`, `Typography`, and `Trim`.
-///
-/// The application and the evaluation tool both use this list. Thus a measured result is the result of the application.
 #[must_use]
 pub fn correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Box<dyn TextStep>> {
     vec![

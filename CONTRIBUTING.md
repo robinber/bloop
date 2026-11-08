@@ -13,9 +13,8 @@ Bloop is a Rust 2024 virtual workspace with five crates in `crates/`. The manife
 | `bloop-audio` | Microphone capture with `cpal`, the input device choice, the bounded sample queue, and the conversion to 16 kHz. |
 | `bloop-providers` | The AI provider adapters. One module and one Cargo feature for each vendor. `mistral` is the default feature. |
 | `bloop-macos` | AppKit integration: application, event tap, orb, paste and clipboard, status menu, permissions, Keychain, sleep observer, and workspace: the frontmost and open applications, file and folder opening, and the application panel. The only crate with `unsafe` code. |
-| `bloop-app` | The application: settings, hub, driver, worker, menu model, logging, and the `eval` tool. |
+| `bloop-app` | The application: settings, hub, driver, worker, menu model, and logging. |
 
-`bloop-app` has two binaries: `bloop-app`, the application and `default-run`, and `eval`, the correction evaluation tool.
 All crates depend on `bloop-core`. `bloop-macos`, `bloop-audio`, and `bloop-providers` do not depend on each other. Only `bloop-app` builds objects from the settings.
 
 Supporting files:
@@ -23,7 +22,6 @@ Supporting files:
 | Path | Purpose |
 | --- | --- |
 | `prompts/*.md` | The built-in prompts, included in the binary with `include_str!` |
-| `prompts/test-set-*.toml` | The French test sets of the `eval` tool |
 | `bundle/Info.plist` | The bundle identity, `LSUIElement`, and the microphone usage text |
 | `bundle/Bloop.icns` | The application icon, made by `scripts/icon.sh` |
 | `assets/branding/` | The SVG sources: the logo, the README wordmarks, the application icon, and the menu bar icon |
@@ -91,31 +89,6 @@ No test covers the real permissions, microphone, network, or AppKit behavior. Af
 | Prompt by application: `bloop-macos/src/workspace.rs` and `bloop-app/src/hub.rs` | With the correction on, a dictation in Ghostty uses `code`, in WhatsApp uses `natural-light`, and in Notes uses the default prompt. Check the `the dictation prompt is chosen` log line. |
 
 Miri cannot run FFI calls to macOS frameworks. For `bloop-macos`, test the safe wrappers, review the drop and error paths, and run the manual checks.
-
-## Evaluation tool
-
-`eval` runs the correction steps of Bloop, the same `steps::correction` list as the application, on the samples of a test set with the real Mistral API.
-It writes each sample, its final text, and a summary to the terminal, for manual review. A control character in a text, such as a line break or an escape, shows as its Rust escape, for example `\n`. The samples are invented and contain no private data.
-
-```sh
-cargo run --bin eval -- --prompt prompts/natural-light.md
-cargo run --bin eval -- --set prompts/test-set-code-fr.toml --prompt prompts/code.md
-```
-
-| Option | Effect |
-| --- | --- |
-| `--set <path>` | The test set. Default `prompts/test-set-fr.toml`. |
-| `--prompt <path>` | The prompt file. Default `prompts/natural-light.md`. |
-| `--model <id>` | Another chat model of the same provider. Default: the model of the default chat settings. |
-| `--validation` | Runs only the samples with `validation = true`, which are reserved for the check after a prompt change. Without it, the tool runs the other samples. |
-| `--limit-ms <n>` | The time limit of each request, from 1 to 300000 ms. Default 30000. |
-| `--help` | Shows the options. |
-
-A test set is a TOML file with optional `[[dictionary]]` pairs with `written` and `heard`, and `[[sample]]` entries with a unique `id`, a `category`, the `raw` transcript, an optional `note` for the reviewer, and `validation`.
-The categories are `question`, `negation`, `number`, `name`, `technical`, `spoken-correction`, `hesitation`, `instruction`, `long`, `punctuation`, `dictionary-fits`, and `dictionary-does-not-fit`.
-`prompts/test-set-fr.toml` is for `natural-light`, and `prompts/test-set-code-fr.toml` is for `code`.
-
-The tool reads the API key from Keychain, service `bloop`, account `mistral`. The `eval` binary is not in the access list of the key, so macOS shows an access dialog. Select **Allow** for one run, or **Always Allow**.
 
 ## Dependencies
 

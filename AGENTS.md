@@ -22,7 +22,7 @@ The workspace manifests are the source of truth. When they change, update this s
 
 - Layout: virtual workspace with `resolver = "3"`. Members in `crates/`: `bloop-core`, `bloop-providers`,
   `bloop-audio`, `bloop-macos`, `bloop-app`.
-  `bloop-app` has two binaries: `bloop-app` (`default-run`) and the correction evaluation tool `eval`.
+  `bloop-app` has one binary, `bloop-app`.
 - Version: `0.1.0` for every package, from `[workspace.package]`. `scripts/bundle.sh` copies it to `CFBundleShortVersionString`.
 - Edition: 2024. All packages have `publish = false`. `Cargo.lock` is under version control.
 - License: `Apache-2.0`, with the repository URL, from `[workspace.package]`. Every package inherits both.
@@ -104,7 +104,6 @@ The workspace manifests are the source of truth. When they change, update this s
 - Logs contain operational metadata and controlled error categories. Never log dictated text, audio, credentials, or arbitrary provider fields.
   Use local error categories and HTTP status codes. Do not log error bodies, unknown event types, or raw finish reasons.
 - The application has no `log` bridge. Review dependency logging before adding one; handshake traces can expose credentials.
-- The `eval` binary calls the real API and deliberately prints its samples and results. It is separate from local tests.
 
 ### Critical surfaces
 

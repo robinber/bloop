@@ -52,9 +52,7 @@ For each invariant, it names the component that enforces it and the tests that c
 | `bloop-audio` | `capture`: the microphone stream; `device`: the input device choice; `buffer`: the bounded sample queue; `convert`: the conversion to 16 kHz |
 | `bloop-providers` | `lib`: provider settings and constructors; `http`: the shared HTTP client; `mistral/`: settings, `transcribe` over WebSocket, and `chat` over HTTP |
 | `bloop-macos` | `app`: the AppKit run loop; `events` and `scheduler`: the main queue; `keys`: the event tap; `sleep`: the sleep observer; `paste` and `paste/clipboard`: the target check and the clipboard transaction; `orb/`: the indicator and the card; `menu`: the AppKit menu renderer; `keychain`: the API keys; `permissions`: checks and System Settings links; `workspace`: file and folder opening, the frontmost and the open applications, the application names, and the application panel |
-| `bloop-app` | `main`: construction; `driver`: command execution and generation resources; `worker`: the streaming task and the text pipeline; `settings/`: schema, template, and edits; `files`: bounded reads and atomic writes; `hub`: refresh, snapshots, and adapter reuse; `menu`: the menu model and actions; `prompts`: built-in and user prompts, and the application lists; `dictionary`: file parsing; `logging`: the log file; `bin/eval/`: the evaluation tool |
-
-Both binaries use `steps::correction` and the same `Pipeline`.
+| `bloop-app` | `main`: construction; `driver`: command execution and generation resources; `worker`: the streaming task and the text pipeline; `settings/`: schema, template, and edits; `files`: bounded reads and atomic writes; `hub`: refresh, snapshots, and adapter reuse; `menu`: the menu model and actions; `prompts`: built-in and user prompts, and the application lists; `dictionary`: file parsing; `logging`: the log file |
 
 ## Dictation flow
 
@@ -251,7 +249,6 @@ The event tap (`bloop-macos/src/keys.rs`) is an active session tap on key down, 
 - Logs record durations, counts, controlled error categories, the bundle identifier of the frontmost application at key press with the correction on, the bundle identifier of an application that a menu change adds or removes, the frontmost application at key release, and nonsecret settings such as the model identifiers. They never contain audio, text, prompt text, dictionary entries, or file content. Settings errors give a line, never the parser message.
 - The panic hook logs a literal panic message. A formatted message, which can quote dictated text, gives only its length (`logging.rs` tests).
 - The application installs no bridge from the `log` crate. WebSocket handshake traces can contain authorization headers.
-- The `eval` tool writes its samples and results to the terminal by design.
 
 ## Time and size limits
 

@@ -30,11 +30,11 @@ pub enum StepResult {
 
 /// The final text of a transcript and the report of each step that ran.
 #[derive(Debug)]
-pub struct Processed {
+struct Processed {
     /// The text after the last step, or `None` when the transcript contains only whitespace.
-    pub text: Option<FinalText>,
+    text: Option<FinalText>,
     /// One report for each step, in step order. It is empty when `text` is `None`.
-    pub report: Vec<StepReport>,
+    report: Vec<StepReport>,
 }
 
 /// The result event of a job and the report of each step that ran.
@@ -55,7 +55,9 @@ impl Pipeline {
 
     /// Applies the steps to the complete transcript of `generation`, and gives the result event.
     ///
-    /// The steps run as [`process`](Self::process) describes.
+    /// A transcript that contains only whitespace gives no text and an empty report.
+    /// Otherwise each step gets the current text, and an applied step replaces it.
+    /// After a failure, the text from before that step continues to the next step.
     /// The event is `TextReady` with the final text, or `NothingHeard` when the transcript contains only whitespace.
     pub async fn run(&self, generation: Generation, transcript: Transcript) -> PipelineOutput {
         let Processed { text, report } = self.process(transcript).await;
@@ -66,13 +68,8 @@ impl Pipeline {
         PipelineOutput { event, report }
     }
 
-    /// Applies the steps to a complete transcript, without a generation.
-    ///
-    /// A transcript that contains only whitespace gives no text and an empty report.
-    /// Otherwise each step gets the current text, and an applied step replaces it.
-    /// After a failure, the text from before that step continues to the next step.
-    /// The final text is the text after the last step.
-    pub async fn process(&self, transcript: Transcript) -> Processed {
+    /// Applies the steps to a complete transcript, without a generation. The final text is the text after the last step.
+    async fn process(&self, transcript: Transcript) -> Processed {
         if transcript.as_str().trim().is_empty() {
             return Processed {
                 text: None,

@@ -159,7 +159,7 @@ See the [troubleshooting section](docs/SETUP.md#troubleshooting) of the configur
 
 ## Development
 
-Bloop is a Rust 2024 workspace with five crates. [CONTRIBUTING.md](CONTRIBUTING.md) describes the layout, the build, the checks, the tests, and the evaluation tool. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the design.
+Bloop is a Rust 2024 workspace with five crates. [CONTRIBUTING.md](CONTRIBUTING.md) describes the layout, the build, the checks, and the tests. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the design.
 
 ## License
 
