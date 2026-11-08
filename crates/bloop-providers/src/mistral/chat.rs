@@ -56,10 +56,6 @@ impl Chat {
             temperature: TEMPERATURE,
             reasoning_effort: &self.config.reasoning_effort,
             stream: false,
-            prediction: request.prediction.map(|content| Prediction {
-                kind: "content",
-                content,
-            }),
         };
         let started = Instant::now();
         let (version, completion): (_, Completion) =
@@ -128,20 +124,11 @@ struct Body<'a> {
     temperature: f64,
     reasoning_effort: &'a str,
     stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prediction: Option<Prediction<'a>>,
 }
 
 #[derive(Serialize)]
 struct Message<'a> {
     role: &'static str,
-    content: &'a str,
-}
-
-#[derive(Serialize)]
-struct Prediction<'a> {
-    #[serde(rename = "type")]
-    kind: &'static str,
     content: &'a str,
 }
 
@@ -229,7 +216,6 @@ mod tests {
     const MODEL: &str = "mistral-test";
     const SYSTEM: &str = "Corrige le texte.";
     const USER: &str = "<transcript>\nbonjour a tous\n</transcript>";
-    const PREDICTION: &str = "bonjour a tous";
     const TEXT: &str = "Bonjour à tous.";
     const LIMIT: Duration = Duration::from_secs(5);
     const MAX_TOKENS: NonZeroU32 = NonZeroU32::new(64).unwrap();
@@ -260,11 +246,10 @@ mod tests {
         }
     }
 
-    fn request(prediction: Option<&str>) -> ChatRequest<'_> {
+    fn request() -> ChatRequest<'static> {
         ChatRequest {
             system: SYSTEM,
             user: USER,
-            prediction,
             max_tokens: MAX_TOKENS,
         }
     }
@@ -362,7 +347,7 @@ mod tests {
     /// Sends one request to a fake provider that answers with `status` and `body`.
     async fn complete(status: u16, body: String) -> Result<ChatReply, ProviderError> {
         let (chat, server) = serve(config(), status, body).await;
-        let result = chat.complete(request(None)).await;
+        let result = chat.complete(request()).await;
         server.await.unwrap();
         result
     }
@@ -381,7 +366,7 @@ mod tests {
     async fn the_request_contains_the_messages_and_the_options() {
         let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
 
-        chat.complete(request(None)).await.unwrap();
+        chat.complete(request()).await.unwrap();
 
         let received = server.await.unwrap();
         assert_eq!(received.line, "POST /v1/chat/completions HTTP/1.1");
@@ -403,19 +388,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_request_contains_the_prediction_only_when_the_request_has_one() {
-        let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
-
-        chat.complete(request(Some(PREDICTION))).await.unwrap();
-
-        let body = server.await.unwrap().body;
-        assert_eq!(
-            body["prediction"],
-            json!({ "type": "content", "content": PREDICTION })
-        );
-    }
-
-    #[tokio::test]
     async fn the_request_sends_the_reasoning_effort_of_the_config() {
         let config = ChatConfig {
             reasoning_effort: "high".to_owned(),
@@ -423,11 +395,10 @@ mod tests {
         };
         let (chat, server) = serve(config, 200, completion(&json!(TEXT), &json!("stop"))).await;
 
-        chat.complete(request(None)).await.unwrap();
+        chat.complete(request()).await.unwrap();
 
         let body = server.await.unwrap().body;
         assert_eq!(body["reasoning_effort"], "high");
-        assert_eq!(body.get("prediction"), None);
         assert_eq!(body["model"], MODEL);
     }
 
@@ -435,7 +406,7 @@ mod tests {
     async fn the_authorization_header_carries_the_key() {
         let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
 
-        chat.complete(request(None)).await.unwrap();
+        chat.complete(request()).await.unwrap();
 
         let received = server.await.unwrap();
         assert_eq!(received.header("authorization"), [format!("Bearer {KEY}")]);
@@ -582,7 +553,7 @@ mod tests {
             drop(stream);
         });
 
-        let result = tokio::time::timeout(LIMIT, chat.complete(request(None)))
+        let result = tokio::time::timeout(LIMIT, chat.complete(request()))
             .await
             .expect("the request limit ends a stalled error body");
 
@@ -612,7 +583,7 @@ mod tests {
             }
         });
 
-        let result = chat.complete(request(None)).await;
+        let result = chat.complete(request()).await;
 
         server.await.unwrap();
         assert_eq!(result.err(), Some(ProviderError::Http(429)));
@@ -627,7 +598,7 @@ mod tests {
             drop(stream);
         });
 
-        let result = chat.complete(request(None)).await;
+        let result = chat.complete(request()).await;
 
         server.abort();
         assert_eq!(result.err(), Some(ProviderError::Timeout));
@@ -644,7 +615,7 @@ mod tests {
             drop(stream);
         });
 
-        let result = tokio::time::timeout(Duration::from_secs(5), chat.complete(request(None)))
+        let result = tokio::time::timeout(Duration::from_secs(5), chat.complete(request()))
             .await
             .expect("the request limit ends a stalled body");
 
@@ -657,7 +628,7 @@ mod tests {
         let (chat, listener) = listen(config(), LIMIT).await;
 
         let mut stream = tokio::select! {
-            result = chat.complete(request(None)) => panic!("the fake provider never answers: {result:?}"),
+            result = chat.complete(request()) => panic!("the fake provider never answers: {result:?}"),
             (stream, _) = accept(&listener) => stream,
         };
 
@@ -674,7 +645,7 @@ mod tests {
         let (chat, listener) = listen(config(), LIMIT).await;
         drop(listener);
 
-        let result = chat.complete(request(None)).await;
+        let result = chat.complete(request()).await;
 
         assert_eq!(result.err(), Some(ProviderError::Network));
     }
@@ -719,7 +690,7 @@ mod tests {
             }
         });
 
-        let result = chat.complete(request(None)).await;
+        let result = chat.complete(request()).await;
 
         server.await.unwrap();
         assert_eq!(result.err(), Some(ProviderError::InvalidResponse));

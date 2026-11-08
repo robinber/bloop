@@ -27,7 +27,6 @@ pub(crate) fn context() -> StepContext {
 pub(crate) struct Sent {
     pub(crate) system: String,
     pub(crate) user: String,
-    pub(crate) prediction: Option<String>,
     pub(crate) max_tokens: u32,
 }
 
@@ -67,7 +66,6 @@ impl ChatModel for FakeChat {
         self.sent.lock().unwrap().push(Sent {
             system: request.system.to_owned(),
             user: request.user.to_owned(),
-            prediction: request.prediction.map(str::to_owned),
             max_tokens: request.max_tokens.get(),
         });
         let reply = self

@@ -69,8 +69,6 @@ pub struct ChatRequest<'a> {
     pub system: &'a str,
     /// The user message.
     pub user: &'a str,
-    /// A hint: the expected reply is near this text. An adapter without this feature ignores it.
-    pub prediction: Option<&'a str>,
     /// The maximum number of tokens of the reply.
     pub max_tokens: NonZeroU32,
 }
@@ -80,10 +78,6 @@ impl fmt::Debug for ChatRequest<'_> {
         f.debug_struct("ChatRequest")
             .field("system_chars", &self.system.chars().count())
             .field("user_chars", &self.user.chars().count())
-            .field(
-                "prediction_chars",
-                &self.prediction.map(|text| text.chars().count()),
-            )
             .field("max_tokens", &self.max_tokens)
             .finish()
     }
@@ -211,7 +205,6 @@ mod tests {
         let request = ChatRequest {
             system: "Corrige le texte.",
             user: "mot de passe secret",
-            prediction: Some("secret"),
             max_tokens: NonZeroU32::new(64).unwrap(),
         };
         let reply = ChatReply {
@@ -223,7 +216,7 @@ mod tests {
 
         assert_eq!(
             format!("{request:?}"),
-            "ChatRequest { system_chars: 17, user_chars: 19, prediction_chars: Some(6), max_tokens: 64 }"
+            "ChatRequest { system_chars: 17, user_chars: 19, max_tokens: 64 }"
         );
         assert_eq!(
             format!("{reply:?}"),

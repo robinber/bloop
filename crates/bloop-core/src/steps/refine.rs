@@ -96,7 +96,6 @@ impl TextStep for LlmRefine {
             let request = ChatRequest {
                 system: &self.prompt,
                 user: &user,
-                prediction: None,
                 max_tokens: max_tokens(text.chars().count()),
             };
             let reply = self
@@ -146,7 +145,6 @@ mod tests {
             [Sent {
                 system: PROMPT.to_owned(),
                 user: "<transcript>\nbonjour à tous\n</transcript>".to_owned(),
-                prediction: None,
                 max_tokens: 64,
             }]
         );
