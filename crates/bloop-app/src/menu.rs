@@ -19,7 +19,7 @@ use bloop_macos::{permissions, workspace};
 use crate::dictionary;
 use crate::hub::{Hub, View};
 use crate::prompts::PromptError;
-use crate::settings::{self, AppId, Change, HoldMs, Paths, PromptName};
+use crate::settings::{self, AppId, Change, HoldMs, PromptName};
 
 /// The options of the "Hold delay" list, in milliseconds.
 const HOLDS: [u64; 4] = [150, 220, 300, 400];
@@ -100,7 +100,6 @@ impl AppNames {
 pub(crate) struct AppMenu {
     hub: Rc<Hub>,
     facts: Facts,
-    paths: Paths,
     lookups: Lookups,
     /// The last model and its actions. `ActionId(n)` is the index `n` of the actions.
     last: RefCell<(MenuModel, Vec<Action>)>,
@@ -109,11 +108,10 @@ pub(crate) struct AppMenu {
 }
 
 impl AppMenu {
-    pub(crate) fn new(hub: Rc<Hub>, facts: Facts, paths: Paths, lookups: Lookups) -> Self {
+    pub(crate) fn new(hub: Rc<Hub>, facts: Facts, lookups: Lookups) -> Self {
         Self {
             hub,
             facts,
-            paths,
             lookups,
             last: RefCell::new((MenuModel { items: Vec::new() }, Vec::new())),
             choosing: Cell::new(false),
@@ -240,9 +238,9 @@ impl MenuSource for AppMenu {
             }
             Action::ChooseApp { prompt } => self.choose_app(prompt),
             Action::CopyLastResult => MainSink.send(Event::CopyLastResult),
-            Action::OpenConfig => workspace::open_file(&self.paths.config),
-            Action::OpenPrompts => workspace::open_folder(&self.paths.prompts),
-            Action::OpenDictionary => workspace::open_file(&self.paths.dictionary),
+            Action::OpenConfig => workspace::open_file(&self.hub.paths().config),
+            Action::OpenPrompts => workspace::open_folder(&self.hub.paths().prompts),
+            Action::OpenDictionary => workspace::open_file(&self.hub.paths().dictionary),
         }
     }
 }

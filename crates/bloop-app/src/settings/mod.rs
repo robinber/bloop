@@ -29,7 +29,6 @@ const FOLDER: &str = "Library/Application Support/Bloop";
 pub(crate) const LIMIT: u64 = 64 * 1024;
 
 /// The paths of the settings folder.
-#[derive(Clone)]
 pub(crate) struct Paths {
     pub(crate) config: PathBuf,
     /// The folder of the prompt files of the user.

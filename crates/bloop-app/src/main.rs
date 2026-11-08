@@ -77,12 +77,7 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
     let defaults = prompts::default_lists(|id| workspace::app_name(id).is_some());
-    let hub = Rc::new(Hub::start(
-        paths.clone(),
-        &Keychain,
-        CORRECTION_LIMIT,
-        defaults,
-    ));
+    let hub = Rc::new(Hub::start(paths, &Keychain, CORRECTION_LIMIT, defaults));
     let _sleep = SleepObserver::new(mtm);
 
     let sink: Arc<dyn EventSink> = Arc::new(MainSink);
@@ -119,7 +114,7 @@ fn main() -> ExitCode {
         running: workspace::running_apps,
         choose: Box::new(move || workspace::choose_app(mtm)),
     };
-    let menu = AppMenu::new(Rc::clone(&hub), facts, paths, lookups);
+    let menu = AppMenu::new(Rc::clone(&hub), facts, lookups);
     let _menu = StatusMenu::new(mtm, Box::new(menu));
     events::set_handler(mtm, move |event| {
         hub.note(&event);

@@ -883,10 +883,9 @@ fn menu_with(
     running: fn() -> Vec<(String, String)>,
     choose: impl FnOnce(Rc<Hub>) -> Box<dyn Fn() -> Option<String>>,
 ) -> AppMenu {
-    let paths = Paths::new(dir);
     let defaults = prompts::default_lists(|app| installed_name(app).is_some());
     let hub = Rc::new(Hub::start(
-        paths.clone(),
+        Paths::new(dir),
         &Keys,
         Duration::from_secs(8),
         defaults,
@@ -896,7 +895,7 @@ fn menu_with(
         running,
         choose: choose(Rc::clone(&hub)),
     };
-    AppMenu::new(hub, facts(), paths, lookups)
+    AppMenu::new(hub, facts(), lookups)
 }
 
 fn toggle(model: &MenuModel) -> (ActionId, bool) {

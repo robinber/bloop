@@ -270,6 +270,11 @@ impl Hub {
         inner.refresh(&self.paths, &self.keys, self.limit, &self.defaults, None);
     }
 
+    /// Returns the paths of the settings folder, for the file links of the status menu.
+    pub(crate) fn paths(&self) -> &Paths {
+        &self.paths
+    }
+
     /// Returns the error of the transcription API key that `start` read, for the status menu.
     pub(crate) fn key_error(&self) -> Option<SecretError> {
         self.keys.transcriber_error()
