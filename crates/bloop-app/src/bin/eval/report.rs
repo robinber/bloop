@@ -94,7 +94,7 @@ pub(crate) fn write_sample(
         sample.category,
         sample.split().name()
     )?;
-    writeln!(out, "  raw:    {}", sample.raw)?;
+    writeln!(out, "  raw:    {}", one_line(&sample.raw))?;
     let fallback = outcome.fallback();
     match &outcome.text {
         Some(text) => {
@@ -103,7 +103,7 @@ pub(crate) fn write_sample(
                 None if text.as_str() == sample.raw => "[unchanged] ",
                 None => "",
             };
-            writeln!(out, "  final:  {label}{}", text.as_str())?;
+            writeln!(out, "  final:  {label}{}", one_line(text.as_str()))?;
         }
         None => writeln!(out, "  final:  [nothing heard]")?,
     }
@@ -135,7 +135,7 @@ pub(crate) fn write_sample(
     }
     writeln!(out)?;
     if let Some(note) = &sample.note {
-        writeln!(out, "  note:   {note}")?;
+        writeln!(out, "  note:   {}", one_line(note))?;
     }
     writeln!(out)
 }
@@ -203,6 +203,20 @@ pub(crate) fn write_summary(
         "  dictionary:   {} pairs in the set, the correction does not apply them",
         run.pairs
     )
+}
+
+/// Returns `text` with each control character as its Rust escape, so that a reply cannot
+/// send a terminal escape sequence or break the line of its field.
+fn one_line(text: &str) -> String {
+    let mut line = String::with_capacity(text.len());
+    for character in text.chars() {
+        if character.is_control() {
+            line.extend(character.escape_default());
+        } else {
+            line.push(character);
+        }
+    }
+    line
 }
 
 fn write_marks(out: &mut impl Write, before: Marks, after: Marks) -> io::Result<()> {
@@ -336,6 +350,26 @@ mod tests {
              \x20 chat:   640 ms, finish Complete\n\
              \x20 steps:  llm_refine Applied, trim Applied\n\
              \x20 note:   Keep the question.\n\n"
+        );
+    }
+
+    #[test]
+    fn a_sample_block_shows_the_control_characters_of_its_texts_as_escapes() {
+        let mut sample = sample("question-03", "tu viens\nce soir", false);
+        sample.note = Some("Check\x1b[2J this.".to_owned());
+        let outcome = outcome("Tu viens\x1b[31m ?\r\n", 640, Ok(Finish::Complete));
+
+        let block = text(|out| write_sample(out, 3, 25, &sample, &outcome));
+
+        assert_eq!(
+            block,
+            "[3/25] question-03 | question | dev\n\
+             \x20 raw:    tu viens\\nce soir\n\
+             \x20 final:  Tu viens\\u{1b}[31m ?\\r\\n\n\
+             \x20 marks:  , 0→0  . 0→0  ? 0→1  ! 0→0  : 0→0  ; 0→0  … 0→0  total 0→1\n\
+             \x20 chat:   640 ms, finish Complete\n\
+             \x20 steps:  llm_refine Applied, trim Applied\n\
+             \x20 note:   Check\\u{1b}[2J this.\n\n"
         );
     }
 

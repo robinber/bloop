@@ -95,7 +95,7 @@ Miri cannot run FFI calls to macOS frameworks. For `bloop-macos`, test the safe 
 ## Evaluation tool
 
 `eval` runs the correction steps of Bloop, the same `steps::correction` list as the application, on the samples of a test set with the real Mistral API.
-It writes each sample, its final text, and a summary to the terminal, for manual review. The samples are invented and contain no private data.
+It writes each sample, its final text, and a summary to the terminal, for manual review. A control character in a text, such as a line break or an escape, shows as its Rust escape, for example `\n`. The samples are invented and contain no private data.
 
 ```sh
 cargo run --bin eval -- --prompt prompts/natural-light.md
