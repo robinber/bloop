@@ -110,6 +110,19 @@ fn a_file_without_the_refine_table_gets_a_standard_table() {
 }
 
 #[test]
+fn a_change_of_a_root_dotted_key_stays_a_dotted_key() {
+    let text = "schema = 1\nrefine.enabled = false  # off\n";
+
+    assert_eq!(
+        correction(text, true),
+        "schema = 1\nrefine.enabled = true   # off\n"
+    );
+    let new = changed(text, &prompt("dev"));
+    assert_eq!(new, format!("{text}refine.prompt = \"dev\"\n"));
+    assert_eq!(parse(&new).unwrap().refine.prompt.as_str(), "dev");
+}
+
+#[test]
 fn each_change_of_the_template_changes_only_its_value_and_keeps_the_comment_column() {
     let text = template();
     for (change, old, new) in [
