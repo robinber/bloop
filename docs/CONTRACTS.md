@@ -81,6 +81,7 @@ The clipboard snapshot occurs before this check because promised clipboard data 
 - Cancellation suppresses the result event. A paste already posted can still cause a read.
 - Before a new insertion saves the clipboard, the adapter finalizes the previous transaction.
 - Normal menu quit returns from the AppKit loop and drops the driver, which finalizes the paste transaction.
+- The Tokio runtime then shuts down in the background, so a blocked name lookup does not delay the exit.
 - Forced termination or a process crash cannot guarantee restoration.
 - A deferred fallback must not overwrite a newer clipboard value. An immediate target-check fallback copies the result for manual paste.
 - The recovery card must not assert that text was copied when that write is uncertain.

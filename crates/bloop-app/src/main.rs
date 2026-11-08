@@ -117,5 +117,7 @@ fn main() -> ExitCode {
 
     app.run();
     events::clear_handler(mtm);
+    // A name lookup in the blocking pool cannot stop. The drop of the runtime would wait for it.
+    runtime.shutdown_background();
     ExitCode::SUCCESS
 }
