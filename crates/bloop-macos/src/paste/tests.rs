@@ -8,7 +8,7 @@ use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
 
 use bloop_core::session::InsertOutcome;
 
-use super::clipboard::save_within;
+use super::clipboard::{finalize, save_within};
 use super::{
     KEY_V, Target, Targets, Transaction, is_posted, mark_posted, restore, save, string_type,
     transient_type, write_text,
@@ -217,6 +217,28 @@ fn abandoning_a_transaction_restores_once_and_stops_its_timers() {
         assert_eq!(transaction.result(InsertOutcome::Landed), None);
         pasteboard.clearContents();
     }
+}
+
+#[test]
+fn finalize_without_a_saved_clipboard_leaves_the_text_as_a_normal_item() {
+    let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+    let bloop_item = || item(&[(string_type(), &b"Bloop"[..]), (transient_type(), &[][..])]);
+    let written = write(&pasteboard, &[bloop_item()]);
+
+    finalize(&pasteboard, None, written, ns_string!("Bloop"));
+
+    assert_eq!(
+        contents(&pasteboard),
+        [[(string_type().to_string(), b"Bloop".to_vec())]]
+    );
+    let written = write(&pasteboard, &[bloop_item()]);
+    write(&pasteboard, &[item(&[(string_type(), &b"other"[..])])]);
+    let changed = contents(&pasteboard);
+
+    finalize(&pasteboard, None, written, ns_string!("Bloop"));
+
+    assert_eq!(contents(&pasteboard), changed);
+    pasteboard.clearContents();
 }
 
 #[test]

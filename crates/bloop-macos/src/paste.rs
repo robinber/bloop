@@ -38,7 +38,7 @@ use objc2_core_graphics::{
 use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 
 use self::clipboard::{
-    SavedItem, owns_clipboard, restore, save, string_type, transient_type, write_text,
+    SavedItem, finalize, owns_clipboard, restore, save, string_type, transient_type, write_text,
 };
 use crate::events::MainSink;
 use crate::scheduler;
@@ -431,11 +431,12 @@ impl TextProvider {
         }
     }
 
-    /// Ends the transaction and restores its saved clipboard now, without a result.
-    /// A later timer has no effect, whether the target read the text or not.
+    /// Ends the transaction now, without a result. It restores the saved clipboard, or without one,
+    /// leaves the text as a normal item. A later timer has no effect, whether the target read the text or not.
     fn abandon(&self, pasteboard: &NSPasteboard) {
         if self.step(Transaction::abandon) {
-            restore(pasteboard, self.ivars().saved.take(), self.ivars().written);
+            let ivars = self.ivars();
+            finalize(pasteboard, ivars.saved.take(), ivars.written, &ivars.text);
         }
     }
 

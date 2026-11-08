@@ -136,6 +136,23 @@ pub(super) fn restore(
     }
 }
 
+/// Ends an abandoned paste: writes the saved items back as [`restore`] does.
+///
+/// Without a saved clipboard, it replaces the item of Bloop with a normal text item, if the clipboard
+/// did not change since `written`. Thus the item does not depend on a provider that no longer exists.
+pub(super) fn finalize(
+    pasteboard: &NSPasteboard,
+    saved: Option<Vec<SavedItem>>,
+    written: NSInteger,
+    text: &NSString,
+) {
+    if saved.is_some() {
+        restore(pasteboard, saved, written);
+    } else if owns_clipboard(pasteboard, written) {
+        write_text(pasteboard, text);
+    }
+}
+
 /// Replaces the clipboard content with a normal text item.
 pub(super) fn write_text(pasteboard: &NSPasteboard, text: &NSString) {
     pasteboard.clearContents();

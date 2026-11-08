@@ -78,6 +78,7 @@ The clipboard snapshot occurs before this check because promised clipboard data 
 - A clipboard read confirms `Landed`; it does not prove insertion into the intended field.
 - The adapter restores saved contents only while its change count still owns the clipboard.
 - Deferred writes to the general clipboard must check their transaction phase and clipboard ownership.
+- Without a clipboard snapshot, the finalization leaves the text as a normal clipboard item.
 - Cancellation suppresses the result event. A paste already posted can still cause a read.
 - Before a new insertion saves the clipboard, the adapter finalizes the previous transaction.
 - Normal menu quit returns from the AppKit loop and drops the driver, which finalizes the paste transaction.
