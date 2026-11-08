@@ -16,11 +16,11 @@ use crate::ports::ai::{ChatModel, TextStep};
 ///
 /// The application and the evaluation tool both use this list. Thus a measured result is the result of the application.
 #[must_use]
-pub fn correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Arc<dyn TextStep>> {
+pub fn correction(model: Arc<dyn ChatModel>, prompt: String) -> Vec<Box<dyn TextStep>> {
     vec![
-        Arc::new(LlmRefine::new(model, prompt)),
-        Arc::new(Typography),
-        Arc::new(Trim),
+        Box::new(LlmRefine::new(model, prompt)),
+        Box::new(Typography),
+        Box::new(Trim),
     ]
 }
 
@@ -35,7 +35,7 @@ mod tests {
 
     const PROMPT: &str = "Corrige la ponctuation.";
 
-    fn steps(model: &Arc<FakeChat>) -> Vec<Arc<dyn TextStep>> {
+    fn steps(model: &Arc<FakeChat>) -> Vec<Box<dyn TextStep>> {
         correction(Arc::clone(model) as Arc<dyn ChatModel>, PROMPT.to_owned())
     }
 

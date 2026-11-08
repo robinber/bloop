@@ -1,7 +1,5 @@
 //! Text pipeline: turns the complete transcript of a job into its result event and its step report.
 
-use std::sync::Arc;
-
 use crate::domain::{FinalText, Generation, Transcript};
 use crate::error::StepError;
 use crate::ports::ai::TextStep;
@@ -9,7 +7,7 @@ use crate::session::Event;
 
 /// The text steps of one generation, in order.
 pub struct Pipeline {
-    steps: Vec<Arc<dyn TextStep>>,
+    steps: Vec<Box<dyn TextStep>>,
 }
 
 /// The result of one text step, for the log.
@@ -51,7 +49,7 @@ pub struct PipelineOutput {
 impl Pipeline {
     /// Keeps the steps in the given order. Without steps, the final text is the raw transcript.
     #[must_use]
-    pub fn new(steps: Vec<Arc<dyn TextStep>>) -> Self {
+    pub fn new(steps: Vec<Box<dyn TextStep>>) -> Self {
         Self { steps }
     }
 
@@ -258,8 +256,8 @@ mod tests {
         let first = FakeChat::failing(ProviderError::Network);
         let second = FakeChat::replying("Deuxième version.", Finish::Complete);
         let pipeline = Pipeline::new(vec![
-            Arc::new(refine(&first)) as Arc<dyn TextStep>,
-            Arc::new(refine(&second)),
+            Box::new(refine(&first)) as Box<dyn TextStep>,
+            Box::new(refine(&second)),
         ]);
 
         let output = run(&pipeline, RAW);
