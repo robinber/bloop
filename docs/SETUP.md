@@ -116,7 +116,9 @@ mail = ["com.apple.mail"]
 
 - A key replaces the built-in list of its prompt, even with an empty list. A prompt without a key keeps its built-in list.
 - A key can name your own prompt, such as `mail` for `prompts/mail.md`.
-- An application in a key leaves the built-in lists. The same application in two keys is an error. An application repeated in one list counts one time.
+- An application in a key leaves the built-in lists. When you remove it from the key, it returns to its built-in list, if it has one.
+- The same application in two keys is an error. An application repeated in one list counts one time.
+- The comparison of bundle identifiers is case-sensitive. Copy the identifier from the log, as described below.
 
 The **Prompt by app** submenu shows and changes the lists. Its first line gives the prompt of the application in front, for example `Ghostty uses code` or `Notes uses the default prompt`. Then it has one submenu for each prompt, with its applications:
 

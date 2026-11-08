@@ -1,6 +1,7 @@
 use bloop_providers::ChatConfig;
 
 use super::with_change;
+use crate::prompts;
 use crate::settings::template::template;
 use crate::settings::{AppId, Change, HoldMs, PromptName, parse};
 
@@ -318,6 +319,20 @@ fn remove_from_a_built_in_list_writes_the_rest_of_the_list() {
         format!(
             "{text}\n[refine.apps]\ncode = [\"com.apple.Terminal\", \"com.mitchellh.ghostty\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"com.microsoft.VSCode\", \"com.todesktop.230313mzl4w4u92\", \"dev.zed.Zed\", \"com.anthropic.claudefordesktop\"]\n"
         )
+    );
+}
+
+#[test]
+fn remove_from_a_key_returns_a_built_in_app_to_its_built_in_list() {
+    let text = "schema = 1\n\n[refine]\nenabled = true\n\n[refine.apps]\nmail = [\"com.mitchellh.ghostty\"]\n";
+
+    let new = changed(text, &remove("mail", "com.mitchellh.ghostty"));
+
+    assert_eq!(new, text.replace("[\"com.mitchellh.ghostty\"]", "[]"));
+    let lists = prompts::app_lists(&parse(&new).unwrap());
+    assert_eq!(
+        prompts::route(&lists, Some("com.mitchellh.ghostty")).map(PromptName::as_str),
+        Some("code")
     );
 }
 
