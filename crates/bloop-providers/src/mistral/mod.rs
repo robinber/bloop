@@ -55,11 +55,8 @@ pub struct ChatConfig {
     pub(crate) model: String,
     /// The models that the user can select.
     pub(crate) models: Vec<String>,
-    /// The `reasoning_effort` value, for example `none`. `None` omits the field. The provider checks the value.
-    pub(crate) reasoning_effort: Option<String>,
-    /// The sampling temperature. The settings file cannot change it.
-    #[serde(skip)]
-    pub(crate) temperature: f64,
+    /// The `reasoning_effort` value, for example `none`. The provider checks the value.
+    pub(crate) reasoning_effort: String,
 }
 
 impl Default for ChatConfig {
@@ -70,8 +67,7 @@ impl Default for ChatConfig {
                 "mistral-medium-latest".to_owned(),
                 "mistral-small-latest".to_owned(),
             ],
-            reasoning_effort: Some("none".to_owned()),
-            temperature: 0.0,
+            reasoning_effort: "none".to_owned(),
         }
     }
 }

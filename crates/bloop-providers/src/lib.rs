@@ -223,8 +223,7 @@ mod tests {
         assert_eq!(config.account(), "mistral");
         let ChatConfig::Mistral(mistral) = &config;
         assert_eq!(mistral.model, "mistral-medium-latest");
-        assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
-        assert_eq!(mistral.temperature, 0.0);
+        assert_eq!(mistral.reasoning_effort, "none");
     }
 
     #[test]
@@ -256,8 +255,7 @@ mod tests {
         assert_eq!(config.model(), "ministral-8b-2512");
         assert_eq!(config.account(), "mistral");
         let ChatConfig::Mistral(mistral) = &config;
-        assert_eq!(mistral.reasoning_effort.as_deref(), Some("none"));
-        assert_eq!(mistral.temperature, 0.0);
+        assert_eq!(mistral.reasoning_effort, "none");
     }
 
     #[test]

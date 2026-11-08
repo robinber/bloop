@@ -16,6 +16,9 @@ use crate::http;
 
 const URL: &str = "https://api.mistral.ai/v1/chat/completions";
 
+/// The sampling temperature of each request. The settings file cannot change it.
+const TEMPERATURE: f64 = 0.0;
+
 /// A Mistral chat model. Its requests share the connections of one HTTP client.
 #[derive(Debug)]
 pub(crate) struct Chat {
@@ -50,8 +53,8 @@ impl Chat {
                 },
             ],
             max_tokens: request.max_tokens.get(),
-            temperature: self.config.temperature,
-            reasoning_effort: self.config.reasoning_effort.as_deref(),
+            temperature: TEMPERATURE,
+            reasoning_effort: &self.config.reasoning_effort,
             stream: false,
             prediction: request.prediction.map(|content| Prediction {
                 kind: "content",
@@ -123,8 +126,7 @@ struct Body<'a> {
     messages: [Message<'a>; 2],
     max_tokens: u32,
     temperature: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reasoning_effort: Option<&'a str>,
+    reasoning_effort: &'a str,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     prediction: Option<Prediction<'a>>,
@@ -250,12 +252,11 @@ mod tests {
         }
     }
 
-    fn config(reasoning_effort: Option<&str>) -> ChatConfig {
+    fn config() -> ChatConfig {
         ChatConfig {
             model: MODEL.to_owned(),
             models: Vec::new(),
-            reasoning_effort: reasoning_effort.map(str::to_owned),
-            temperature: 0.0,
+            reasoning_effort: "none".to_owned(),
         }
     }
 
@@ -360,7 +361,7 @@ mod tests {
 
     /// Sends one request to a fake provider that answers with `status` and `body`.
     async fn complete(status: u16, body: String) -> Result<ChatReply, ProviderError> {
-        let (chat, server) = serve(config(Some("none")), status, body).await;
+        let (chat, server) = serve(config(), status, body).await;
         let result = chat.complete(request(None)).await;
         server.await.unwrap();
         result
@@ -378,12 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_request_contains_the_messages_and_the_options() {
-        let (chat, server) = serve(
-            config(Some("none")),
-            200,
-            completion(&json!(TEXT), &json!("stop")),
-        )
-        .await;
+        let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
 
         chat.complete(request(None)).await.unwrap();
 
@@ -408,12 +404,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_request_contains_the_prediction_only_when_the_request_has_one() {
-        let (chat, server) = serve(
-            config(Some("none")),
-            200,
-            completion(&json!(TEXT), &json!("stop")),
-        )
-        .await;
+        let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
 
         chat.complete(request(Some(PREDICTION))).await.unwrap();
 
@@ -425,26 +416,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_request_omits_reasoning_effort_when_the_config_has_none() {
-        let (chat, server) =
-            serve(config(None), 200, completion(&json!(TEXT), &json!("stop"))).await;
+    async fn the_request_sends_the_reasoning_effort_of_the_config() {
+        let config = ChatConfig {
+            reasoning_effort: "high".to_owned(),
+            ..config()
+        };
+        let (chat, server) = serve(config, 200, completion(&json!(TEXT), &json!("stop"))).await;
 
         chat.complete(request(None)).await.unwrap();
 
         let body = server.await.unwrap().body;
-        assert_eq!(body.get("reasoning_effort"), None);
+        assert_eq!(body["reasoning_effort"], "high");
         assert_eq!(body.get("prediction"), None);
         assert_eq!(body["model"], MODEL);
     }
 
     #[tokio::test]
     async fn the_authorization_header_carries_the_key() {
-        let (chat, server) = serve(
-            config(Some("none")),
-            200,
-            completion(&json!(TEXT), &json!("stop")),
-        )
-        .await;
+        let (chat, server) = serve(config(), 200, completion(&json!(TEXT), &json!("stop"))).await;
 
         chat.complete(request(None)).await.unwrap();
 
@@ -584,7 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_http_error_with_a_stalled_body_gives_the_status() {
-        let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
+        let (chat, listener) = listen(config(), Duration::from_millis(200)).await;
         let server = tokio::spawn(async move {
             let (mut stream, _) = accept(&listener).await;
             let head = "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{\"type\": ";
@@ -603,7 +592,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_http_error_with_a_large_body_gives_the_status() {
-        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+        let (chat, listener) = listen(config(), LIMIT).await;
         let body = json!({ "type": "rate_limited", "code": "1300" }).to_string()
             + &" ".repeat(http::BODY_LIMIT);
         let server = tokio::spawn(async move {
@@ -631,7 +620,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_provider_slower_than_the_limit_gives_timeout() {
-        let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
+        let (chat, listener) = listen(config(), Duration::from_millis(200)).await;
         let server = tokio::spawn(async move {
             let (stream, _) = accept(&listener).await;
             std::future::pending::<()>().await;
@@ -646,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_body_that_stalls_after_the_headers_gives_timeout() {
-        let (chat, listener) = listen(config(Some("none")), Duration::from_millis(200)).await;
+        let (chat, listener) = listen(config(), Duration::from_millis(200)).await;
         let server = tokio::spawn(async move {
             let (mut stream, _) = accept(&listener).await;
             let head = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{\"choices\": [";
@@ -665,7 +654,7 @@ mod tests {
 
     #[tokio::test]
     async fn dropping_the_request_after_the_provider_received_it_closes_the_connection() {
-        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+        let (chat, listener) = listen(config(), LIMIT).await;
 
         let mut stream = tokio::select! {
             result = chat.complete(request(None)) => panic!("the fake provider never answers: {result:?}"),
@@ -682,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_closed_port_gives_network() {
-        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+        let (chat, listener) = listen(config(), LIMIT).await;
         drop(listener);
 
         let result = chat.complete(request(None)).await;
@@ -711,7 +700,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_body_larger_than_the_limit_gives_invalid_response() {
-        let (chat, listener) = listen(config(Some("none")), LIMIT).await;
+        let (chat, listener) = listen(config(), LIMIT).await;
         let body = completion(&json!(TEXT), &json!("stop")) + &" ".repeat(http::BODY_LIMIT);
         let server = tokio::spawn(async move {
             let (mut stream, _) = accept(&listener).await;
@@ -738,7 +727,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_debug_of_the_adapter_shows_no_key() {
-        let (chat, _listener) = listen(config(Some("none")), LIMIT).await;
+        let (chat, _listener) = listen(config(), LIMIT).await;
 
         let debug = format!("{chat:?}");
 
