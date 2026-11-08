@@ -10,9 +10,7 @@ use bloop_audio::convert::{self, ConvertError, Converter};
 use bloop_core::domain::{AudioChunk, Generation};
 use bloop_core::error::{AppError, AudioQueueError, ProviderError};
 use bloop_core::pipeline::Pipeline;
-use bloop_core::ports::ai::{
-    ChatModel, StepContext, Transcriber, TranscriptionOptions, TranscriptionSession,
-};
+use bloop_core::ports::ai::{ChatModel, Transcriber, TranscriptionOptions, TranscriptionSession};
 use bloop_core::ports::platform::EventSink;
 use bloop_core::session::Event;
 use bloop_core::steps;
@@ -217,12 +215,9 @@ async fn transcribe(
                 chars = transcript.as_str().chars().count(),
                 "the transcript is complete"
             );
-            let context = StepContext {
-                language: speech.language.clone(),
-            };
             let raw = Pipeline::new(Vec::new());
             let pipeline = speech.text_steps(generation).unwrap_or(&raw);
-            let output = pipeline.run(generation, transcript, &context).await;
+            let output = pipeline.run(generation, transcript).await;
             for report in &output.report {
                 tracing::info!(
                     ?generation,

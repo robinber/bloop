@@ -7,7 +7,7 @@ use std::time::Duration;
 use bloop_core::domain::{FinalText, Transcript};
 use bloop_core::error::ProviderError;
 use bloop_core::pipeline::{Pipeline, StepReport, StepResult};
-use bloop_core::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish, StepContext};
+use bloop_core::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish};
 use tokio::time::Instant;
 
 /// One chat request: its duration and how it ended.
@@ -86,15 +86,8 @@ impl Outcome {
 }
 
 /// Runs `raw` through `pipeline`, whose chat model is `chat`, and returns the outcome with the requests of the run.
-pub(crate) async fn sample(
-    pipeline: &Pipeline,
-    chat: &Recording,
-    raw: &str,
-    context: &StepContext,
-) -> Outcome {
-    let processed = pipeline
-        .process(Transcript::new(raw.to_owned()), context)
-        .await;
+pub(crate) async fn sample(pipeline: &Pipeline, chat: &Recording, raw: &str) -> Outcome {
+    let processed = pipeline.process(Transcript::new(raw.to_owned())).await;
     Outcome {
         text: processed.text,
         report: processed.report,
@@ -109,9 +102,7 @@ mod tests {
 
     use bloop_core::error::ProviderError;
     use bloop_core::pipeline::Pipeline;
-    use bloop_core::ports::ai::{
-        BoxFuture, ChatModel, ChatReply, ChatRequest, Finish, StepContext,
-    };
+    use bloop_core::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish};
     use bloop_core::steps;
     use tokio::time::sleep;
 
@@ -146,10 +137,7 @@ mod tests {
             Arc::clone(&chat) as Arc<dyn ChatModel>,
             "Corrige le texte.".to_owned(),
         ));
-        let context = StepContext {
-            language: "fr".to_owned(),
-        };
-        sample(&pipeline, &chat, RAW, &context).await
+        sample(&pipeline, &chat, RAW).await
     }
 
     fn final_text(outcome: &Outcome) -> &str {
@@ -221,12 +209,9 @@ mod tests {
             Arc::clone(&chat) as Arc<dyn ChatModel>,
             "Corrige le texte.".to_owned(),
         ));
-        let context = StepContext {
-            language: "fr".to_owned(),
-        };
 
-        let first = sample(&pipeline, &chat, "oui", &context).await;
-        let second = sample(&pipeline, &chat, "oui", &context).await;
+        let first = sample(&pipeline, &chat, "oui").await;
+        let second = sample(&pipeline, &chat, "oui").await;
 
         assert_eq!(first.requests.len(), 1);
         assert_eq!(second.requests.len(), 1);

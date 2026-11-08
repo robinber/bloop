@@ -30,7 +30,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::correction;
-    use crate::fakes::{FakeChat, context, resolve};
+    use crate::fakes::{FakeChat, resolve};
     use crate::ports::ai::{ChatModel, Finish, TextStep};
 
     const PROMPT: &str = "Corrige la ponctuation.";
@@ -54,7 +54,7 @@ mod tests {
         let steps = steps(&model);
 
         for text in ["oui", "à 2 heures, non, 3 heures"] {
-            let outcome = resolve(steps[0].apply(text, &context()));
+            let outcome = resolve(steps[0].apply(text));
 
             assert_matches!(
                 outcome,

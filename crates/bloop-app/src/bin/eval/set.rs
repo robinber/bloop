@@ -1,4 +1,4 @@
-//! The test set file: the language, the dictionary pairs, and the samples of the correction.
+//! The test set file: the dictionary pairs and the samples of the correction.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -26,8 +26,6 @@ pub(crate) const CATEGORIES: [&str; 12] = [
 
 /// A valid test set, with the samples in file order.
 pub(crate) struct TestSet {
-    /// The language of the dictations, for example `fr`.
-    pub(crate) language: String,
     /// The dictionary pairs. Each entry has a heard form.
     pub(crate) pairs: Vec<DictionaryEntry>,
     pub(crate) samples: Vec<Sample>,
@@ -136,7 +134,6 @@ impl Error for Invalid {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
-    language: Spanned<String>,
     #[serde(default)]
     dictionary: Vec<Pair>,
     #[serde(default)]
@@ -175,7 +172,6 @@ pub(crate) fn parse(text: &str) -> Result<TestSet, Invalid> {
         }
         Ok(value)
     };
-    let language = filled("language", file.language)?;
     let pairs = file
         .dictionary
         .into_iter()
@@ -214,11 +210,7 @@ pub(crate) fn parse(text: &str) -> Result<TestSet, Invalid> {
     if samples.is_empty() {
         return Err(Invalid::NoSample);
     }
-    Ok(TestSet {
-        language,
-        pairs,
-        samples,
-    })
+    Ok(TestSet { pairs, samples })
 }
 
 /// Returns the line, from 1, that contains the byte at `offset` of `text`.
@@ -234,9 +226,7 @@ mod tests {
 
     use super::{CATEGORIES, Invalid, Split, TestSet, parse};
 
-    const VALID: &str = r#"language = "fr"
-
-[[dictionary]]
+    const VALID: &str = r#"[[dictionary]]
 written = "mi amor"
 heard = "Mia Moore"
 
@@ -272,10 +262,9 @@ raw = "dis à Camille"
     }
 
     #[test]
-    fn a_valid_file_gives_its_language_pairs_and_samples_in_order() {
+    fn a_valid_file_gives_its_pairs_and_samples_in_order() {
         let set = parse(VALID).unwrap();
 
-        assert_eq!(set.language, "fr");
         assert_eq!(set.pairs.len(), 1);
         assert_eq!(set.pairs[0].written, "mi amor");
         assert_eq!(set.pairs[0].heard.as_deref(), Some("Mia Moore"));
@@ -303,7 +292,7 @@ raw = "dis à Camille"
     fn a_syntax_error_gives_its_line() {
         let text = VALID.replace("raw = \"à 2 heures\"", "raw = \"à 2 heures");
 
-        assert_matches!(error(&text), Invalid::Parse { line: Some(16), .. });
+        assert_matches!(error(&text), Invalid::Parse { line: Some(14), .. });
     }
 
     #[test]
@@ -315,46 +304,38 @@ raw = "dis à Camille"
         ] {
             let invalid = error(&VALID.replace(removed, ""));
 
-            assert_matches!(invalid, Invalid::Parse { line: Some(13), .. }, "{key}");
+            assert_matches!(invalid, Invalid::Parse { line: Some(11), .. }, "{key}");
             assert!(invalid.to_string().contains(key), "{key}: {invalid}");
         }
-    }
-
-    #[test]
-    fn a_file_without_a_language_is_an_error() {
-        let text = VALID.replace("language = \"fr\"\n", "");
-
-        assert_matches!(error(&text), Invalid::Parse { .. });
     }
 
     #[test]
     fn an_unknown_key_is_an_error_with_its_line() {
         let text = VALID.replace("validation = true", "validated = true");
 
-        assert_matches!(error(&text), Invalid::Parse { line: Some(17), .. });
+        assert_matches!(error(&text), Invalid::Parse { line: Some(15), .. });
     }
 
     #[test]
     fn a_duplicate_id_is_an_error_with_the_line_of_the_second_id() {
         let text = VALID.replace("name-01", "question-01");
 
-        assert_eq!(error(&text), Invalid::DuplicateId { line: Some(20) });
+        assert_eq!(error(&text), Invalid::DuplicateId { line: Some(18) });
     }
 
     #[test]
     fn an_unknown_category_is_an_error_with_its_line() {
         let text = VALID.replace("category = \"name\"", "category = \"names\"");
 
-        assert_eq!(error(&text), Invalid::UnknownCategory { line: Some(21) });
+        assert_eq!(error(&text), Invalid::UnknownCategory { line: Some(19) });
     }
 
     #[test]
     fn a_blank_text_value_is_an_error_with_its_line() {
         for (from, to, key, line) in [
-            ("raw = \"dis à Camille\"", "raw = \" \\n \"", "raw", 22),
-            ("id = \"name-01\"", "id = \"\"", "id", 20),
-            ("heard = \"Mia Moore\"", "heard = \"\\t\"", "heard", 5),
-            ("language = \"fr\"", "language = \"\"", "language", 1),
+            ("raw = \"dis à Camille\"", "raw = \" \\n \"", "raw", 20),
+            ("id = \"name-01\"", "id = \"\"", "id", 18),
+            ("heard = \"Mia Moore\"", "heard = \"\\t\"", "heard", 3),
         ] {
             let text = VALID.replace(from, to);
 
@@ -371,7 +352,7 @@ raw = "dis à Camille"
 
     #[test]
     fn a_set_without_samples_is_an_error() {
-        assert_eq!(error("language = \"fr\"\n"), Invalid::NoSample);
+        assert_eq!(error(""), Invalid::NoSample);
     }
 
     #[test]
@@ -380,7 +361,7 @@ raw = "dis à Camille"
 
         assert_eq!(
             error(&text).to_string(),
-            "line 20: another sample has the same id"
+            "line 18: another sample has the same id"
         );
     }
 
@@ -388,7 +369,6 @@ raw = "dis à Camille"
     fn the_french_test_set_is_valid_and_covers_each_category() {
         let set = parse(REAL).unwrap();
 
-        assert_eq!(set.language, "fr");
         assert!(!set.pairs.is_empty());
         let mut ids = HashSet::new();
         assert!(set.samples.iter().all(|sample| ids.insert(&sample.id)));

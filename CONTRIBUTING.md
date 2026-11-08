@@ -111,7 +111,7 @@ cargo run --bin eval -- --set prompts/test-set-code-fr.toml --prompt prompts/cod
 | `--limit-ms <n>` | The time limit of each request, from 1 to 300000 ms. Default 30000. |
 | `--help` | Shows the options. |
 
-A test set is a TOML file with a `language`, optional `[[dictionary]]` pairs with `written` and `heard`, and `[[sample]]` entries with a unique `id`, a `category`, the `raw` transcript, an optional `note` for the reviewer, and `validation`.
+A test set is a TOML file with optional `[[dictionary]]` pairs with `written` and `heard`, and `[[sample]]` entries with a unique `id`, a `category`, the `raw` transcript, an optional `note` for the reviewer, and `validation`.
 The categories are `question`, `negation`, `number`, `name`, `technical`, `spoken-correction`, `hesitation`, `instruction`, `long`, `punctuation`, `dictionary-fits`, and `dictionary-does-not-fit`.
 `prompts/test-set-fr.toml` is for `natural-light`, and `prompts/test-set-code-fr.toml` is for `code`.
 

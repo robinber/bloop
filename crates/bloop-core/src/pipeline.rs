@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::domain::{FinalText, Generation, Transcript};
 use crate::error::StepError;
-use crate::ports::ai::{StepContext, TextStep};
+use crate::ports::ai::TextStep;
 use crate::session::Event;
 
 /// The text steps of one generation, in order.
@@ -59,13 +59,8 @@ impl Pipeline {
     ///
     /// The steps run as [`process`](Self::process) describes.
     /// The event is `TextReady` with the final text, or `NothingHeard` when the transcript contains only whitespace.
-    pub async fn run(
-        &self,
-        generation: Generation,
-        transcript: Transcript,
-        context: &StepContext,
-    ) -> PipelineOutput {
-        let Processed { text, report } = self.process(transcript, context).await;
+    pub async fn run(&self, generation: Generation, transcript: Transcript) -> PipelineOutput {
+        let Processed { text, report } = self.process(transcript).await;
         let event = match text {
             Some(text) => Event::TextReady(generation, text),
             None => Event::NothingHeard(generation),
@@ -79,7 +74,7 @@ impl Pipeline {
     /// Otherwise each step gets the current text, and an applied step replaces it.
     /// After a failure, the text from before that step continues to the next step.
     /// The final text is the text after the last step.
-    pub async fn process(&self, transcript: Transcript, context: &StepContext) -> Processed {
+    pub async fn process(&self, transcript: Transcript) -> Processed {
         if transcript.as_str().trim().is_empty() {
             return Processed {
                 text: None,
@@ -89,7 +84,7 @@ impl Pipeline {
         let mut text = FinalText::from(transcript);
         let mut report = Vec::with_capacity(self.steps.len());
         for step in &self.steps {
-            let result = match step.apply(text.as_str(), context).await {
+            let result = match step.apply(text.as_str()).await {
                 Ok(changed) => {
                     text = FinalText::new(changed);
                     StepResult::Applied
@@ -116,7 +111,7 @@ mod tests {
     use super::{Pipeline, PipelineOutput, Processed, StepReport, StepResult};
     use crate::domain::{Generation, Transcript};
     use crate::error::{ProviderError, StepError};
-    use crate::fakes::{FakeChat, Sent, context, resolve};
+    use crate::fakes::{FakeChat, Sent, resolve};
     use crate::ports::ai::{ChatModel, Finish, TextStep};
     use crate::session::Event;
     use crate::steps::{self, LlmRefine};
@@ -140,12 +135,12 @@ mod tests {
 
     fn run(pipeline: &Pipeline, transcript: &str) -> PipelineOutput {
         let transcript = Transcript::new(transcript.to_owned());
-        resolve(pipeline.run(Generation(1), transcript, &context()))
+        resolve(pipeline.run(Generation(1), transcript))
     }
 
     fn process(pipeline: &Pipeline, transcript: &str) -> Processed {
         let transcript = Transcript::new(transcript.to_owned());
-        resolve(pipeline.process(transcript, &context()))
+        resolve(pipeline.process(transcript))
     }
 
     fn final_text(output: &PipelineOutput) -> &str {
@@ -182,7 +177,7 @@ mod tests {
         let transcript = Transcript::new(RAW.to_owned());
         let address = transcript.as_str().as_ptr();
 
-        let output = resolve(Pipeline::new(Vec::new()).run(Generation(1), transcript, &context()));
+        let output = resolve(Pipeline::new(Vec::new()).run(Generation(1), transcript));
 
         assert_eq!(final_text(&output), RAW);
         assert_eq!(final_text(&output).as_ptr(), address);

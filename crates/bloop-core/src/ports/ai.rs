@@ -125,13 +125,6 @@ pub trait ChatModel: Send + Sync {
     ) -> BoxFuture<'a, Result<ChatReply, ProviderError>>;
 }
 
-/// The data of the dictation that the text steps can use.
-#[derive(Debug, Clone)]
-pub struct StepContext {
-    /// The language of the dictation, for example `fr`.
-    pub language: String,
-}
-
 /// One change to the text after the transcription, for example the correction.
 ///
 /// A step writes no logs. It returns its outcome, and the pipeline adds it to the step report.
@@ -140,11 +133,7 @@ pub trait TextStep: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// Applies the step to `text`, the text after the previous step, and returns the text that replaces it.
-    fn apply<'a>(
-        &'a self,
-        text: &'a str,
-        context: &'a StepContext,
-    ) -> BoxFuture<'a, Result<String, StepError>>;
+    fn apply<'a>(&'a self, text: &'a str) -> BoxFuture<'a, Result<String, StepError>>;
 }
 
 #[cfg(test)]

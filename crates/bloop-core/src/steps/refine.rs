@@ -4,9 +4,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use crate::error::{Rejection, StepError};
-use crate::ports::ai::{
-    BoxFuture, ChatModel, ChatReply, ChatRequest, Finish, StepContext, TextStep,
-};
+use crate::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish, TextStep};
 
 const RESERVE: NonZeroU32 = NonZeroU32::new(32).unwrap();
 const FLOOR: NonZeroU32 = NonZeroU32::new(64).unwrap();
@@ -35,11 +33,7 @@ impl TextStep for LlmRefine {
         "llm_refine"
     }
 
-    fn apply<'a>(
-        &'a self,
-        text: &'a str,
-        _context: &'a StepContext,
-    ) -> BoxFuture<'a, Result<String, StepError>> {
+    fn apply<'a>(&'a self, text: &'a str) -> BoxFuture<'a, Result<String, StepError>> {
         Box::pin(async move {
             let user = format!("<transcript>\n{text}\n</transcript>");
             let request = ChatRequest {
@@ -84,7 +78,7 @@ mod tests {
 
     use super::{LlmRefine, max_tokens};
     use crate::error::{ProviderError, Rejection, StepError};
-    use crate::fakes::{FakeChat, Sent, context, resolve};
+    use crate::fakes::{FakeChat, Sent, resolve};
     use crate::ports::ai::{ChatModel, Finish, TextStep};
 
     const PROMPT: &str = "Corrige la ponctuation.";
@@ -97,7 +91,7 @@ mod tests {
     fn the_request_holds_the_prompt_and_the_text_between_delimiters() {
         let model = FakeChat::replying("Bonjour à tous.", Finish::Complete);
 
-        resolve(refine(&model).apply("bonjour à tous", &context())).unwrap();
+        resolve(refine(&model).apply("bonjour à tous")).unwrap();
 
         assert_eq!(
             model.sent(),
@@ -113,7 +107,7 @@ mod tests {
     fn max_tokens_counts_the_characters_of_the_text_and_not_the_delimiters() {
         let model = FakeChat::replying("É.", Finish::Complete);
 
-        resolve(refine(&model).apply(&"é".repeat(100), &context())).unwrap();
+        resolve(refine(&model).apply(&"é".repeat(100))).unwrap();
 
         let [sent] = <[_; 1]>::try_from(model.sent()).unwrap();
         assert_eq!(sent.max_tokens, 96);
@@ -139,7 +133,7 @@ mod tests {
     fn a_complete_reply_replaces_the_text() {
         let model = FakeChat::replying("Bonjour à tous.", Finish::Complete);
 
-        let outcome = resolve(refine(&model).apply("bonjour à tous", &context()));
+        let outcome = resolve(refine(&model).apply("bonjour à tous"));
 
         assert_matches!(outcome, Ok(text) if text == "Bonjour à tous.");
     }
@@ -149,7 +143,7 @@ mod tests {
         for finish in [Finish::Truncated, Finish::Other] {
             let model = FakeChat::replying("Bonjour à", finish);
 
-            let outcome = resolve(refine(&model).apply("bonjour à tous", &context()));
+            let outcome = resolve(refine(&model).apply("bonjour à tous"));
 
             assert_matches!(
                 outcome,
@@ -164,7 +158,7 @@ mod tests {
         for reply in ["", " ", "\n\u{a0}\t"] {
             let model = FakeChat::replying(reply, Finish::Complete);
 
-            let outcome = resolve(refine(&model).apply("bonjour à tous", &context()));
+            let outcome = resolve(refine(&model).apply("bonjour à tous"));
 
             assert_matches!(
                 outcome,
@@ -179,7 +173,7 @@ mod tests {
         for error in [ProviderError::Timeout, ProviderError::Unauthorized] {
             let model = FakeChat::failing(error);
 
-            let outcome = resolve(refine(&model).apply("bonjour à tous", &context()));
+            let outcome = resolve(refine(&model).apply("bonjour à tous"));
 
             assert_matches!(
                 outcome,
@@ -194,12 +188,12 @@ mod tests {
         for reply in ["3", "à 3 heures", &"à 3 heures ".repeat(10)] {
             let model = FakeChat::replying(reply, Finish::Complete);
 
-            let outcome = resolve(refine(&model).apply(text, &context()));
+            let outcome = resolve(refine(&model).apply(text));
 
             assert_matches!(outcome, Ok(applied) if applied == reply);
         }
         let model = FakeChat::replying("Oui.", Finish::Complete);
-        let outcome = resolve(refine(&model).apply("oui", &context()));
+        let outcome = resolve(refine(&model).apply("oui"));
         assert_matches!(outcome, Ok(_));
         assert_eq!(model.sent().len(), 1);
     }

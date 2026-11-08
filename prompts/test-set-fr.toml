@@ -10,8 +10,6 @@
 # Categories: question, negation, number, name, technical, spoken-correction, hesitation,
 # instruction, long, punctuation, dictionary-fits, dictionary-does-not-fit.
 
-language = "fr"
-
 [[dictionary]]
 written = "mi amor"
 heard = "Mia Moore"

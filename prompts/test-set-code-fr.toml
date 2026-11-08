@@ -9,8 +9,6 @@
 #
 # Categories: the categories of the evaluation tool. The id gives the technical case.
 
-language = "fr"
-
 [[sample]]
 id = "file-name-01"
 category = "technical"

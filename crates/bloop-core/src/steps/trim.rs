@@ -3,7 +3,7 @@
 use std::future;
 
 use crate::error::StepError;
-use crate::ports::ai::{BoxFuture, StepContext, TextStep};
+use crate::ports::ai::{BoxFuture, TextStep};
 
 /// Removes `\n` and `\r` at the start and at the end of the text. It keeps the spaces and the other characters.
 #[derive(Debug, Clone, Copy, Default)]
@@ -14,11 +14,7 @@ impl TextStep for Trim {
         "trim"
     }
 
-    fn apply<'a>(
-        &'a self,
-        text: &'a str,
-        _context: &'a StepContext,
-    ) -> BoxFuture<'a, Result<String, StepError>> {
+    fn apply<'a>(&'a self, text: &'a str) -> BoxFuture<'a, Result<String, StepError>> {
         let trimmed = text.trim_matches(['\n', '\r']).to_owned();
         Box::pin(future::ready(Ok(trimmed)))
     }
@@ -27,11 +23,11 @@ impl TextStep for Trim {
 #[cfg(test)]
 mod tests {
     use super::Trim;
-    use crate::fakes::{context, resolve};
+    use crate::fakes::resolve;
     use crate::ports::ai::TextStep;
 
     fn trim(text: &str) -> String {
-        resolve(Trim.apply(text, &context())).unwrap()
+        resolve(Trim.apply(text)).unwrap()
     }
 
     #[test]

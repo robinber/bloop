@@ -6,19 +6,13 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use crate::error::ProviderError;
-use crate::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish, StepContext};
+use crate::ports::ai::{BoxFuture, ChatModel, ChatReply, ChatRequest, Finish};
 
 /// Polls `future` one time and returns its output. The fakes do not wait, so the future is ready.
 pub(crate) fn resolve<F: Future>(future: F) -> F::Output {
     match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(output) => output,
         Poll::Pending => panic!("the future waits"),
-    }
-}
-
-pub(crate) fn context() -> StepContext {
-    StepContext {
-        language: "fr".to_owned(),
     }
 }
 

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, anyhow, bail};
 use bloop_core::error::SecretError;
 use bloop_core::pipeline::Pipeline;
-use bloop_core::ports::ai::{ChatModel, StepContext};
+use bloop_core::ports::ai::ChatModel;
 use bloop_core::ports::platform::SecretStore as _;
 use bloop_core::steps;
 use bloop_macos::keychain::Keychain;
@@ -107,14 +107,11 @@ fn evaluate(options: &Options) -> Result<()> {
         Arc::clone(&chat) as Arc<dyn ChatModel>,
         prompt.text.clone(),
     ));
-    let context = StepContext {
-        language: set.language.clone(),
-    };
 
     let mut out = io::stdout().lock();
     let mut results = Vec::with_capacity(samples.len());
     for (index, sample) in samples.iter().enumerate() {
-        let outcome = runtime.block_on(run::sample(&pipeline, &chat, &sample.raw, &context));
+        let outcome = runtime.block_on(run::sample(&pipeline, &chat, &sample.raw));
         report::write_sample(&mut out, index + 1, samples.len(), sample, &outcome)
             .context("write the report")?;
         results.push((*sample, outcome));
