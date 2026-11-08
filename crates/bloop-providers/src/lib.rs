@@ -10,7 +10,8 @@ mod http;
 #[cfg(feature = "mistral")]
 pub mod mistral;
 
-#[cfg(all(test, feature = "mistral"))]
+#[cfg(test)]
+#[cfg(feature = "mistral")]
 mod test_log;
 
 use std::sync::Arc;

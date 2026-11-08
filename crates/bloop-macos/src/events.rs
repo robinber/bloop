@@ -53,7 +53,7 @@ pub fn clear_handler(_mtm: MainThreadMarker) {
         // Drop outside the borrow, because component cleanup can call AppKit.
         Ok(Ok(handler)) => drop(handler),
         Ok(Err(())) | Err(_) => {
-            tracing::error!("the event handler cannot be removed while it runs")
+            tracing::error!("the event handler cannot be removed while it runs");
         }
     }
 }
