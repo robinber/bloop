@@ -140,7 +140,7 @@ pub(crate) fn resolve(folder: &Path, name: &PromptName) -> Result<Prompt, Prompt
 
 /// Returns the prompt names for the status menu: the built-in names and the names of the `.md` files of `folder`,
 /// sorted and without duplicates. It skips a file name that is not UTF-8 or that is not a valid prompt name.
-/// It does not read the files.
+/// It does not read the files. An unreadable folder or entry logs a warning with its error kind.
 pub(crate) fn names(folder: &Path) -> Vec<PromptName> {
     let mut names: BTreeSet<PromptName> = BUILT_IN
         .iter()
@@ -148,10 +148,18 @@ pub(crate) fn names(folder: &Path) -> Vec<PromptName> {
         .collect();
     match fs::read_dir(folder) {
         Ok(entries) => {
-            names.extend(entries.filter_map(|entry| name_of(&entry.ok()?.file_name())));
+            for entry in entries {
+                match entry {
+                    Ok(entry) => names.extend(name_of(&entry.file_name())),
+                    Err(error) => tracing::warn!(
+                        kind = ?error.kind(),
+                        "an entry of the prompts folder is not readable, the menu leaves it out"
+                    ),
+                }
+            }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::debug!(
+        Err(error) => tracing::warn!(
             kind = ?error.kind(),
             "the prompts folder is not readable, the menu lists the built-in prompts only"
         ),
