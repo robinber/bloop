@@ -27,7 +27,7 @@ pub enum ProviderError {
 }
 
 /// A failure of a text step. The pipeline keeps the text from before the step.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepError {
     /// The provider request of the step failed.
     Provider(ProviderError),

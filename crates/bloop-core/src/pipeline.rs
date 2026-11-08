@@ -20,7 +20,7 @@ pub struct StepReport {
 }
 
 /// What a text step did. It contains no text.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepResult {
     /// The text of the step replaced the previous text.
     Applied,
@@ -108,7 +108,7 @@ mod tests {
 
     use super::{Pipeline, PipelineOutput, Processed, StepReport, StepResult};
     use crate::domain::{Generation, Transcript};
-    use crate::error::{ProviderError, StepError};
+    use crate::error::{ProviderError, Rejection, StepError};
     use crate::fakes::{FakeChat, Sent, resolve};
     use crate::ports::ai::{ChatModel, Finish, TextStep};
     use crate::session::Event;
@@ -148,11 +148,11 @@ mod tests {
         text.as_str()
     }
 
-    fn results(output: &PipelineOutput) -> Vec<(&'static str, String)> {
+    fn results(output: &PipelineOutput) -> Vec<(&'static str, StepResult)> {
         output
             .report
             .iter()
-            .map(|report| (report.step, format!("{:?}", report.result)))
+            .map(|report| (report.step, report.result))
             .collect()
     }
 
@@ -217,35 +217,35 @@ mod tests {
         let failures = [
             (
                 FakeChat::replying("Il est", Finish::Truncated),
-                "Failed(Rejected(Incomplete))",
+                StepError::Rejected(Rejection::Incomplete),
             ),
             (
                 FakeChat::replying(REPLY, Finish::Other),
-                "Failed(Rejected(Incomplete))",
+                StepError::Rejected(Rejection::Incomplete),
             ),
             (
                 FakeChat::replying("\n \n", Finish::Complete),
-                "Failed(Rejected(Empty))",
+                StepError::Rejected(Rejection::Empty),
             ),
             (
                 FakeChat::failing(ProviderError::Timeout),
-                "Failed(Provider(Timeout))",
+                StepError::Provider(ProviderError::Timeout),
             ),
             (
                 FakeChat::failing(ProviderError::Unauthorized),
-                "Failed(Provider(Unauthorized))",
+                StepError::Provider(ProviderError::Unauthorized),
             ),
         ];
-        for (model, expected) in failures {
+        for (model, error) in failures {
             let output = run(&correction(&model), RAW);
 
-            assert_eq!(final_text(&output), RAW_FINAL, "{expected}");
+            assert_eq!(final_text(&output), RAW_FINAL, "{error:?}");
             assert_eq!(
                 results(&output),
                 [
-                    ("llm_refine", expected.to_owned()),
-                    ("typography", "Applied".to_owned()),
-                    ("trim", "Applied".to_owned()),
+                    ("llm_refine", StepResult::Failed(error)),
+                    ("typography", StepResult::Applied),
+                    ("trim", StepResult::Applied),
                 ]
             );
         }
@@ -270,8 +270,11 @@ mod tests {
         assert_eq!(
             results(&output),
             [
-                ("llm_refine", "Failed(Provider(Network))".to_owned()),
-                ("llm_refine", "Applied".to_owned()),
+                (
+                    "llm_refine",
+                    StepResult::Failed(StepError::Provider(ProviderError::Network))
+                ),
+                ("llm_refine", StepResult::Applied),
             ]
         );
     }
