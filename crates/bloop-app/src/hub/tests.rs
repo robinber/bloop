@@ -198,6 +198,25 @@ fn a_changed_chat_table_builds_a_new_chat_model() {
 }
 
 #[test]
+fn a_changed_model_list_builds_a_new_chat_model() {
+    let chat = "[chat]\nprovider = \"mistral\"\nmodel = \"mistral-medium-latest\"\n";
+    let dir = folder("hub-chat-models", &format!("{ON}\n{chat}"));
+    let hub = start(&dir);
+    let model = chat_model(&hub);
+
+    fs::write(
+        dir.join("config.toml"),
+        format!("{ON}\n{chat}models = [\"mistral-medium-latest\"]\n"),
+    )
+    .unwrap();
+    let next = current(&hub);
+
+    assert_eq!(no_correction(&next), None);
+    assert!(!Arc::ptr_eq(&model, &chat_model(&hub)));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_config_change_that_keeps_the_chat_table_keeps_the_chat_model() {
     let dir = folder("hub-chat-kept", ON);
     let hub = start(&dir);
@@ -257,6 +276,20 @@ fn a_config_over_its_limit_is_invalid() {
 
     assert_eq!(error(&snapshot), Some(AppError::InvalidSettings));
     assert_eq!(snapshot.hold, HOLD);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_unreadable_config_gives_invalid_settings() {
+    let dir = scratch_dir("hub-unreadable-config");
+    fs::create_dir(dir.join("config.toml")).unwrap();
+    let hub = start(&dir);
+
+    assert_eq!(error(&current(&hub)), Some(AppError::InvalidSettings));
+    assert!(matches!(
+        view(&hub).settings.err(),
+        Some(settings::Invalid::Unreadable(_))
+    ));
     fs::remove_dir_all(&dir).unwrap();
 }
 
