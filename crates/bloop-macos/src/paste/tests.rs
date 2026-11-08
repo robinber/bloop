@@ -1,7 +1,13 @@
+#![expect(
+    unsafe_code,
+    reason = "objc2-app-kit does not bind the NSPasteboard message releaseGlobally, which removes a test pasteboard from the pasteboard server"
+)]
+
 use std::cell::Cell;
 
 use bloop_core::domain::Generation;
 use bloop_core::session::{Command, Core, Event};
+use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardType, NSPasteboardWriting};
@@ -80,6 +86,13 @@ fn contents(pasteboard: &NSPasteboard) -> Contents {
             types
         })
         .collect()
+}
+
+/// Removes a pasteboard with a unique name from the pasteboard server. Each test calls it last.
+fn release_globally(pasteboard: &NSPasteboard) {
+    // SAFETY: AppKit declares `- (oneway void)releaseGlobally` on `NSPasteboard`. The message has
+    // no argument and no result, and no test uses the pasteboard after it.
+    unsafe { msg_send![pasteboard, releaseGlobally] }
 }
 
 fn byte_count(contents: &Contents) -> usize {
@@ -239,7 +252,7 @@ fn abandoning_a_transaction_restores_once_and_stops_its_timers() {
         assert!(!transaction.read_time_out());
         assert!(!transaction.restore_due());
         assert_eq!(transaction.result(InsertOutcome::Landed), None);
-        pasteboard.clearContents();
+        release_globally(&pasteboard);
     }
 }
 
@@ -262,7 +275,7 @@ fn finalize_without_a_saved_clipboard_leaves_the_text_as_a_normal_item() {
     finalize(&pasteboard, None, written, ns_string!("Bloop"));
 
     assert_eq!(contents(&pasteboard), changed);
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -285,7 +298,7 @@ fn a_new_paste_after_a_cancelled_read_restores_the_original_clipboard() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), with_transient_marker(original));
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -307,7 +320,7 @@ fn restore_writes_the_saved_items_back_with_the_transient_marker() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), with_transient_marker(before));
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -327,7 +340,7 @@ fn save_within_keeps_a_clipboard_at_the_item_and_byte_bounds() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), with_transient_marker(before));
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -343,7 +356,7 @@ fn save_within_gives_nothing_for_one_item_above_the_byte_bound() {
     let bytes = byte_count(&contents(&pasteboard));
 
     assert!(save_within(&pasteboard, 1, bytes - 1).is_none());
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -359,7 +372,7 @@ fn save_within_gives_nothing_for_more_items_than_the_item_bound() {
     );
 
     assert!(save_within(&pasteboard, 2, usize::MAX).is_none());
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -373,7 +386,7 @@ fn restore_leaves_an_empty_clipboard_empty() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), Contents::new());
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -394,7 +407,7 @@ fn restore_keeps_a_clipboard_that_changed_after_the_paste() {
     restore(&pasteboard, saved, written);
 
     assert_eq!(contents(&pasteboard), changed);
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -405,7 +418,7 @@ fn the_change_count_after_the_write_is_the_one_that_clear_contents_returned() {
     assert!(pasteboard.writeObjects(&NSArray::from_slice(&[ProtocolObject::from_ref(&*item)])));
 
     assert_eq!(pasteboard.changeCount(), cleared);
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
 
 #[test]
@@ -429,5 +442,5 @@ fn write_text_leaves_one_string_item() {
         .and_then(|item| item.stringForType(string_type()))
         .map(|text| text.to_string());
     assert_eq!(text, Some("Bloop".to_owned()));
-    pasteboard.clearContents();
+    release_globally(&pasteboard);
 }
