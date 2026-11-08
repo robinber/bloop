@@ -1,13 +1,12 @@
 # Bloop agent contract
 
-Bloop is a personal macOS dictation app in Rust. Its functional scope is complete.
-The documents in `docs/` describe the current product and code. Keep maintenance changes within this scope unless the owner requests more.
+Bloop is a personal macOS dictation app in Rust. `README.md`, `CONTRIBUTING.md`, and the documents in `docs/` describe the current product and code.
 
 ## Load order
 
 1. This file.
-2. `README.md`, then the documents in `docs/` that the task needs.
-   Read `docs/STRUCTURE.md` and `docs/CONTRACTS.md` before any Rust change.
+2. `README.md`, `CONTRIBUTING.md`, and `docs/ARCHITECTURE.md`.
+   Read `docs/ARCHITECTURE.md` before any Rust change, and `docs/SETUP.md` when the task touches the settings, the files, or the usage.
 3. `.claude/skills/rust-strict/SKILL.md` (the version pinned by the git submodule).
    Read it before you create, change, review, debug, or verify Rust or Cargo files.
 4. Rust policy files when they exist: `Cargo.toml`, `rust-toolchain.toml`, `rustfmt.toml`,
@@ -24,38 +23,41 @@ The workspace manifests are the source of truth. When they change, update this s
 - Layout: virtual workspace with `resolver = "3"`. Members in `crates/`: `bloop-core`, `bloop-providers`,
   `bloop-audio`, `bloop-macos`, `bloop-app`.
   `bloop-app` has two binaries: `bloop-app` (`default-run`) and the correction evaluation tool `eval`.
+- Version: `0.1.0` for every package, from `[workspace.package]`. `scripts/bundle.sh` copies it to `CFBundleShortVersionString`.
 - Edition: 2024. All packages have `publish = false`. `Cargo.lock` is under version control.
 - Declared MSRV (`rust-version`): 1.99. This declaration does not prove compatibility without an MSRV check.
 - Toolchain policy: stable, without `rust-toolchain.toml`. Report the actual toolchain when running checks.
   Do not introduce nightly without a documented need.
-- Platform: macOS on arm64 only. The reference environment is macOS 27. Do not infer support for other targets.
-- Features: `bloop-providers` has one vendor feature, `mistral`, enabled by default.
+- Platform: macOS on arm64 only. Do not infer support for other targets.
+- Features: `bloop-providers` has one vendor feature, `mistral`, enabled by default. Its dependencies are optional behind the feature.
   Verify with the default features unless the task changes a feature.
 - Lint floor: the rust-strict starter policy (`references/project-setup.md`, section 3) in `[workspace.lints]`,
   plus `raw_borrows_via_references`. Every member inherits it with `[lints] workspace = true`. Do not weaken it.
-- Formatting: `rustfmt.toml` with `style_edition = "2024"`.
+- Formatting: `rustfmt.toml` with `style_edition = "2024"`. `clippy.toml` allows `unwrap`, `expect`, `panic`, and `dbg` in tests only.
 - Gates before each commit:
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo test --workspace`
-- Respect explicit task limits on execution. Report skipped checks and never describe them as passed.
+- A task limit on execution permits a report, not a commit. The gates stay mandatory before each commit.
+  Report skipped checks and never describe them as passed.
 - CI: none. Do not claim CI coverage.
 - Drift profile: rust-strict defaults.
 
 ## Domain contract
 
-### Owner decisions
+### Rules
 
-These are explicit owner decisions, not hypothetical reuse:
-
-- The five-crate workspace and its dependency rules in `docs/STRUCTURE.md`.
-- The existing ports in `bloop-core`: `Transcriber`, `TranscriptionSession`, `ChatModel`, `TextStep`, and the platform ports.
-- `BoxFuture` in the AI ports, so that the settings select the provider at run time.
-- Streaming is the only STT path.
-- Speech providers implement one streaming contract. Do not add file transcription, an upload fallback, or automatic audio replay.
-- Capture has no maximum duration. Add a duration limit only if the owner requests it.
-- Preserve settings snapshots per generation, ordered insertion, and clipboard ownership checks as defined in `docs/CONTRACTS.md`.
-- A clipboard read is not proof of insertion. Recovery messages must reflect this limit.
+- The five-crate workspace and its dependency rules are in `docs/ARCHITECTURE.md`.
+- The ports of `bloop-core` are `Transcriber`, `TranscriptionSession`, `ChatModel`, `TextStep`, and the platform ports.
+  The AI ports return `BoxFuture`, so that the settings select the provider at run time.
+- The dictation key is Right Command. The capture starts after the hold threshold and ends at key release.
+- Streaming is the only transcription path. Speech providers implement one streaming contract.
+  There is no file transcription, no upload fallback, and no automatic audio replay.
+- Capture has no maximum duration.
+- Bloop has no settings window. The settings are `config.toml` and the status menu.
+- Each generation keeps its settings snapshot. Insertion follows capture order.
+  Clipboard writes check the change count, as `docs/ARCHITECTURE.md` defines.
+- A clipboard read is not proof of insertion. Recovery messages reflect this limit.
 
 ### Crate boundaries
 
@@ -77,14 +79,14 @@ These are explicit owner decisions, not hypothetical reuse:
     `CGEventSourceCounterForEventType`.
   - `IsSecureEventInputEnabled`, Accessibility and Input Monitoring permission checks, Keychain access,
     and the main dispatch queue.
-  - The AVFoundation microphone authorization status and request (approved on 2026-11-02).
-  - The menu delegate in `crates/bloop-macos/src/menu.rs`: `unsafe impl NSMenuDelegate` (`menuNeedsUpdate:`), one menu action selector
-    `menuAction:` with item tags, and submenus (approved on 2026-11-07).
+  - The AVFoundation microphone authorization status and request.
+  - The menu delegate in `crates/bloop-macos/src/menu.rs`: `unsafe impl NSMenuDelegate` (`menuNeedsUpdate:`),
+    one menu action selector `menuAction:` with item tags, and submenus.
 - Each module that contains `unsafe` carries `#![expect(unsafe_code, reason = "...")]`.
 - All other crates use `#![forbid(unsafe_code)]` at each library or binary root.
 - `unsafe` outside these surfaces needs new approval.
 - Miri cannot run FFI calls to macOS frameworks. For `bloop-macos`, compensate with tests of the safe wrappers,
-  review of the drop and error paths, and the manual checks in `docs/CONTRACTS.md`. Report Miri as not covered.
+  review of the drop and error paths, and the manual checks in `CONTRIBUTING.md`. Report Miri as not covered.
 - A callback from macOS (event tap, pasteboard data provider, timer) must not panic.
   A panic in an `extern "C"` callback stops Bloop.
 - Get `MainThreadMarker` in `main` and pass it to components that need it.
@@ -101,13 +103,11 @@ These are explicit owner decisions, not hypothetical reuse:
   Use local error categories and HTTP status codes. Do not log error bodies, unknown event types, or raw finish reasons.
 - The application has no `log` bridge. Review dependency logging before adding one; handshake traces can expose credentials.
 - The `eval` binary calls the real API and deliberately prints its samples and results. It is separate from local tests.
-- Tabi is a behavior reference only. Do not copy Tabi code, prompts, or assets.
-  Do not read its dictation history (`~/Library/Application Support/app.heytabi/history.json`).
 
 ### Critical surfaces
 
 For behavior changes, add or update the relevant regression tests and perform the applicable checks below.
-Documentation-only changes do not require new tests. Explicit task limits on execution still apply.
+Documentation-only changes do not require new tests.
 
 | Surface | Required evidence |
 | --- | --- |
@@ -124,11 +124,12 @@ Documentation-only changes do not require new tests. Explicit task limits on exe
 
 ### Documentation
 
-- Repository documentation uses English and the writing rules in `docs/WRITING.md`.
-- Describe the current implementation. Do not reintroduce a roadmap, phase history, or speculative features.
-- Update the affected references with the code: `STRUCTURE.md` for layout, `ARCHITECTURE.md` for runtime, and `CONTRACTS.md` for invariants.
-  These files are in `docs/`. Update `README.md` and `docs/SETUP.md` when usage or settings change.
-- Keep exact Rust signatures in source. Distinguish measured results, configured limits, and verification gaps.
+- Repository documentation uses English, short sentences, and the present tense, as `CONTRIBUTING.md` describes.
+- Describe the current implementation. Do not add a roadmap, a history, measurements, or speculative features.
+- Update the affected documents with the code: `docs/ARCHITECTURE.md` for the design, the invariants, and the limits;
+  `docs/SETUP.md` for the settings, the files, and the troubleshooting; `README.md` for the usage;
+  and `CONTRIBUTING.md` for the build, the checks, the tests, and the tools.
+- Keep exact Rust signatures in source. Distinguish configured limits from verification gaps.
 
 ## Working rules
 
