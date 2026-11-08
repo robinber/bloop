@@ -38,6 +38,7 @@ The application supports macOS on Apple silicon. All workspace packages have `pu
 
 `bloop-app` is the default binary. `eval` is a separate binary that sends test samples to the real correction API.
 Both binaries use `steps::correction` and the same pipeline implementation.
+A module with a large test suite keeps its tests in a sibling `tests.rs` file, declared with `#[cfg(test)] mod tests;`.
 
 ## Supporting files
 
