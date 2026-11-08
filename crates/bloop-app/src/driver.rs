@@ -92,7 +92,8 @@ impl<S: Scheduler, O: Overlay, T: TextOutput, A: AudioInput, N: Snapshots> Drive
             }
             Command::StartCapture(generation) => return self.start_capture(generation),
             Command::RecordTarget(generation) => {
-                self.output.record_target(generation);
+                let target = self.output.record_target(generation);
+                tracing::info!(?generation, ?target, "the target is recorded");
             }
             Command::StopCaptureAndProcess(generation) => return self.stop_capture(generation),
             Command::CancelCapture => {

@@ -118,7 +118,7 @@ Menu changes preserve TOML comments and replace the settings file through a temp
 
 API keys are read from Keychain at startup. A key change requires a restart.
 Audio and dictionary terms go to the speech provider. Correction also sends the transcript and prompt to the chat provider.
-Logs contain operational metadata and controlled error categories, without audio, transcript text, or credentials.
+Logs contain operational metadata, the identity of the frontmost application at key release, and controlled error categories, without audio, transcript text, or credentials.
 The `eval` tool deliberately writes its test samples and results to the terminal.
 
 See [Setup](SETUP.md) for file paths, settings validation, permissions, and troubleshooting.

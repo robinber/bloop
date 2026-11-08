@@ -123,7 +123,7 @@ Keys use `SecretString` and remain outside settings, command arguments, logs, an
 Provider errors use local categories and HTTP status codes.
 Logs must not contain arbitrary provider error fields, response bodies, or unknown event and finish strings.
 The HTTP adapter discards error bodies. The WebSocket adapter discards error details.
-Logs may record durations, counts, controlled error categories, and nonsecret settings such as the model identifier.
+Logs may record durations, counts, controlled error categories, the frontmost application at key release, and nonsecret settings such as the model identifier.
 
 The application installs no bridge from the `log` crate.
 Do not add one without reviewing dependency logs: WebSocket handshake traces can contain authorization headers.
