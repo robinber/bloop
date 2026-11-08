@@ -25,7 +25,7 @@ pub(crate) const TEMPLATE: &str = r##"# Bloop dictionary: the names and terms th
 # written = "Tokio"
 
 # [[entry]]
-# heard = "obj c 2"           # Optional: the form that Bloop writes now. It has no effect for now.
+# heard = "obj c 2"           # Optional: the form that the speech model writes instead. Bloop keeps it as a note.
 # written = "objc2"
 "##;
 

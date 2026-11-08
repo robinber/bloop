@@ -5,7 +5,7 @@
 # The note tells the reviewer what to check. The tool does not send it to the model.
 # The samples with `validation = true` are reserved for the check after a prompt change.
 # The evaluation tool runs them only with `--validation`.
-# The correction does not apply the dictionary pairs yet.
+# The correction does not apply the dictionary pairs.
 #
 # Categories: question, negation, number, name, technical, spoken-correction, hesitation,
 # instruction, long, punctuation, dictionary-fits, dictionary-does-not-fit.

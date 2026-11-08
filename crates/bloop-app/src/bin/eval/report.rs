@@ -200,7 +200,7 @@ pub(crate) fn write_summary(
     writeln!(out, ", over {corrected} samples without fallback")?;
     writeln!(
         out,
-        "  dictionary:   {} pairs in the set, not applied by the correction yet",
+        "  dictionary:   {} pairs in the set, the correction does not apply them",
         run.pairs
     )
 }
@@ -406,7 +406,7 @@ mod tests {
              \x20 fallbacks:    1\n\
              \x20               question-02: llm_refine Failed(Rejected(Incomplete))\n\
              \x20 punctuation:  , 0→0  . 0→1  ? 0→1  ! 0→0  : 0→0  ; 0→0  … 0→0  total 0→2, over 2 samples without fallback\n\
-             \x20 dictionary:   3 pairs in the set, not applied by the correction yet\n"
+             \x20 dictionary:   3 pairs in the set, the correction does not apply them\n"
         );
     }
 }
