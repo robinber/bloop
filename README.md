@@ -105,7 +105,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 - A short press, shorter than the hold delay, does nothing.
 - **Right Command** with another key or a click is a normal shortcut. It cancels the dictation silently, so your shortcuts keep working.
 - **Escape** during a dictation cancels it. Bloop blocks that Escape press, so the application does not receive it. Escape does not cancel the dictations that you already released.
-- Up to three released dictations can be in progress at the same time. While three are in progress, a new hold shows red bars and records nothing. Red bars also report a failed dictation.
+- Up to three released dictations can be in progress at the same time. While three are in progress, a new hold shows red bars and records nothing. Red bars also report a failed dictation, except while you hold **Right Command** for a new one.
 - System sleep cancels the dictation and all the pending ones.
 
 ### The status menu
@@ -127,8 +127,8 @@ The top of the menu reports what needs your attention: a missing permission, a m
 ### When a paste is not possible
 
 Bloop pastes only when the same application is still in front, no key press or click happened since you released the key, and no password field has secure input.
-Otherwise, or when the application does not read the clipboard within one second, the indicator shows a card with the start of the text for eight seconds.
-Bloop then leaves the text in the clipboard as a normal item. When the application did not read the clipboard and another application changed it in the meantime, Bloop keeps that new content instead.
+Otherwise, or when the application does not read the clipboard within one second, the indicator shows a card with the start of the text for eight seconds. If another dictation fails during that time, its red bars replace the card.
+Bloop leaves the text in the clipboard as a normal item. When the application did not read the clipboard and another application changed it in the meantime, Bloop keeps that new content instead.
 Select **Copy last result** to copy the text again, then paste it by hand.
 
 After a successful paste, Bloop restores your previous clipboard 300 ms after the application reads the text.

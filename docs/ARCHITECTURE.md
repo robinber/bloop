@@ -92,7 +92,7 @@ The core enforces the table below, and `bloop-core/src/session/tests.rs` checks 
 | Event or condition | Behavior |
 | --- | --- |
 | Dictation key down while idle | Create one generation and start the hold timer. The driver takes the settings snapshot at `StartHoldTimer`. |
-| Short press or other input during the hold | Return to idle without commands. Ignore the stale timer. |
+| Short press or other input during the hold | Return to idle. Ignore the stale timer. Show the deferred card when one exists, else emit no command (`deferred_card_shows_after_a_short_press`). |
 | Hold threshold with three jobs | Do not start the capture. Show the error orb. |
 | Hold threshold otherwise | Start the capture and show the listening orb. |
 | Key release while listening | Record the target, stop the capture, create one processing job, and close the orb. |
@@ -101,7 +101,7 @@ The core enforces the table below, and `bloop-core/src/session/tests.rs` checks 
 | Empty transcript | Remove the job (`CancelWork`). Paste nothing. |
 | Jobs that complete in reverse order | Paste in capture order (`jobs_paste_in_session_order`; `driver/tests.rs`: `corrections_that_end_in_reverse_order_paste_once_each_in_session_order`). |
 | Capture failure after release | Fail the matching processing job. |
-| Job failure | Remove the job and unblock the next one. Show the error orb only when no capture is active. |
+| Job failure | Remove the job and unblock the next one. Show the error orb only when no capture is active (`work_failure_during_the_hold_shows_no_error_view`). The error view replaces a visible card (orb `State::show`). The text of the card stays in the clipboard and in **Copy last result**. |
 | `InsertDone` | End the first job only when it is inserting. A fallback shows the card, or defers it during a capture. |
 | Deferred card | A newer card replaces it. A capture failure or system sleep drops it. |
 | System sleep | Cancel the capture and all jobs. Their later results have no effect. |
@@ -145,15 +145,15 @@ A failed step preserves its input for the next step. An empty transcript runs no
 
 With the correction off, the step list is empty and the raw transcript is the final text. With the correction on, `steps::correction` gives:
 
-1. `LlmRefine` sends the prompt as the system message and the transcript between a `<transcript>` line and a `</transcript>` line as the user message. It rejects a reply that is not `Complete` or that contains only whitespace. The reply limit is `ceil(chars × 16 / 25) + 32` tokens, clamped to 64 to 2,048 (`steps/refine.rs` tests).
-2. `Typography` replaces a no-break space before `?`, `!`, `:`, `;`, or `»`, or after `«`, with a normal space, and replaces `’` with `'` (`steps/typography.rs` tests).
+1. `LlmRefine` sends the prompt as the system message and the transcript between a `<transcript>` line and a `</transcript>` line as the user message. It rejects a reply that is not `Complete`, for example a reply that stops at the token limit (`Truncated`), and a reply that contains only whitespace. The reply limit is `ceil(chars × 16 / 25) + 32` tokens, clamped to 64 to 2,048 (`steps/refine.rs` tests).
+2. `Typography` replaces a no-break space (U+00A0) or a narrow no-break space (U+202F) before `?`, `!`, `:`, `;`, or `»`, or after `«`, with a normal space, and replaces `’` with `'` (`steps/typography.rs` tests).
 3. `Trim` removes `\n` and `\r` at the start and the end. It keeps the spaces (`steps/trim.rs` tests).
 
-- A failed correction therefore keeps the transcript, and typography and trim still apply (`pipeline.rs` tests: `a_failed_correction_keeps_the_raw_transcript_and_the_next_steps_run`; `worker/tests.rs`: `a_failed_correction_keeps_the_raw_transcript`).
+- A failed correction therefore keeps the transcript, and typography and trim still apply. A rejected reply and a request over the 8 s limit both paste the raw transcript after these two steps (`pipeline.rs` tests: `a_failed_correction_keeps_the_raw_transcript_and_the_next_steps_run`; `worker/tests.rs`: `a_failed_correction_keeps_the_raw_transcript`).
 - Each correction request has a limit of 8 s, including its response body (`CORRECTION_LIMIT` in `main.rs`, applied by the HTTP client; `mistral/chat.rs` tests: `a_provider_slower_than_the_limit_gives_timeout`, `a_body_that_stalls_after_the_headers_gives_timeout`).
 - The chat adapter sends `model`, the two messages, `max_tokens`, `temperature` 0, `reasoning_effort`, and `stream: false`. It maps `stop` to `Complete`, `length` and `model_length` to `Truncated`, and other reasons to `Other`.
 - Without a chat model, for example without an API key, a job with the correction on keeps the raw transcript (`worker/tests.rs`: `without_a_chat_model_a_job_with_the_correction_on_keeps_the_raw_transcript`).
-- A missing or invalid prompt with the correction on fails each capture that uses it with `InvalidSettings` before the microphone task (`worker/tests.rs`: `with_an_invalid_prompt_and_the_correction_on_the_capture_fails_before_its_task`). With the correction off, the hub does not read a prompt (`hub/tests.rs`: `with_the_correction_off_the_prompt_is_not_read`; `hub/tests/routing.rs`: `with_the_correction_off_a_routed_app_reads_no_prompt_and_the_view_shows_no_error`).
+- A missing or invalid prompt with the correction on fails each capture that uses it with `InvalidSettings`: the microphone starts, then the capture fails before its transcription task starts (`Driver::start_capture`, `Spawner::spawn`; `worker/tests.rs`: `with_an_invalid_prompt_and_the_correction_on_the_capture_fails_before_its_task`). With the correction off, the hub does not read a prompt (`hub/tests.rs`: `with_the_correction_off_the_prompt_is_not_read`; `hub/tests/routing.rs`: `with_the_correction_off_a_routed_app_reads_no_prompt_and_the_view_shows_no_error`).
 
 The built-in prompts are `natural-light` and `code`, included from `prompts/`. A file of the user prompts folder with the same name replaces a built-in prompt (`prompts.rs` tests).
 
