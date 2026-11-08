@@ -105,7 +105,7 @@ It runs on the main thread. Its internal borrow must not cross an AppKit call.
 - Invalid configuration or dictionary files block capture with `InvalidSettings`.
 - Menu writes parse the current file first and refuse an invalid file.
 - A comment after the last table moves below a table that a menu change adds.
-- A write uses a uniquely and exclusively created temporary file in the destination folder.
+- A write uses a uniquely and exclusively created temporary file in the destination folder, with mode 0600.
 - The file is synchronized and closed before rename. An error triggers cleanup of the temporary file.
 - Atomic replacement does not merge simultaneous edits. The last successful replacement wins.
 - Startup creates missing templates and folders without overwriting existing files.
