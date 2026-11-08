@@ -69,7 +69,7 @@ Outside tests, it denies `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!`
 
 ## Tests
 
-- A module with a large test suite keeps its tests in a sibling `tests.rs`, declared with `#[cfg(test)] mod tests;`. Examples: `session/tests.rs`, `driver/tests.rs`, `worker/tests.rs`, `hub/tests.rs`, `menu/tests.rs`, `paste/tests.rs`, and `mistral/transcribe/tests.rs`. A small suite stays at the end of its module.
+- A module with a large test suite keeps its tests in a sibling `tests.rs`, declared with `#[cfg(test)] mod tests;`. Examples: `session/tests.rs`, `driver/tests.rs`, `worker/tests.rs`, `hub/tests.rs`, `menu/tests.rs`, `paste/tests.rs`, and `mistral/transcribe/tests.rs`. A suite above the size profile of rust-strict (`references/drift-control.md`) splits into child modules of `tests`, such as `hub/tests/routing.rs` and `menu/tests/app_menu.rs`. A small suite stays at the end of its module.
 - Fakes live in `fakes.rs`. `bloop-core/src/fakes.rs` has the fake chat model and the future driver of the step and pipeline tests. `bloop-app/src/worker/fakes.rs` has the scripted speech provider, chat model, and event sink of the worker and driver tests. `bloop-providers/src/test_log.rs` captures the log fields of a test, to check that no private value enters them.
 - Provider tests start a local TCP server as the fake API. No test reaches the network.
 - Settings tests write to a scratch folder under the system temporary directory and remove it.
@@ -84,7 +84,7 @@ No test covers the real permissions, microphone, network, or AppKit behavior. Af
 | --- | --- |
 | `bloop-macos/src/keys.rs` | Short hold, Right Command combinations, Escape press, repeats, and release, and sleep during a capture. |
 | `bloop-audio` | Microphone permission and device selection, silence, a long capture, and consecutive dictations. |
-| `bloop-macos/src/paste.rs` and `paste/clipboard.rs` | Paste in a native application, a browser, and a terminal; a changed target; secure input; an unread clipboard item; text and image restoration; consecutive pastes; cancellation; and quit during a pending transaction. |
+| `bloop-macos/src/paste.rs` and `paste/clipboard.rs` | Paste in a native application, a browser, and a terminal; a changed target; secure input; an unread clipboard item; text and image restoration; a clipboard above `MAX_SAVED_ITEMS`, such as 65 files copied in Finder, where the text stays as a normal item that a clipboard manager records after the target reads it; consecutive pastes; cancellation; and quit during a pending transaction. |
 | `bloop-macos/src/menu.rs` and `bloop-app/src/menu.rs` | Refresh at open, checkmarks, submenus, ⌘Q, and the file and permission links. In **Prompt**, the checkmark on the submenu of the default prompt and on its **Default prompt**, a click on an application, and **Add application** with the open applications change `config.toml`. |
 | **Choose…**: `bloop-macos/src/workspace.rs` | The panel comes to the front on `/Applications`. Choose Codex (`ChatGPT.app`) and check that `config.toml` gets `com.openai.codex`. A cancelled panel, and a chosen file that is not an application, change nothing. After the panel, the application that was in front before has the focus again. **Quit Bloop** while the panel is open closes the panel only. The open applications leave out Bloop and the applications without a regular policy. |
 | Correction | Correction on and off, a failed correction, and manual recovery with **Copy last result**. |

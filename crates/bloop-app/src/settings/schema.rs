@@ -220,8 +220,9 @@ impl TryFrom<String> for AppId {
 
 /// Returns the settings of a valid file. The error gives the line, never the value or the parser message.
 ///
-/// The line is the line of the value, or of the key. In `[transcriber]` and `[chat]`, an unknown key or a wrong type
-/// gives the line of the table header, because the parser reads these tables before it selects the provider.
+/// The line is the line of the value, or of the key. In `[transcriber]` and `[chat]`, an unknown key, a wrong type, or an
+/// invalid transcription model gives the line of the table header, because the parser reads these tables before it
+/// selects the provider.
 /// An application in two lists of `[refine.apps]` gives the line of that table header.
 pub(crate) fn parse(text: &str) -> Result<Settings, Invalid> {
     let file: File = toml::from_str(text).map_err(|error| Invalid::Parse {

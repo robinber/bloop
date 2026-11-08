@@ -102,7 +102,7 @@ At the first start, Bloop creates `~/Library/Application Support/Bloop/` with a 
 
 Bloop records as long as you hold the key. There is no maximum duration.
 
-- A short press, shorter than the hold delay, does nothing.
+- A short press, shorter than the hold delay, does nothing, except show the card of a failed paste that waits for the key release.
 - **Right Command** with another key or a click is a normal shortcut. It cancels the dictation silently, so your shortcuts keep working.
 - **Escape** during a dictation cancels it. Bloop blocks that Escape press, so the application does not receive it. Escape does not cancel the dictations that you already released.
 - Up to three released dictations can be in progress at the same time. While three are in progress, a new hold shows red bars and records nothing. Red bars also report a failed dictation, except while you hold **Right Command** for a new one.
@@ -120,7 +120,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | **Open config.toml…**, **Open prompts folder…**, **Open dictionary…** | Open the settings file, the prompts folder, and the dictionary file. |
 | **Quit Bloop** (⌘Q) | Quits. Bloop first restores a clipboard that a paste still holds. |
 
-Each choice writes its key, or its lists, to `config.toml` and keeps your comments. A change applies from the next dictation.
+Each choice writes its key, or its lists, to `config.toml` and keeps your comments. A choice that keeps the text of the file, such as the current model, writes nothing. A change applies from the next dictation.
 With **Correct text** on, the application in front selects the prompt. By default, a terminal, a code editor, Claude, or Codex uses `code`, a messaging application uses `natural-light`, and another application uses the default prompt. The [configuration guide](docs/SETUP.md#prompt-by-application) lists the applications and how to change them.
 The top of the menu reports what needs your attention: a missing permission, a missing or refused API key, or an invalid file with its line.
 

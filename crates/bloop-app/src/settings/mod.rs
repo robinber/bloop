@@ -5,6 +5,7 @@
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
 //! It also writes a commented empty `dictionary.toml` when that file does not exist.
 //! Each menu choice writes one key, or lists of `[refine.apps]`: a `Change`.
+//! A change that keeps the text of the file writes nothing.
 //! The first application change writes the whole `[refine.apps]` table, then a change writes the lists that change.
 //! The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
