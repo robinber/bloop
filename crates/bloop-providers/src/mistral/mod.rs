@@ -4,7 +4,7 @@ pub(crate) mod chat;
 pub(crate) mod transcribe;
 
 /// The `SecretStore` account of the Mistral API key.
-pub const ACCOUNT: &str = "mistral";
+pub(crate) const ACCOUNT: &str = "mistral";
 
 /// The `provider` value of the Mistral tables in the settings file.
 pub(crate) const PROVIDER: &str = "mistral";
@@ -17,9 +17,9 @@ pub struct TranscribeConfig {
     /// The model identifier, for example `voxtral-mini-transcribe-realtime-3-0`.
     /// It goes into the query of the WebSocket URL, so `model_id` checks its characters.
     #[serde(deserialize_with = "model_id")]
-    pub model: String,
+    pub(crate) model: String,
     /// The balance between delay and accuracy, in milliseconds. The provider checks the value.
-    pub target_streaming_delay_ms: u32,
+    pub(crate) target_streaming_delay_ms: u32,
 }
 
 impl Default for TranscribeConfig {
@@ -52,14 +52,14 @@ fn model_id<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String,
 #[serde(default, deny_unknown_fields)]
 pub struct ChatConfig {
     /// The model identifier, for example `mistral-medium-latest`.
-    pub model: String,
+    pub(crate) model: String,
     /// The models that the user can select.
-    pub models: Vec<String>,
+    pub(crate) models: Vec<String>,
     /// The `reasoning_effort` value, for example `none`. `None` omits the field. The provider checks the value.
-    pub reasoning_effort: Option<String>,
+    pub(crate) reasoning_effort: Option<String>,
     /// The sampling temperature. The settings file cannot change it.
     #[serde(skip)]
-    pub temperature: f64,
+    pub(crate) temperature: f64,
 }
 
 impl Default for ChatConfig {
