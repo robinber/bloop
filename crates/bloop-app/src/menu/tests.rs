@@ -8,7 +8,7 @@ use bloop_core::ports::platform::{ActionId, MenuItem, MenuModel, MenuSource as _
 use bloop_providers::ChatConfig;
 use secrecy::SecretString;
 
-use super::{Action, AppMenu, Apps, Facts, Lookups, build};
+use super::{Action, AppMenu, AppNames, Facts, Lookups, build};
 use crate::dictionary;
 use crate::files::tests::scratch_dir;
 use crate::hub::{Hub, Summary, View};
@@ -75,8 +75,8 @@ fn lists(lists: &[(&str, &[&str])]) -> AppLists {
 }
 
 /// The applications of the tests: `frontmost` in front, and "Mac Terminal" as the name that macOS gives to Terminal.
-fn apps(frontmost: Option<&str>) -> Apps {
-    Apps {
+fn apps(frontmost: Option<&str>) -> AppNames {
+    AppNames {
         frontmost: frontmost.map(id),
         names: [(id(TERMINAL), "Mac Terminal".to_owned())].into(),
     }
@@ -129,7 +129,7 @@ fn shown(titles: &[&str], selected: &str) -> Vec<(String, bool)> {
 
 /// Returns the items before the first separator, with the action of each item from the action list.
 fn status(facts: &Facts, view: &View) -> Vec<(String, Option<Action>)> {
-    let (model, actions) = build(facts, view, &Apps::default());
+    let (model, actions) = build(facts, view, &AppNames::default());
     model
         .items
         .iter()
@@ -177,7 +177,7 @@ fn action_ids(items: &[MenuItem]) -> Vec<ActionId> {
 }
 
 fn model(view: &View) -> (MenuModel, Vec<Action>) {
-    build(&facts(), view, &Apps::default())
+    build(&facts(), view, &AppNames::default())
 }
 
 #[test]

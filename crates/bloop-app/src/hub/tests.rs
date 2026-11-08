@@ -432,7 +432,7 @@ fn the_keys_are_read_one_time_at_start() {
 fn the_driver_gets_the_last_snapshot_when_the_hub_is_in_use() {
     let dir = folder("hub-in-use", OFF);
     let hub = Rc::new(start(&dir));
-    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), Box::new(|| None));
+    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), || None);
     let first = snapshots.snapshot();
     assert!(Rc::ptr_eq(&first, &current(&hub)));
     fs::write(dir.join("config.toml"), ON).unwrap();
@@ -844,7 +844,7 @@ fn alternating_apps_reuse_the_chat_model() {
 fn the_driver_snapshot_uses_the_frontmost_app_and_a_view_does_not_change_it() {
     let dir = folder("hub-route-snapshots", ON);
     let hub = Rc::new(start(&dir));
-    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), Box::new(|| Some(GHOSTTY.to_owned())));
+    let mut snapshots = HubSnapshots::new(Rc::clone(&hub), || Some(GHOSTTY.to_owned()));
 
     let first = snapshots.snapshot();
     assert_eq!(prompt_name(&hub).as_deref(), Some("code"));

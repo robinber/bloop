@@ -93,7 +93,7 @@ fn main() -> ExitCode {
         Paster::new(mtm),
         microphone,
         spawner,
-        HubSnapshots::new(Rc::clone(&hub), Box::new(workspace::frontmost_app)),
+        HubSnapshots::new(Rc::clone(&hub), workspace::frontmost_app),
     );
     // Install the tap after the slow setup: macOS disables a tap that gets events before the run loop runs.
     let tap = KeyTap::install(mtm);

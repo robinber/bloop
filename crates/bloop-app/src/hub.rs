@@ -535,13 +535,13 @@ fn chat_model(
 pub(crate) struct HubSnapshots {
     hub: Rc<Hub>,
     /// Returns the bundle identifier of the frontmost application. It runs before the hub borrow.
-    frontmost: Box<dyn Fn() -> Option<String>>,
+    frontmost: fn() -> Option<String>,
     /// The last snapshot, for a failed refresh. Before the first refresh, it fails each capture with `Internal`.
     last: Rc<Snapshot>,
 }
 
 impl HubSnapshots {
-    pub(crate) fn new(hub: Rc<Hub>, frontmost: Box<dyn Fn() -> Option<String>>) -> Self {
+    pub(crate) fn new(hub: Rc<Hub>, frontmost: fn() -> Option<String>) -> Self {
         Self {
             hub,
             frontmost,

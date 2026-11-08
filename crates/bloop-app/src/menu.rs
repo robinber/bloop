@@ -72,14 +72,14 @@ pub(crate) struct Lookups {
 
 /// The applications that the status menu names. `AppMenu::model` looks them up outside the hub borrow.
 #[derive(Default)]
-pub(crate) struct Apps {
+pub(crate) struct AppNames {
     /// The frontmost application, when its bundle identifier is valid.
     pub(crate) frontmost: Option<AppId>,
     /// The names that macOS gives to the installed applications.
     pub(crate) names: BTreeMap<AppId, String>,
 }
 
-impl Apps {
+impl AppNames {
     /// Returns the name of `app`: the name that macOS gives, else its name in a built-in list, else its identifier.
     fn name(&self, app: &AppId) -> String {
         match self.names.get(app) {
@@ -113,7 +113,7 @@ impl AppMenu {
     }
 
     /// Looks up the frontmost application, and the name of each application of the lists and of the frontmost one.
-    fn apps(&self, view: &View) -> Apps {
+    fn apps(&self, view: &View) -> AppNames {
         let frontmost = (self.lookups.frontmost)().and_then(|id| AppId::try_from(id).ok());
         let mut names = BTreeMap::new();
         for app in view.lists.values().flatten().chain(&frontmost) {
@@ -123,7 +123,7 @@ impl AppMenu {
                 names.insert(app.clone(), name);
             }
         }
-        Apps { frontmost, names }
+        AppNames { frontmost, names }
     }
 
     /// Returns the action of `id` in the last model.
@@ -206,7 +206,7 @@ impl MenuSource for AppMenu {
 
 /// Builds the menu model and its actions from the status at start, the state of the settings files,
 /// and the applications that the menu names.
-pub(crate) fn build(facts: &Facts, view: &View, apps: &Apps) -> (MenuModel, Vec<Action>) {
+pub(crate) fn build(facts: &Facts, view: &View, apps: &AppNames) -> (MenuModel, Vec<Action>) {
     let mut menu = Builder::default();
     status(&mut menu, facts, view);
     menu.items.push(MenuItem::Separator);
@@ -249,7 +249,7 @@ pub(crate) fn build(facts: &Facts, view: &View, apps: &Apps) -> (MenuModel, Vec<
 
 /// Adds the "Prompt by app" submenu: the prompt of the frontmost application, then one submenu for each prompt name
 /// of the "Prompt" list and for each `[refine.apps]` key of another name with applications.
-fn by_app(menu: &mut Builder, view: &View, apps: &Apps) {
+fn by_app(menu: &mut Builder, view: &View, apps: &AppNames) {
     let listed = view.prompts.iter().map(|prompt| (prompt, true));
     let others = view
         .lists
@@ -275,7 +275,7 @@ fn by_app(menu: &mut Builder, view: &View, apps: &Apps) {
 
 /// Adds one checked item for each application of the list of `prompt`: a click removes the application.
 /// When `prompt` exists, it then adds "Add" for the frontmost application, unless the list already contains it.
-fn app_list(menu: &mut Builder, view: &View, apps: &Apps, prompt: &PromptName, exists: bool) {
+fn app_list(menu: &mut Builder, view: &View, apps: &AppNames, prompt: &PromptName, exists: bool) {
     let list = view.lists.get(prompt).map_or(&[][..], Vec::as_slice);
     for app in list {
         let action = Action::RemoveApp {
