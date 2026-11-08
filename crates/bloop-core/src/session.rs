@@ -1,6 +1,7 @@
 //! Session state machine: the driver sends events, and the core returns the commands to execute.
 
 use std::collections::VecDeque;
+use std::mem;
 
 use crate::domain::{AudioChunk, FinalText, Generation};
 use crate::error::AppError;
@@ -331,10 +332,13 @@ impl Core {
         let Some(head) = self.jobs.front_mut() else {
             return Vec::new();
         };
-        let JobStatus::Ready(text) = &head.status else {
-            return Vec::new();
+        let text = match mem::replace(&mut head.status, JobStatus::Processing) {
+            JobStatus::Ready(text) => text,
+            status @ (JobStatus::Processing | JobStatus::Inserting(_)) => {
+                head.status = status;
+                return Vec::new();
+            }
         };
-        let text = text.clone();
         head.status = JobStatus::Inserting(text.clone());
         self.last_result = Some(text.clone());
         vec![Command::Insert(head.generation, text)]
