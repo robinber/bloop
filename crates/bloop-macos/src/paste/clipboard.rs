@@ -24,8 +24,10 @@ const MAX_SAVED_BYTES: usize = 64 * 1024 * 1024;
 /// Reads all items of the clipboard, with the data of all their types.
 ///
 /// Returns `None` if macOS cannot list the items. A type that cannot be read is left out.
-/// The save runs on the main thread, which also runs the event tap. Thus a clipboard with more
-/// than [`MAX_SAVED_ITEMS`] items or more than [`MAX_SAVED_BYTES`] bytes of data also gives `None`.
+/// A clipboard with more than [`MAX_SAVED_ITEMS`] items also gives `None`, before any data is read.
+/// Data above [`MAX_SAVED_BYTES`] bytes gives `None` too, but the check runs after each type is
+/// copied. Thus this limit bounds the memory that the snapshot keeps until the restore, not the
+/// time or the memory of the read.
 pub(super) fn save(pasteboard: &NSPasteboard) -> Option<Vec<SavedItem>> {
     save_within(pasteboard, MAX_SAVED_ITEMS, MAX_SAVED_BYTES)
 }
