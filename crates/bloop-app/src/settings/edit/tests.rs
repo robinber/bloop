@@ -216,3 +216,36 @@ fn a_change_without_its_table_adds_a_standard_table_at_the_end() {
         "schema = 1\n\n[dictation]\nhold_ms = 300\n"
     );
 }
+
+#[test]
+fn a_comment_after_the_last_table_goes_below_a_new_table() {
+    let chat = r#"[chat]
+provider = "mistral"
+# the model I use
+model = "mistral-medium-latest"  # now
+models = ["mistral-medium-latest", "mistral-small-latest"]
+
+"#;
+    assert_eq!(MINE.matches(chat).count(), 1);
+    let text = MINE.replace(chat, "");
+
+    assert_eq!(
+        changed(&text, &model("mistral-small-latest")),
+        r#"# My settings
+schema = 1
+
+[dictation]  # timing
+hold_ms = 220   # mine
+language = "fr"
+
+[refine]
+enabled = true
+prompt = "natural-light"   # name
+
+[chat]
+provider = "mistral"
+model = "mistral-small-latest"
+# end
+"#
+    );
+}
