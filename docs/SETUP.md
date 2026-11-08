@@ -69,7 +69,7 @@ Add one entry for each written form:
 written = "objc2"
 
 [[entry]]
-written = "Voxtral"
+written = "Tokio"
 ```
 
 Each entry needs a non-empty `written` value. The file size is at most 256 KiB.

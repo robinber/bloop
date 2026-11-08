@@ -22,7 +22,7 @@ pub(crate) const TEMPLATE: &str = r##"# Bloop dictionary: the names and terms th
 # A change applies from the next dictation. To use an example, remove the "#" at the start of its lines.
 
 # [[entry]]
-# written = "Voxtral"
+# written = "Tokio"
 
 # [[entry]]
 # heard = "obj c 2"           # Optional: the form that Bloop writes now. It has no effect for now.
@@ -143,7 +143,7 @@ written = "comme Taby"
 
         assert_eq!(
             parse(&examples.join("\n")).unwrap().written_forms(),
-            ["Voxtral", "objc2"]
+            ["Tokio", "objc2"]
         );
     }
 
