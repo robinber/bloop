@@ -5,7 +5,7 @@ use std::fmt;
 
 /// One entry of the dictionary.
 pub struct DictionaryEntry {
-    /// The form that Bloop writes now without the entry, if the user knows it.
+    /// The form that the speech model writes instead, if the user knows it.
     pub heard: Option<String>,
     /// The form that the text must contain.
     pub written: String,
