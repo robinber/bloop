@@ -6,7 +6,7 @@ use toml_edit::{
 };
 
 use super::{AppId, Change, Invalid, PromptName, Settings};
-use crate::dictionary::line;
+use crate::files::line;
 use crate::prompts::{self, AppLists};
 
 /// Returns `text` with the keys of `change` set. The other text does not change.

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use toml::Spanned;
 
 use super::Invalid;
-use crate::dictionary::line;
+use crate::files::line;
 
 /// The only `schema` value that this version of Bloop reads.
 const SCHEMA: u64 = 1;

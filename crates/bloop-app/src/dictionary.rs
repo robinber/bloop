@@ -11,7 +11,7 @@ use bloop_core::dictionary::{Dictionary, DictionaryEntry};
 use serde::Deserialize;
 use toml::Spanned;
 
-use crate::files::FileError;
+use crate::files::{FileError, line};
 
 /// The size limit of `dictionary.toml`, in bytes.
 pub(crate) const LIMIT: u64 = 256 * 1024;
@@ -90,15 +90,9 @@ pub(crate) fn parse(text: &str) -> Result<Dictionary, Invalid> {
         .map(Dictionary::new)
 }
 
-/// Returns the line, from 1, that contains the byte at `offset` of `text`.
-pub(crate) fn line(text: &str, offset: usize) -> Option<usize> {
-    let before = text.as_bytes().get(..offset)?;
-    Some(before.split(|&byte| byte == b'\n').count())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Invalid, TEMPLATE, line, parse};
+    use super::{Invalid, TEMPLATE, parse};
 
     const VALID: &str = r#"
 [[entry]]
@@ -202,17 +196,5 @@ written = "rustfmt"
                 "{written}"
             );
         }
-    }
-
-    #[test]
-    fn the_line_counts_the_line_breaks_before_the_offset() {
-        let text = "a\nbc\nd";
-
-        assert_eq!(line(text, 0), Some(1));
-        assert_eq!(line(text, 1), Some(1));
-        assert_eq!(line(text, 2), Some(2));
-        assert_eq!(line(text, 5), Some(3));
-        assert_eq!(line(text, 6), Some(3));
-        assert_eq!(line(text, 7), None);
     }
 }

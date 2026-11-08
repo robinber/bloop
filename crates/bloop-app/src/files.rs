@@ -1,4 +1,5 @@
-//! The file rules of the settings folder: a bounded read, the write of a missing file, and an atomic replace.
+//! The file rules of the settings folder: a bounded read, the write of a missing file, an atomic replace,
+//! and the line of a position in a file text.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read as _, Write as _};
@@ -91,6 +92,12 @@ pub(crate) fn replace(path: &Path, text: &str) -> io::Result<()> {
     result
 }
 
+/// Returns the line, from 1, that contains the byte at `offset` of `text`.
+pub(crate) fn line(text: &str, offset: usize) -> Option<usize> {
+    let before = text.as_bytes().get(..offset)?;
+    Some(before.split(|&byte| byte == b'\n').count())
+}
+
 /// Creates a private file next to `path`, without opening or truncating an existing file.
 /// A reused process identifier can meet a file left by an interrupted write, so collisions get a new name.
 fn create_temporary(path: &Path) -> io::Result<(PathBuf, File)> {
@@ -122,7 +129,7 @@ pub(crate) mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{FileError, create_temporary, read_bounded, replace, write_if_missing};
+    use super::{FileError, create_temporary, line, read_bounded, replace, write_if_missing};
 
     /// Creates an empty folder for one test of the settings files. The test removes it at the end.
     pub(crate) fn scratch_dir(test: &str) -> PathBuf {
@@ -243,5 +250,17 @@ pub(crate) mod tests {
             "existing content"
         );
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_line_counts_the_line_breaks_before_the_offset() {
+        let text = "a\nbc\nd";
+
+        assert_eq!(line(text, 0), Some(1));
+        assert_eq!(line(text, 1), Some(1));
+        assert_eq!(line(text, 2), Some(2));
+        assert_eq!(line(text, 5), Some(3));
+        assert_eq!(line(text, 6), Some(3));
+        assert_eq!(line(text, 7), None);
     }
 }
