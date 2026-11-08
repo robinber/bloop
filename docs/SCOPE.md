@@ -1,6 +1,6 @@
 # Scope
 
-Status: Design draft, revision 13 (2026-11-07). Phase 1 and Phase 2 are complete.
+Status: Design draft, revision 14 (2026-11-08). Phase 1 and Phase 2 are complete.
 
 ## Goal
 
@@ -156,7 +156,7 @@ These items have no phase yet.
 - Text formatting: paragraphs, and lists with `- `. The model applies it from the structure of the speech or from spoken commands.
   A toggle in the "Prompt" submenu turns it on. The owner starts this work when needed.
 - Automatic start at login.
-- Other dictation keys. The optional last item of Phase 4 adds a choice of modifier keys only. Other keys have no phase yet.
+- Other dictation keys. On 2026-11-07, the owner dropped the key choice of Phase 4. Right Command stays the dictation key.
 - Support for keyboard layouts that move the V key.
 - A settings window.
 

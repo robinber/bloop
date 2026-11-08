@@ -1,7 +1,7 @@
 # Roadmap
 
-Status: Design revision 20 (2026-11-07). Phase 1 and Phase 2 are complete.
-On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Phase 4 is now. Later phases depend on daily use.
+Status: Design revision 21 (2026-11-08). Phase 1, Phase 2, and Phase 4 are complete.
+On 2026-11-06, the owner declared the functional scope of Phase 3 complete. Later phases depend on daily use.
 
 Phase numbers identify work areas. Follow the priorities below, not the numerical order alone.
 Complete the acceptance checks of the selected work before adding more scope.
@@ -19,9 +19,9 @@ A feature that is off does not change the dictation path. Phase 3 adds one corre
 | Priority | Work | Reason to start |
 | --- | --- | --- |
 | Scope complete | Phase 3: one correction prompt, raw fallback, a toggle, the dictionary, and daily use | Prove that correction reduces manual edits at an acceptable delay. Names and terms need their written form from the start. On 2026-11-06, the owner declared the functional scope complete. |
-| Now | Phase 4: settings file, lists in the status menu, and clear errors | The owner decided its interface on 2026-11-06 and validated its design on 2026-11-07. Frequent choices go in the menu. A file change applies without restart. |
+| Complete | Phase 4: settings file, lists in the status menu, and clear errors | Complete on 2026-11-07. The owner tested the menu. The owner dropped the dictation key choice. |
 | Next if needed | Phase 5: capture at key press | First-word loss still interrupts daily use. Check the loss again after Phase 4 iteration 2. |
-| After Phase 4 | Phase 6: learn from fixes | The owner saves a correction from the field with one click. The file writes come from Phase 4. |
+| When the owner asks | Phase 6: learn from fixes | The owner saves a correction from the field with one click. The file writes come from Phase 4. |
 | Later | Phase 7: sounds, other audio, and input choices | A specific daily-use problem justifies one feature. |
 | Later | Phase 8: other Accessibility features | Define one concrete need before designing or implementing a feature. |
 
@@ -393,7 +393,7 @@ These items do not block Phase 3 completion. Start one only when the measurement
 
 ## Phase 4: Settings and status menu
 
-Priority: now. Bloop and the user edit one settings file. The status menu shows the frequent choices as lists.
+Priority: complete on 2026-11-07. Bloop and the user edit one settings file. The status menu shows the frequent choices as lists.
 The [architecture](ARCHITECTURE.md#settings-and-status-menu) gives the design.
 
 Owner decisions on 2026-11-06:
@@ -462,17 +462,33 @@ The checkmark of "Correct text" follows the file at each open, also after a hand
 - [x] Add "Open config.toml…", "Open prompts folder…", and "Open dictionary…".
 - [x] At the first start, write a commented empty `dictionary.toml`.
 - [ ] Check the name and the System Settings link of the Input Monitoring permission on macOS 27.
-- [ ] Do the manual checks of the menu renderer in the [code structure](STRUCTURE.md#tests).
-  `AGENTS.md` lists `bloop-macos/src/menu.rs` in the critical surfaces.
+- [x] Do the manual checks of the menu renderer in the [code structure](STRUCTURE.md#tests).
+  `AGENTS.md` lists `bloop-macos/src/menu.rs` in the critical surfaces. The owner did the menu checks on 2026-11-07. All passed.
 
 ### Iteration 4: lists
 
 - [x] Add the "Prompt", "Model", and "Hold delay" submenus. Each choice writes one key.
   The owner decided these lists on 2026-11-06. `bloop-app` changes, and `bloop-providers` gives the `provider` value and the models of `[chat]`.
 
-### Iteration 5: dictation key (optional)
+### Iteration 5: dictation key (dropped)
 
-- [ ] Select the dictation key in `config.toml`: modifier keys only. The change is in `keys.rs`.
+On 2026-11-07, the owner dropped this iteration. Right Command stays the dictation key.
+
+### Built-in code prompt
+
+After iteration 4, on 2026-11-07, the owner asked for a second built-in prompt for technical dictation.
+
+- [x] Add the built-in `code` prompt and a technical French test set of 19 samples, plus 5 validation samples.
+- [x] Revision 7 is the final revision. The owner approved the revisions after the third one.
+
+Measured on the technical test set with `mistral-medium-latest`, four runs of revision 7:
+
+- No output had a backtick, a quote, a colon, or an added word: 0 of 68 outputs.
+- "l'orbe" stayed "l'orbe" in the French test set.
+- In one address, "exemple" became "example" in 1 of 2 runs.
+- The median chat time was 482 to 525 ms.
+
+On 2026-11-08, the owner tried `code` in daily use and accepted it.
 
 ### Acceptance
 

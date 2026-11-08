@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Proposed design, revision 22 (2026-11-07). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
+Status: Proposed design, revision 23 (2026-11-08). Phase 1 and Phase 2 are complete. The [roadmap](ROADMAP.md) gives the priorities.
 
 ## Principles
 
@@ -572,7 +572,6 @@ Quit Bloop
 - After a menu write, a `config.toml` that is a symbolic link becomes a regular file. CRLF line ends become LF.
 - An existing `config.toml` keeps its form. Bloop adds no comments to it.
 - Phase 6 writes the dictionary with the same file rules, through a change on the hub. The next refresh reads the new file.
-- The optional dictation key choice reaches the event tap through the event handler of `main.rs`, which owns the tap.
 - A second chat provider needs its own refused key state.
 
 ## Dictionary and learning from fixes

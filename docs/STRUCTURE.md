@@ -1,6 +1,6 @@
 # Code structure
 
-Status: Revision 28 (2026-11-07). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
+Status: Revision 29 (2026-11-08). The owner approved the workspace on 2026-10-31. Phase 1 and Phase 2 are complete.
 `bloop-core` contains the streaming types and ports. `bloop-audio` contains the sample queue, the microphone capture, and the 16 kHz converter.
 `bloop-app` contains the worker.
 The driver starts the microphone capture and the worker. The worker streams the audio to Voxtral, and the driver pastes the complete raw transcript.
@@ -272,7 +272,7 @@ enabled = false
 prompt = "natural-light"      # A built-in prompt or a file of the prompts folder, without ".md".
 ```
 
-- `[dictation] key` comes with the optional key iteration (Phase 4 iteration 5). Until then, it is an unknown key.
+- `[dictation] key` is an unknown key. On 2026-11-07, the owner dropped the dictation key choice (Phase 4 iteration 5).
 - The correction time limit stays the constant `CORRECTION_LIMIT` (8 s) in `main.rs` (owner decision A).
 - `settings/` validates the values at parse time with `try_from` newtypes: `HoldMs`, `Language`, and `PromptName`.
   Each newtype uses `type Error = &'static str`. Thus a `Settings` value is always valid.
@@ -503,7 +503,7 @@ The application operates at the end of each selected phase.
 | 1: Key, orb, and paste | Root: `Cargo.toml` with the workspace lints, `rustfmt.toml`, `clippy.toml`, `Cargo.lock`. `bloop-core`: `domain.rs`, `session.rs`, `ports/platform.rs`, `error.rs`, with unit tests. `bloop-macos`: `app.rs`, `events.rs`, `keys.rs`, `orb/`, `paste.rs`, `menu.rs`, `scheduler.rs`, `permissions.rs`. `bloop-app`: `main.rs`, `driver.rs`, `logging.rs`. `scripts/bundle.sh`. |
 | 2: Microphone and streaming | `bloop-core`: audio and streaming contracts, `pipeline.rs` without steps. `bloop-audio`: `capture.rs`, `buffer.rs`, `convert.rs`. `bloop-providers`: `mistral/transcribe.rs`. `bloop-app`: `worker.rs`, stream ownership and lifecycle tests. `bloop-macos`: `keychain.rs`, the microphone check in `permissions.rs`, `sleep.rs`. |
 | 3: Optional correction | `bloop-core`: `ChatModel`, `ChatReply`, and `TextStep` in `ports/ai.rs`, `StepError`, `steps/`, the step report in `pipeline.rs`. `bloop-providers`: `http.rs`, `mistral/chat.rs`, the provider configs and build functions in `lib.rs`. `bloop-app`: the pipeline in `worker.rs`, the toggle value for each generation, `bin/eval/`. `bloop-macos`: one toggle in the existing `menu.rs`. `bloop-core` and `bloop-app`: `dictionary.rs`. `prompts/natural-light.md` and the test set. |
-| 4: Settings and status menu | Iteration 1: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `settings/` (it replaces `settings.rs`), `files.rs`, `prompts.rs`, `worker.rs`, `main.rs`. Iteration 2: `bloop-app`: `hub.rs`, `driver.rs`, `worker.rs`, `main.rs`. Iteration 3: `bloop-core`: the menu model in `ports/platform.rs`. `bloop-macos`: `menu.rs`, `workspace.rs`, `permissions.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/mod.rs`, `dictionary.rs`, `main.rs`. Iteration 4: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/`, `prompts.rs`. Iteration 5, optional: `bloop-macos`: `keys.rs`. No new dependency and no new Cargo feature. |
+| 4: Settings and status menu | Iteration 1: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `settings/` (it replaces `settings.rs`), `files.rs`, `prompts.rs`, `worker.rs`, `main.rs`. Iteration 2: `bloop-app`: `hub.rs`, `driver.rs`, `worker.rs`, `main.rs`. Iteration 3: `bloop-core`: the menu model in `ports/platform.rs`. `bloop-macos`: `menu.rs`, `workspace.rs`, `permissions.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/mod.rs`, `dictionary.rs`, `main.rs`. Iteration 4: `bloop-providers`: `lib.rs`, `mistral/mod.rs`. `bloop-app`: `menu.rs`, `hub.rs`, `settings/`, `prompts.rs`. Iteration 5: dropped by the owner on 2026-11-07. No new dependency and no new Cargo feature. |
 | 6: Learn from fixes | `bloop-core`: `fixes.rs`, the suggestion orb view. `bloop-macos`: `focus.rs`, the suggestion card in `orb/`. `bloop-app`: save and ignore in `dictionary.rs`. |
 | 5, 7, and 8 | The [roadmap](ROADMAP.md) gives the features. Their files get detail before each phase starts. |
 
