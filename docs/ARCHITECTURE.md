@@ -65,7 +65,7 @@ Right Command up   -> target snapshot -> stop microphone -> drain and finish str
 Complete transcript -> optional correction -> ordered insertion -> clipboard restore or fallback card
 ```
 
-The capture starts after the hold threshold, so the user waits for the orb before speaking. Right Command combinations stay available to the applications.
+The capture starts after the hold threshold, so the user waits for the orb before speaking. Right Command combinations stay available to the applications, except with Escape: the event tap blocks Escape from the dictation key press to the end of the capture.
 Escape or other input during the capture cancels it. System sleep cancels the capture and all jobs. Recording has no maximum duration.
 
 ## Threads and ownership
@@ -237,8 +237,8 @@ The application builds the `MenuModel` (`bloop-app/src/menu.rs`), and `bloop-mac
 The event tap (`bloop-macos/src/keys.rs`) is an active session tap on key down, key up, flags changed, and mouse down events.
 
 - Right Command alone, key code `0x36`, is the dictation key. Right Command pressed with Shift, Control, Option, or Left Command is not (`right_command_after_another_modifier_is_not_the_dictation_key`).
-- Another key, modifier, or click during the hold is `OtherInputDuringHold`. The tap passes it to the applications.
-- Escape during a capture is blocked completely: the key down, the repeats, and the key up. Outside a capture, Escape passes (`escape_is_blocked_only_during_a_capture`, `a_blocked_escape_press_stays_blocked_after_the_capture`).
+- Another key except Escape, a modifier, or a click during the hold is `OtherInputDuringHold`. The tap passes it to the applications.
+- From the dictation key press to the end of the capture, Escape is blocked completely: the key down, the repeats, and the key up. The tap sends `Escape`, which ends the hold or cancels the capture. At other times, Escape passes (`escape_is_blocked_only_during_a_capture`, `a_blocked_escape_press_stays_blocked_after_the_capture`). After each event, the handler in `main` gives the tap `Core::capture_active`, true while the capture is `Pending` or `Listening`.
 - The tap ignores the paste commands that Bloop posts.
 - When macOS disables the tap, the tap enables itself again, ends a hold as a combination, and resets its key state (`an_interruption_during_the_hold_ends_it_and_ignores_the_missed_release`).
 - The callback catches a panic of the handler and passes the event.

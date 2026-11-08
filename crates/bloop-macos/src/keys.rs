@@ -1,9 +1,9 @@
 //! Event tap for the dictation key, other input, and Escape.
 //!
 //! The tap runs on the main run loop. It passes all events to the applications, except Escape
-//! during a capture. It blocks that Escape press completely: the key down, the key repeats, and
-//! the key up. It sends the events of the state machine through [`MainSink`]. It ignores the
-//! paste commands that Bloop posts.
+//! from the dictation key press to the end of the capture. It blocks that Escape press
+//! completely: the key down, the key repeats, and the key up. It sends the events of the state
+//! machine through [`MainSink`]. It ignores the paste commands that Bloop posts.
 
 #![expect(
     unsafe_code,
@@ -93,7 +93,8 @@ impl KeyTap {
         Some(Self { state, source })
     }
 
-    /// Tells the tap if a capture is active. The tap blocks Escape only during a capture.
+    /// Tells the tap if a capture is pending or listening, from the dictation key press to the end
+    /// of the capture. The tap blocks Escape only then.
     pub fn set_capture_active(&self, active: bool) {
         self.state.capture_active.set(active);
     }
@@ -357,10 +358,6 @@ mod tests {
         assert_matches!(
             holding().key_down(ESCAPE, false, true),
             (Verdict::Block, Some(Event::Escape))
-        );
-        assert_matches!(
-            holding().key_down(ESCAPE, false, false),
-            (Verdict::Pass, Some(Event::OtherInputDuringHold))
         );
         assert_matches!(
             Keys::default().key_down(ESCAPE, false, false),
