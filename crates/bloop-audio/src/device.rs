@@ -46,14 +46,15 @@ enum Choice {
     Default,
     /// The built-in microphone with this name, in place of a Bluetooth default input.
     BuiltIn(String),
-    /// The default input is a Bluetooth device, and the Mac has no built-in microphone.
+    /// The default input is a Bluetooth device, and no input device read as built-in.
     NoBuiltIn,
 }
 
 /// Returns the name of the input device that replaces the default input, when one applies.
 ///
 /// It returns the built-in microphone when the default input is a Bluetooth device.
-/// Otherwise, and when a Core Audio read fails, it returns `None`: the capture uses the default input.
+/// Otherwise, and when the default input or the device list cannot be read, it returns `None`: the capture uses
+/// the default input. A device that cannot be read is left out of the choice.
 pub(crate) fn preferred_input() -> Option<String> {
     let Some(default) = get_default_device_id(true) else {
         tracing::warn!(
@@ -62,7 +63,13 @@ pub(crate) fn preferred_input() -> Option<String> {
         );
         return None;
     };
-    let default = Transport::from_code(read(get_device_transport_type(default), "transport")?);
+    let Some(transport) = read(get_device_transport_type(default), "transport") else {
+        tracing::warn!(
+            "without the transport of the default input, the capture uses the default input"
+        );
+        return None;
+    };
+    let default = Transport::from_code(transport);
     let inputs =
         || read(get_audio_device_ids(), "devices").map(|ids| ids.into_iter().filter_map(input));
     match choose(default, inputs) {
@@ -76,7 +83,7 @@ pub(crate) fn preferred_input() -> Option<String> {
         }
         Choice::NoBuiltIn => {
             tracing::warn!(
-                "the default input is a Bluetooth device and the Mac has no built-in microphone, \
+                "the default input is a Bluetooth device and no built-in microphone was found, \
                  the capture uses the default input"
             );
             None
@@ -96,6 +103,7 @@ where
         return Choice::Default;
     }
     let Some(inputs) = inputs() else {
+        tracing::warn!("without the device list, the capture uses the default input");
         return Choice::Default;
     };
     inputs
@@ -104,23 +112,41 @@ where
         .map_or(Choice::NoBuiltIn, |input| Choice::BuiltIn(input.name))
 }
 
-/// Reads the transport and the name of a device that has input channels.
+/// Reads the transport and the name of a device that has input channels. A failed read skips the device.
 fn input(id: u32) -> Option<Input> {
-    if !read(get_audio_device_supports_scope(id, Scope::Input), "streams")? {
+    let Some(streams) = read(get_audio_device_supports_scope(id, Scope::Input), "streams") else {
+        return skip(id);
+    };
+    if !streams {
         return None;
     }
+    let Some(transport) = read(get_device_transport_type(id), "transport") else {
+        return skip(id);
+    };
+    let Some(name) = read(get_device_name(id), "name") else {
+        return skip(id);
+    };
     Some(Input {
-        transport: Transport::from_code(read(get_device_transport_type(id), "transport")?),
-        name: read(get_device_name(id), "name")?,
+        transport: Transport::from_code(transport),
+        name,
     })
 }
 
-/// Logs a failed Core Audio read of `property`. The capture then uses the default input.
+/// Logs that the device choice leaves out the device `id`, after a failed read.
+fn skip(id: u32) -> Option<Input> {
+    tracing::warn!(
+        device = id,
+        "the device choice skips a device that it cannot read"
+    );
+    None
+}
+
+/// Logs a failed Core Audio read of `property`. The caller decides what happens without the value.
 fn read<T>(result: Result<T, coreaudio::Error>, property: &'static str) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(error) => {
-            tracing::warn!(%error, property, "Core Audio did not answer, the capture uses the default input");
+            tracing::warn!(%error, property, "a Core Audio read failed");
             None
         }
     }
