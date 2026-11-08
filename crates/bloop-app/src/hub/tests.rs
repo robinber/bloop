@@ -15,6 +15,7 @@ use secrecy::SecretString;
 use super::{Hub, HubSnapshots, Snapshot, View, refuses_key};
 use crate::driver::Snapshots;
 use crate::files::tests::scratch_dir;
+use crate::prompts::AppLists;
 use crate::settings::{self, Change, Paths, PromptName};
 use crate::worker::{NoCorrection, Speech};
 use crate::{dictionary, prompts};
@@ -68,8 +69,14 @@ fn name(value: &str) -> PromptName {
     PromptName::try_from(value.to_owned()).unwrap()
 }
 
+/// Starts the hub of the settings folder `dir`, with the default lists of every built-in application.
 fn start(dir: &Path) -> Hub {
-    Hub::start(Paths::new(dir), &Secrets::with_keys(), LIMIT)
+    Hub::start(
+        Paths::new(dir),
+        &Secrets::with_keys(),
+        LIMIT,
+        prompts::default_lists(|_| true),
+    )
 }
 
 fn current(hub: &Hub) -> Rc<Snapshot> {
@@ -403,7 +410,7 @@ fn set_on_an_invalid_file_changes_nothing() {
 fn without_a_key_at_start_each_dictation_fails_with_unauthorized() {
     let dir = folder("hub-no-key", ON);
     let secrets = Secrets::without_keys();
-    let hub = Hub::start(Paths::new(&dir), &secrets, LIMIT);
+    let hub = Hub::start(Paths::new(&dir), &secrets, LIMIT, AppLists::new());
 
     assert_eq!(
         error(&current(&hub)),
@@ -417,7 +424,7 @@ fn without_a_key_at_start_each_dictation_fails_with_unauthorized() {
 fn the_keys_are_read_one_time_at_start() {
     let dir = folder("hub-keys", ON);
     let secrets = Secrets::with_keys();
-    let hub = Hub::start(Paths::new(&dir), &secrets, LIMIT);
+    let hub = Hub::start(Paths::new(&dir), &secrets, LIMIT, AppLists::new());
     assert_eq!(hub.key_error(), None);
 
     fs::write(dir.join("config.toml"), OFF).unwrap();
@@ -589,7 +596,12 @@ fn a_refused_key_stays_until_the_next_start() {
 #[test]
 fn without_a_key_at_start_an_unauthorized_failure_is_not_a_refused_key() {
     let dir = folder("hub-refused-no-key", OFF);
-    let hub = Hub::start(Paths::new(&dir), &Secrets::without_keys(), LIMIT);
+    let hub = Hub::start(
+        Paths::new(&dir),
+        &Secrets::without_keys(),
+        LIMIT,
+        AppLists::new(),
+    );
 
     hub.note(&Event::CaptureFailed(
         generation(),
@@ -649,6 +661,7 @@ fn set_writes_each_change_and_the_next_snapshot_uses_it() {
 const GHOSTTY: &str = "com.mitchellh.ghostty";
 const WHATSAPP: &str = "net.whatsapp.WhatsApp";
 const NOTES: &str = "com.apple.Notes";
+const TERMINAL: &str = "com.apple.Terminal";
 
 /// Refreshes the hub for a dictation in `app`, and returns the snapshot and the name of its prompt.
 fn routed(hub: &Hub, app: Option<&str>) -> (Rc<Snapshot>, Option<String>) {
@@ -717,34 +730,30 @@ fn with_the_correction_off_a_routed_app_reads_no_prompt_and_the_view_shows_no_er
 }
 
 #[test]
-fn a_key_replaces_the_built_in_list_and_an_empty_key_disables_it() {
-    let dir = folder(
-        "hub-route-replace",
-        &format!("{ON}\n[refine.apps]\ncode = [\"{NOTES}\"]\n"),
+fn without_a_table_the_default_lists_route_and_an_application_outside_them_does_not() {
+    let dir = folder("hub-route-defaults", &format!("{ON}prompt = \"dev\"\n"));
+    let hub = Hub::start(
+        Paths::new(&dir),
+        &Secrets::with_keys(),
+        LIMIT,
+        prompts::default_lists(|id| id == GHOSTTY || id == WHATSAPP),
     );
-    let hub = start(&dir);
-    assert_eq!(prompt_of(&hub, Some(NOTES)).as_deref(), Some("code"));
+
+    assert_eq!(prompt_of(&hub, Some(GHOSTTY)).as_deref(), Some("code"));
     assert_eq!(
-        prompt_of(&hub, Some(GHOSTTY)).as_deref(),
+        prompt_of(&hub, Some(WHATSAPP)).as_deref(),
         Some("natural-light")
     );
-
-    fs::write(
-        dir.join("config.toml"),
-        format!("{ON}prompt = \"code\"\n\n[refine.apps]\nnatural-light = []\n"),
-    )
-    .unwrap();
-
-    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("code"));
-    assert_eq!(prompt_of(&hub, Some(GHOSTTY)).as_deref(), Some("code"));
+    assert_eq!(prompt_of(&hub, Some(TERMINAL)).as_deref(), Some("dev"));
+    assert_eq!(prompt_of(&hub, Some(NOTES)).as_deref(), Some("dev"));
     fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
-fn an_app_of_a_key_wins_over_its_built_in_list() {
+fn a_table_is_the_whole_truth_and_the_default_lists_no_longer_apply() {
     let dir = folder(
-        "hub-route-wins",
-        &format!("{ON}prompt = \"code\"\n\n[refine.apps]\nnatural-light = [\"{GHOSTTY}\"]\n"),
+        "hub-route-table",
+        &format!("{ON}prompt = \"dev\"\n\n[refine.apps]\nnatural-light = [\"{GHOSTTY}\"]\n"),
     );
     let hub = start(&dir);
 
@@ -752,11 +761,20 @@ fn an_app_of_a_key_wins_over_its_built_in_list() {
         prompt_of(&hub, Some(GHOSTTY)).as_deref(),
         Some("natural-light")
     );
-    assert_eq!(
-        prompt_of(&hub, Some("com.apple.Terminal")).as_deref(),
-        Some("code")
-    );
-    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("code"));
+    assert_eq!(prompt_of(&hub, Some(TERMINAL)).as_deref(), Some("dev"));
+    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("dev"));
+    let lists = view(&hub).lists;
+    assert_eq!(lists.keys().collect::<Vec<_>>(), [&name("natural-light")]);
+
+    fs::write(
+        dir.join("config.toml"),
+        format!("{ON}prompt = \"dev\"\n\n[refine.apps]\n"),
+    )
+    .unwrap();
+
+    assert_eq!(prompt_of(&hub, Some(GHOSTTY)).as_deref(), Some("dev"));
+    assert_eq!(prompt_of(&hub, Some(WHATSAPP)).as_deref(), Some("dev"));
+    assert!(view(&hub).lists.is_empty());
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -882,7 +900,9 @@ fn set_moves_an_app_and_the_next_dictation_uses_its_new_prompt() {
         prompt_of(&hub, Some(GHOSTTY)).as_deref(),
         Some("natural-light")
     );
-    assert!(!view(&hub).lists[&name("code")].contains(&ghostty));
+    let mut code = prompts::default_lists(|_| true)[&name("code")].clone();
+    code.retain(|app| *app != ghostty);
+    assert_eq!(view(&hub).lists[&name("code")], code);
 
     hub.set(&Change::RemoveApp {
         prompt: name("natural-light"),
@@ -897,9 +917,6 @@ fn set_moves_an_app_and_the_next_dictation_uses_its_new_prompt() {
         prompt_of(&hub, Some(WHATSAPP)).as_deref(),
         Some("natural-light")
     );
-    assert_eq!(
-        prompt_of(&hub, Some("com.apple.Terminal")).as_deref(),
-        Some("code")
-    );
+    assert_eq!(prompt_of(&hub, Some(TERMINAL)).as_deref(), Some("code"));
     fs::remove_dir_all(&dir).unwrap();
 }

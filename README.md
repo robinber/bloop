@@ -122,7 +122,7 @@ Bloop records as long as you hold the key. There is no maximum duration.
 | **Quit Bloop** (⌘Q) | Quits. Bloop first restores a clipboard that a paste still holds. |
 
 Each choice writes its key, or its lists, to `config.toml` and keeps your comments. A change applies from the next dictation.
-With **Correct text** on, the application in front selects the prompt: a terminal, a code editor, or Claude uses `code`, a messaging application uses `natural-light`, and another application uses the default prompt. The [configuration guide](docs/SETUP.md#prompt-by-application) lists the applications and how to change them.
+With **Correct text** on, the application in front selects the prompt. By default, a terminal, a code editor, Claude, or Codex uses `code`, a messaging application uses `natural-light`, and another application uses the default prompt. The [configuration guide](docs/SETUP.md#prompt-by-application) lists the applications and how to change them.
 The top of the menu reports what needs your attention: a missing permission, a missing or refused API key, or an invalid file with its line.
 
 ### When a paste is not possible

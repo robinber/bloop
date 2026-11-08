@@ -56,10 +56,11 @@ pub(crate) struct Refine {
     pub(crate) enabled: bool,
     /// The default prompt: the prompt of an application that no list of `apps` contains.
     pub(crate) prompt: PromptName,
-    pub(crate) apps: Apps,
+    /// The application lists, or `None` when the file has no `[refine.apps]` table.
+    pub(crate) apps: Option<Apps>,
 }
 
-/// The `[refine.apps]` table: the applications of each prompt that the file names.
+/// The `[refine.apps]` table: the applications of each prompt. A prompt without a key has no application.
 ///
 /// A list has no duplicate: the parser ignores a repeated application in one list.
 /// An application in two lists makes the file invalid.
@@ -68,11 +69,6 @@ pub(crate) struct Refine {
 pub(crate) struct Apps(BTreeMap<PromptName, Vec<AppId>>);
 
 impl Apps {
-    /// Returns the list of `prompt`, or `None` when the table has no key for it.
-    pub(crate) fn get(&self, prompt: &PromptName) -> Option<&[AppId]> {
-        self.0.get(prompt).map(Vec::as_slice)
-    }
-
     /// Returns each prompt name of the table and its list, sorted by name.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&PromptName, &[AppId])> {
         self.0

@@ -3,6 +3,7 @@
 //! At each dictation key press and each time the status menu opens, the hub reads `config.toml`,
 //! `dictionary.toml`, and one prompt when the correction is on. It compares each text with its last text.
 //! At a key press, the prompt is the prompt whose list contains the frontmost application, else the selected prompt.
+//! The lists are the `[refine.apps]` table of the file, or the default lists that `main` computes at start.
 //! When the menu opens, it is the selected prompt.
 //! It builds a new snapshot only after a change, and it builds the chat model again only when `[chat]` changes.
 //! It reads the API keys one time at start, because a Keychain read can wait for a dialog.
@@ -80,6 +81,8 @@ pub(crate) struct Hub {
     keys: Keys,
     /// The time limit of each correction request.
     limit: Duration,
+    /// The application lists while `config.toml` has no `[refine.apps]` table.
+    defaults: AppLists,
     /// `true` after the provider refused the key of the transcription. It stays until the next start.
     key_refused: Cell<bool>,
     inner: RefCell<Inner>,
@@ -132,8 +135,14 @@ impl Hub {
     /// Writes the settings template when it is missing, reads the files and the API keys, and builds the first snapshot.
     /// It never fails: the snapshot gives the error of each capture.
     ///
-    /// `limit` is the time limit of each correction request.
-    pub(crate) fn start(paths: Paths, secrets: &impl SecretStore, limit: Duration) -> Self {
+    /// `limit` is the time limit of each correction request. `defaults` are the application lists while `config.toml`
+    /// has no `[refine.apps]` table.
+    pub(crate) fn start(
+        paths: Paths,
+        secrets: &impl SecretStore,
+        limit: Duration,
+        defaults: AppLists,
+    ) -> Self {
         settings::prepare(&paths);
         let config = files::read_bounded(&paths.config, settings::LIMIT);
         let dictionary = files::read_bounded(&paths.dictionary, dictionary::LIMIT);
@@ -143,7 +152,8 @@ impl Hub {
             Err(_) => Keys::read(&Settings::default(), secrets),
         };
         let state = State {
-            prompt: read_prompt(&settings, &paths.prompts, None).map(|(_, prompt)| prompt),
+            prompt: read_prompt(&settings, &paths.prompts, &defaults, None)
+                .map(|(_, prompt)| prompt),
             settings,
             vocabulary: parse_dictionary(&dictionary),
         };
@@ -160,6 +170,7 @@ impl Hub {
             paths,
             keys,
             limit,
+            defaults,
             key_refused: Cell::new(false),
             inner: RefCell::new(inner),
         }
@@ -175,7 +186,7 @@ impl Hub {
             tracing::error!("the settings hub is already in use, the refresh does not occur");
             return None;
         };
-        let route = inner.refresh(&self.paths, &self.keys, self.limit, app);
+        let route = inner.refresh(&self.paths, &self.keys, self.limit, &self.defaults, app);
         if let (Some(route), Some((name, _))) = (route, &inner.state.prompt) {
             tracing::info!(
                 prompt = name.as_str(),
@@ -195,20 +206,22 @@ impl Hub {
             tracing::error!("the settings hub is already in use, the menu shows its last state");
             return None;
         };
-        inner.refresh(&self.paths, &self.keys, self.limit, None);
+        inner.refresh(&self.paths, &self.keys, self.limit, &self.defaults, None);
         let state = &inner.state;
         let prompt = match &state.prompt {
             Some((name, Err(error))) => Some((name.clone(), *error)),
             _ => None,
         };
         let routed = match &state.settings {
-            Ok(settings) if settings.refine.enabled => routed_errors(settings, &self.paths.prompts),
+            Ok(settings) if settings.refine.enabled => {
+                routed_errors(settings, &self.paths.prompts, &self.defaults)
+            }
             _ => Vec::new(),
         };
         let lists = state
             .settings
             .as_ref()
-            .map(prompts::app_lists)
+            .map(|settings| prompts::app_lists(settings, &self.defaults))
             .unwrap_or_default();
         Some(View {
             settings: match &state.settings {
@@ -246,14 +259,14 @@ impl Hub {
     /// Writes `change` to `config.toml`, then refreshes. It never changes an invalid file.
     /// A refused write logs a warning. It never panics, because it runs in an `AppKit` callback.
     pub(crate) fn set(&self, change: &Change) {
-        if let Err(error) = settings::write(&self.paths.config, change) {
+        if let Err(error) = settings::write(&self.paths.config, change, &self.defaults) {
             tracing::warn!(?error, "the settings file is not changed");
         }
         let Ok(mut inner) = self.inner.try_borrow_mut() else {
             tracing::error!("the settings hub is already in use, the refresh does not occur");
             return;
         };
-        inner.refresh(&self.paths, &self.keys, self.limit, None);
+        inner.refresh(&self.paths, &self.keys, self.limit, &self.defaults, None);
     }
 
     /// Returns the error of the transcription API key that `start` read, for the status menu.
@@ -283,6 +296,7 @@ impl Inner {
         paths: &Paths,
         keys: &Keys,
         limit: Duration,
+        defaults: &AppLists,
         app: Option<&str>,
     ) -> Option<Route> {
         let config = files::read_bounded(&paths.config, settings::LIMIT);
@@ -297,7 +311,8 @@ impl Inner {
             self.state.vocabulary = parse_dictionary(&dictionary);
             self.dictionary = dictionary;
         }
-        let (route, prompt) = read_prompt(&self.state.settings, &paths.prompts, app).unzip();
+        let (route, prompt) =
+            read_prompt(&self.state.settings, &paths.prompts, defaults, app).unzip();
         if config_changed || dictionary_changed || prompt != self.state.prompt {
             self.state.prompt = prompt;
             self.snapshot = Rc::new(build(&self.state, &mut self.chat, keys, limit));
@@ -399,13 +414,14 @@ fn dictionary_error(error: dictionary::Invalid) -> dictionary::Invalid {
 fn read_prompt(
     settings: &Result<Settings, settings::Invalid>,
     folder: &Path,
+    defaults: &AppLists,
     app: Option<&str>,
 ) -> Option<(Route, NamedPrompt)> {
     let settings = settings
         .as_ref()
         .ok()
         .filter(|settings| settings.refine.enabled)?;
-    let lists = prompts::app_lists(settings);
+    let lists = prompts::app_lists(settings, defaults);
     let (route, name) = match prompts::route(&lists, app) {
         Some(name) => (Route::App, name),
         None => (Route::Default, &settings.refine.prompt),
@@ -414,8 +430,12 @@ fn read_prompt(
 }
 
 /// Returns why each prompt that a non-empty list routes to is not available, except the selected prompt.
-fn routed_errors(settings: &Settings, folder: &Path) -> Vec<(PromptName, PromptError)> {
-    prompts::app_lists(settings)
+fn routed_errors(
+    settings: &Settings,
+    folder: &Path,
+    defaults: &AppLists,
+) -> Vec<(PromptName, PromptError)> {
+    prompts::app_lists(settings, defaults)
         .into_iter()
         .filter(|(name, apps)| !apps.is_empty() && *name != settings.refine.prompt)
         .filter_map(|(name, _)| {

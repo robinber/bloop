@@ -267,18 +267,17 @@ fn an_unknown_provider_is_an_error_with_its_own_line() {
     }
 }
 
-/// The lists of `[refine.apps]` of a valid file.
-fn apps(text: &str) -> Vec<(String, Vec<String>)> {
-    parse(text)
-        .unwrap()
-        .refine
-        .apps
+/// The lists of `[refine.apps]` of a valid file, or `None` when the file has no such table.
+fn apps(text: &str) -> Option<Vec<(String, Vec<String>)>> {
+    let apps = parse(text).unwrap().refine.apps?;
+    let lists = apps
         .iter()
         .map(|(prompt, list)| {
             let list = list.iter().map(|app| app.as_str().to_owned()).collect();
             (prompt.as_str().to_owned(), list)
         })
-        .collect()
+        .collect();
+    Some(lists)
 }
 
 fn lists(lists: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
@@ -292,19 +291,27 @@ fn lists(lists: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
 }
 
 #[test]
-fn without_the_apps_table_the_file_names_no_list() {
-    assert_eq!(apps("[refine]\nenabled = true\n"), lists(&[]));
+fn without_the_apps_table_the_file_has_no_lists() {
+    assert_eq!(apps(""), None);
+    assert_eq!(apps("[refine]\nenabled = true\n"), None);
+}
+
+#[test]
+fn an_empty_apps_table_is_present_without_a_list() {
+    for text in ["[refine.apps]\n", "[refine]\napps = {}\n"] {
+        assert_eq!(apps(text), Some(lists(&[])), "{text}");
+    }
 }
 
 #[test]
 fn the_apps_table_gives_the_list_of_each_prompt_in_each_form() {
-    let expected = lists(&[
+    let expected = Some(lists(&[
         ("code", &["com.apple.Terminal"]),
         (
             "natural-light",
             &["net.whatsapp.WhatsApp", "com.apple.MobileSMS"],
         ),
-    ]);
+    ]));
     for text in [
         "[refine.apps]\ncode = [\"com.apple.Terminal\"]\nnatural-light = [\"net.whatsapp.WhatsApp\", \"com.apple.MobileSMS\"]\n",
         "[refine]\napps = { code = [\"com.apple.Terminal\"], natural-light = [\"net.whatsapp.WhatsApp\", \"com.apple.MobileSMS\"] }\n",
@@ -318,7 +325,7 @@ fn the_apps_table_gives_the_list_of_each_prompt_in_each_form() {
 fn an_empty_list_and_a_key_for_an_unknown_prompt_are_valid() {
     assert_eq!(
         apps("[refine.apps]\ncode = []\nmail = [\"com.apple.mail\"]\n"),
-        lists(&[("code", &[]), ("mail", &["com.apple.mail"])])
+        Some(lists(&[("code", &[]), ("mail", &["com.apple.mail"])]))
     );
 }
 
@@ -334,7 +341,7 @@ fn the_bundle_identifier_accepts_1_to_255_letters_digits_dots_hyphens_and_unders
     ] {
         assert_eq!(
             apps(&format!("[refine.apps]\ncode = [\"{value}\"]\n")),
-            lists(&[("code", &[value])])
+            Some(lists(&[("code", &[value])]))
         );
     }
 }
@@ -375,7 +382,7 @@ fn an_application_repeated_in_one_list_is_kept_once() {
         apps(
             "[refine.apps]\ncode = [\"com.apple.Terminal\", \"dev.zed.Zed\", \"com.apple.Terminal\"]\n"
         ),
-        lists(&[("code", &["com.apple.Terminal", "dev.zed.Zed"])])
+        Some(lists(&[("code", &["com.apple.Terminal", "dev.zed.Zed"])]))
     );
 }
 

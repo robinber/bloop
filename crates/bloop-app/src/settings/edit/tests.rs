@@ -1,24 +1,42 @@
 use bloop_providers::ChatConfig;
 
 use super::with_change;
-use crate::prompts;
+use crate::prompts::{self, AppLists};
 use crate::settings::template::template;
 use crate::settings::{AppId, Change, HoldMs, PromptName, parse};
+
+const TERMINAL: &str = "com.apple.Terminal";
+const GHOSTTY: &str = "com.mitchellh.ghostty";
+const WHATSAPP: &str = "net.whatsapp.WhatsApp";
 
 fn provider() -> &'static str {
     ChatConfig::default().provider()
 }
 
+/// The default lists of the tests: Terminal and Ghostty for `code`, and `WhatsApp` for `natural-light`.
+fn defaults() -> AppLists {
+    let id = |value: &str| AppId::try_from(value.to_owned()).unwrap();
+    [
+        (name("code"), vec![id(TERMINAL), id(GHOSTTY)]),
+        (name("natural-light"), vec![id(WHATSAPP)]),
+    ]
+    .into()
+}
+
+fn name(value: &str) -> PromptName {
+    PromptName::try_from(value.to_owned()).unwrap()
+}
+
 fn changed(text: &str, change: &Change) -> String {
-    with_change(text, change, &parse(text).unwrap()).unwrap()
+    with_change(text, change, &parse(text).unwrap(), &defaults()).unwrap()
 }
 
 fn correction(text: &str, on: bool) -> String {
     changed(text, &Change::Correction(on))
 }
 
-fn prompt(name: &str) -> Change {
-    Change::Prompt(PromptName::try_from(name.to_owned()).unwrap())
+fn prompt(value: &str) -> Change {
+    Change::Prompt(name(value))
 }
 
 fn hold(ms: u64) -> Change {
@@ -253,17 +271,24 @@ model = "mistral-small-latest"
 
 fn add(prompt: &str, app: &str) -> Change {
     Change::AddApp {
-        prompt: PromptName::try_from(prompt.to_owned()).unwrap(),
+        prompt: name(prompt),
         app: AppId::try_from(app.to_owned()).unwrap(),
     }
 }
 
 fn remove(prompt: &str, app: &str) -> Change {
     Change::RemoveApp {
-        prompt: PromptName::try_from(prompt.to_owned()).unwrap(),
+        prompt: name(prompt),
         app: AppId::try_from(app.to_owned()).unwrap(),
     }
 }
+
+/// The `[refine.apps]` table with the default lists of the tests and the list `mail`.
+const DEFAULTS_AND_MAIL: &str = r#"[refine.apps]
+code = ["com.apple.Terminal", "com.mitchellh.ghostty"]
+mail = ["com.apple.mail"]
+natural-light = ["net.whatsapp.WhatsApp"]
+"#;
 
 const APPS: &str = r#"schema = 1
 
@@ -281,7 +306,7 @@ provider = "mistral"
 
 #[test]
 fn add_moves_the_app_from_its_list_and_writes_both_keys() {
-    let new = changed(APPS, &add("mail", "com.mitchellh.ghostty"));
+    let new = changed(APPS, &add("mail", GHOSTTY));
 
     assert_eq!(
         new,
@@ -292,54 +317,72 @@ mail = ["com.apple.mail"]"#,
 mail = ["com.apple.mail", "com.mitchellh.ghostty"]"#
         )
     );
-    let lists = parse(&new).unwrap().refine.apps;
+    let lists = parse(&new).unwrap().refine.apps.unwrap();
     assert_eq!(lists.iter().count(), 2);
 }
 
 #[test]
-fn add_to_a_list_without_a_key_writes_the_built_in_list_and_the_list_that_loses_the_app() {
+fn add_to_a_prompt_without_a_key_writes_its_key_and_the_list_that_loses_the_app() {
     let new = changed(APPS, &add("natural-light", "com.apple.mail"));
 
     assert_eq!(
         new,
         APPS.replace(
             "mail = [\"com.apple.mail\"]\n",
-            "mail = []\nnatural-light = [\"com.apple.MobileSMS\", \"net.whatsapp.WhatsApp\", \"ru.keepcoder.Telegram\", \"org.telegram.desktop\", \"org.whispersystems.signal-desktop\", \"com.apple.mail\"]\n"
+            "mail = []\nnatural-light = [\"com.apple.mail\"]\n"
         )
     );
     assert!(parse(&new).is_ok());
 }
 
 #[test]
-fn remove_from_a_built_in_list_writes_the_rest_of_the_list() {
+fn the_first_add_without_a_table_writes_every_default_list_and_the_target() {
+    let text = "schema = 1\n\n[refine]\nenabled = true\n";
+    for (change, table) in [
+        (add("mail", "com.apple.mail"), DEFAULTS_AND_MAIL),
+        (
+            add("natural-light", GHOSTTY),
+            "[refine.apps]\ncode = [\"com.apple.Terminal\"]\nnatural-light = [\"net.whatsapp.WhatsApp\", \"com.mitchellh.ghostty\"]\n",
+        ),
+        (
+            add("code", WHATSAPP),
+            "[refine.apps]\ncode = [\"com.apple.Terminal\", \"com.mitchellh.ghostty\", \"net.whatsapp.WhatsApp\"]\nnatural-light = []\n",
+        ),
+    ] {
+        let new = changed(text, &change);
+
+        assert_eq!(new, format!("{text}\n{table}"), "{change:?}");
+        assert!(parse(&new).is_ok(), "{new}");
+    }
+}
+
+#[test]
+fn the_first_remove_without_a_table_writes_every_default_list() {
     let text = "schema = 1\n\n[refine]\nenabled = true\n";
 
     assert_eq!(
-        changed(text, &remove("code", "com.apple.dt.Xcode")),
+        changed(text, &remove("code", GHOSTTY)),
         format!(
-            "{text}\n[refine.apps]\ncode = [\"com.apple.Terminal\", \"com.mitchellh.ghostty\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"com.microsoft.VSCode\", \"com.todesktop.230313mzl4w4u92\", \"dev.zed.Zed\", \"com.anthropic.claudefordesktop\"]\n"
+            "{text}\n[refine.apps]\ncode = [\"com.apple.Terminal\"]\nnatural-light = [\"net.whatsapp.WhatsApp\"]\n"
         )
     );
 }
 
 #[test]
-fn remove_from_a_key_returns_a_built_in_app_to_its_built_in_list() {
+fn remove_from_a_key_leaves_the_app_in_no_list() {
     let text = "schema = 1\n\n[refine]\nenabled = true\n\n[refine.apps]\nmail = [\"com.mitchellh.ghostty\"]\n";
 
-    let new = changed(text, &remove("mail", "com.mitchellh.ghostty"));
+    let new = changed(text, &remove("mail", GHOSTTY));
 
     assert_eq!(new, text.replace("[\"com.mitchellh.ghostty\"]", "[]"));
-    let lists = prompts::app_lists(&parse(&new).unwrap());
-    assert_eq!(
-        prompts::route(&lists, Some("com.mitchellh.ghostty")).map(PromptName::as_str),
-        Some("code")
-    );
+    let lists = prompts::app_lists(&parse(&new).unwrap(), &defaults());
+    assert_eq!(prompts::route(&lists, Some(GHOSTTY)), None);
 }
 
 #[test]
 fn remove_writes_the_rest_of_the_list_and_keeps_the_comment_above_the_key() {
     assert_eq!(
-        changed(APPS, &remove("code", "com.apple.Terminal")),
+        changed(APPS, &remove("code", TERMINAL)),
         APPS.replace(
             r#"code = ["com.apple.Terminal", "com.mitchellh.ghostty"]   # mine"#,
             r#"code = ["com.mitchellh.ghostty"]                         # mine"#
@@ -349,12 +392,17 @@ fn remove_writes_the_rest_of_the_list_and_keeps_the_comment_above_the_key() {
 
 #[test]
 fn a_change_that_changes_no_list_keeps_the_text_byte_for_byte() {
-    for change in [
-        add("code", "com.apple.Terminal"),
-        remove("code", "com.apple.Notes"),
-        remove("absent", "com.apple.Terminal"),
+    let without_table = "schema = 1\n\n[refine]\nenabled = true\n";
+    for (text, change) in [
+        (APPS, add("code", TERMINAL)),
+        (APPS, remove("code", "com.apple.Notes")),
+        (APPS, remove("absent", TERMINAL)),
+        (APPS, remove("natural-light", WHATSAPP)),
+        (without_table, add("code", GHOSTTY)),
+        (without_table, remove("code", "com.apple.Notes")),
+        (without_table, remove("absent", TERMINAL)),
     ] {
-        assert_eq!(changed(APPS, &change), APPS, "{change:?}");
+        assert_eq!(changed(text, &change), text, "{change:?}");
     }
 }
 
@@ -364,7 +412,9 @@ fn a_new_apps_table_goes_directly_after_the_refine_table() {
 
     assert_eq!(
         changed(text, &add("mail", "com.apple.mail")),
-        "schema = 1\n\n[refine]\nenabled = true   # on\n\n[refine.apps]\nmail = [\"com.apple.mail\"]\n\n[chat]\nprovider = \"mistral\"\n"
+        format!(
+            "schema = 1\n\n[refine]\nenabled = true   # on\n\n{DEFAULTS_AND_MAIL}\n[chat]\nprovider = \"mistral\"\n"
+        )
     );
 }
 
@@ -374,13 +424,10 @@ fn a_new_apps_table_without_the_refine_table_has_no_empty_refine_header() {
 
     let new = changed(text, &add("mail", "com.apple.mail"));
 
-    assert_eq!(
-        new,
-        format!("{text}\n[refine.apps]\nmail = [\"com.apple.mail\"]\n")
-    );
+    assert_eq!(new, format!("{text}\n{DEFAULTS_AND_MAIL}"));
     assert_eq!(
         correction(&new, true),
-        format!("{text}\n[refine]\nenabled = true\n\n[refine.apps]\nmail = [\"com.apple.mail\"]\n")
+        format!("{text}\n[refine]\nenabled = true\n\n{DEFAULTS_AND_MAIL}")
     );
 }
 
@@ -397,7 +444,7 @@ fn a_list_in_an_inline_or_a_dotted_apps_table_changes_in_place() {
         ),
         (
             "refine = { enabled = true }\n",
-            "refine = { enabled = true , apps = { notes = [\"com.apple.Notes\"] } }\n",
+            "refine = { enabled = true , apps = { code = [\"com.apple.Terminal\", \"com.mitchellh.ghostty\"], natural-light = [\"net.whatsapp.WhatsApp\"], notes = [\"com.apple.Notes\"] } }\n",
         ),
     ] {
         let result = changed(text, &add("notes", "com.apple.Notes"));
@@ -427,7 +474,7 @@ fn an_application_change_on_the_template_puts_the_table_above_the_commented_exam
     assert_eq!(
         new,
         format!(
-            "{}\n[refine.apps]\nmail = [\"com.apple.mail\"]\n{}",
+            "{}\n{DEFAULTS_AND_MAIL}{}",
             &text[..example],
             &text[example..]
         )

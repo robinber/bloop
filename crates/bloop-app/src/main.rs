@@ -76,7 +76,13 @@ fn main() -> ExitCode {
         tracing::error!("the home folder is unknown");
         return ExitCode::FAILURE;
     };
-    let hub = Rc::new(Hub::start(paths.clone(), &Keychain, CORRECTION_LIMIT));
+    let defaults = prompts::default_lists(|id| workspace::app_name(id).is_some());
+    let hub = Rc::new(Hub::start(
+        paths.clone(),
+        &Keychain,
+        CORRECTION_LIMIT,
+        defaults,
+    ));
     let _sleep = SleepObserver::new(mtm);
 
     let sink: Arc<dyn EventSink> = Arc::new(MainSink);

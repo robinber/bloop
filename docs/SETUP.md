@@ -41,7 +41,7 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `[chat] reasoning_effort` | `"none"` | The `reasoning_effort` value of the chat request. The provider checks the value. |
 | `[refine] enabled` | `false` | The state of **Correct text**. |
 | `[refine] prompt` | `"natural-light"` | The default correction prompt: a built-in name, or a file of the prompts folder without `.md`. 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `_`, and `-`. The **Prompt** submenu selects it. |
-| `[refine.apps]` | The built-in lists | The applications of each prompt: one key for each prompt name, with a list of bundle identifiers. A bundle identifier has 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`. See [Prompt by application](#prompt-by-application). |
+| `[refine.apps]` | The default lists | The applications of each prompt: one key for each prompt name, with a list of bundle identifiers. A bundle identifier has 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `-`, and `_`. See [Prompt by application](#prompt-by-application). |
 
 The sampling temperature of the correction is 0. The file cannot change it.
 Model identifiers and provider options go to the API as they are. A valid file does not guarantee that the provider accepts them.
@@ -50,7 +50,7 @@ Model identifiers and provider options go to the API as they are. A valid file d
 
 **Correct text** and the **Prompt**, **Model**, and **Hold delay** submenus write their key to `config.toml`. Bloop keeps the comments and the other keys.
 A missing table goes at the end of the file. A model change writes the `provider` key of `[chat]` when the table does not have it.
-**Prompt by app** writes the lists of `[refine.apps]` that change. A list without a key gets its key with the whole list. A new `[refine.apps]` table goes directly after `[refine]`.
+**Prompt by app** writes lists of `[refine.apps]`. Without the table, the first change writes the whole table: one key for each default list, even an empty one, and the key of the changed prompt. With the table, a change writes the lists that change. A new `[refine.apps]` table goes directly after `[refine]`.
 A changed list keeps the comment above its key, but loses the comments inside a list on several lines.
 
 Bloop parses the current file before a write and refuses to change an invalid file. It also refuses a change that makes the file larger than 64 KiB.
@@ -99,14 +99,16 @@ With **Correct text** off, Bloop does not read a prompt, and dictation operates.
 When **Correct text** is on, the application in front at the dictation key press selects the prompt. When the list of a prompt contains the bundle identifier of the application, the dictation uses that prompt.
 Another application uses the default prompt of the **Prompt** submenu. A browser uses the default prompt too: Bloop does not select a prompt by website.
 
-Two prompts have a built-in list:
+Without a `[refine.apps]` table, two prompts have a default list:
 
 | Prompt | Applications |
 | --- | --- |
-| `code` | Terminal `com.apple.Terminal`, Ghostty `com.mitchellh.ghostty`, iTerm2 `com.googlecode.iterm2`, Warp `dev.warp.Warp-Stable`, Visual Studio Code `com.microsoft.VSCode`, Cursor `com.todesktop.230313mzl4w4u92`, Zed `dev.zed.Zed`, Xcode `com.apple.dt.Xcode`, Claude `com.anthropic.claudefordesktop` |
+| `code` | Terminal `com.apple.Terminal`, Ghostty `com.mitchellh.ghostty`, iTerm2 `com.googlecode.iterm2`, Warp `dev.warp.Warp-Stable`, Visual Studio Code `com.microsoft.VSCode`, Cursor `com.todesktop.230313mzl4w4u92`, Zed `dev.zed.Zed`, Xcode `com.apple.dt.Xcode`, Claude `com.anthropic.claudefordesktop`, Codex (`ChatGPT.app`) `com.openai.codex` |
 | `natural-light` | Messages `com.apple.MobileSMS`, WhatsApp `net.whatsapp.WhatsApp`, Telegram `ru.keepcoder.Telegram`, Telegram Desktop `org.telegram.desktop`, Signal `org.whispersystems.signal-desktop` |
 
-To change the lists, add a `[refine.apps]` table to `config.toml`:
+A default list contains only the applications that are installed when Bloop starts. An application that you install later joins its default list at the next start, while `config.toml` has no `[refine.apps]` table.
+
+To change the lists, use the menu, or add a `[refine.apps]` table to `config.toml`:
 
 ```toml
 [refine.apps]
@@ -114,9 +116,9 @@ code = ["com.apple.Terminal", "com.mitchellh.ghostty"]
 mail = ["com.apple.mail"]
 ```
 
-- A key replaces the built-in list of its prompt, even with an empty list. A prompt without a key keeps its built-in list.
+- The table replaces all the default lists. A prompt without a key has no application, and an application that no key lists uses the default prompt.
+- The first change in the menu writes the table with the default lists and the change, so the other lists stay the same.
 - A key can name your own prompt, such as `mail` for `prompts/mail.md`.
-- An application in a key leaves the built-in lists. When you remove it from the key, it returns to its built-in list, if it has one.
 - The same application in two keys is an error. An application repeated in one list counts one time.
 - The comparison of bundle identifiers is case-sensitive. Copy the identifier from the log, as described below.
 
@@ -125,7 +127,7 @@ The **Prompt by app** submenu shows and changes the lists. Its first line gives 
 - Select an application to remove it from the list.
 - Select **Add** followed by the name of the application in front to add it to the list. Bloop removes it from the other lists.
 
-The submenus show the name of the installed application, else the name of the built-in list, else the bundle identifier. A key of `[refine.apps]` that names no prompt also has a submenu, without **Add**, so that you can remove its applications.
+The submenus show the name of the installed application, else the bundle identifier. A key of `[refine.apps]` that names no prompt also has a submenu, without **Add**, so that you can remove its applications.
 
 To find the bundle identifier of an application, dictate one time in it, then search the log for `the target is recorded`. The line gives `bundle_id`.
 

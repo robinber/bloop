@@ -4,7 +4,8 @@
 //! A missing key has its default value.
 //! When the file does not exist at start, Bloop writes the commented template. It never changes an existing file at start.
 //! It also writes a commented empty `dictionary.toml` when that file does not exist.
-//! Each menu choice writes one key, or the lists of `[refine.apps]` that it changes: a `Change`.
+//! Each menu choice writes one key, or lists of `[refine.apps]`: a `Change`.
+//! The first application change writes the whole `[refine.apps]` table, then a change writes the lists that change.
 //! The comments and the other keys stay.
 //! The errors and the log never contain the file content, because a parser message can quote a value.
 
@@ -18,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use crate::dictionary;
 use crate::files::{self, FileError};
+use crate::prompts::AppLists;
 pub(crate) use schema::{AppId, HoldMs, PromptName, Settings, parse};
 
 /// The settings folder in the home folder.
@@ -120,12 +122,13 @@ pub(crate) fn prepare(paths: &Paths) {
 
 /// Writes `change` to the file at `path`, after it checks the current file.
 /// When the file does not exist, it starts from the template, and it creates the folder.
-pub(crate) fn write(path: &Path, change: &Change) -> Result<(), NotSaved> {
+/// `defaults` are the application lists that apply while the file has no `[refine.apps]` table.
+pub(crate) fn write(path: &Path, change: &Change, defaults: &AppLists) -> Result<(), NotSaved> {
     let text = files::read_bounded(path, LIMIT)
         .map_err(|error| NotSaved::Invalid(error.into()))?
         .unwrap_or_else(template::template);
     let settings = parse(&text).map_err(NotSaved::Invalid)?;
-    let new = edit::with_change(&text, change, &settings).map_err(NotSaved::Invalid)?;
+    let new = edit::with_change(&text, change, &settings, defaults).map_err(NotSaved::Invalid)?;
     if u64::try_from(new.len()).map_or(true, |len| len > LIMIT) {
         return Err(NotSaved::Invalid(Invalid::TooLarge));
     }
@@ -143,6 +146,7 @@ mod tests {
     use crate::dictionary;
     use crate::files::read_bounded;
     use crate::files::tests::scratch_dir;
+    use crate::prompts::{self, AppLists};
     use crate::settings::template::template;
 
     /// Reads and parses the file at `path`, as the settings hub does. Returns `None` when the file does not exist.
@@ -209,7 +213,7 @@ mod tests {
 
         assert_eq!(read(&path), Err(Invalid::TooLarge));
         assert_eq!(
-            write(&path, &Change::Correction(true)),
+            write(&path, &Change::Correction(true), &AppLists::new()),
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
@@ -229,7 +233,7 @@ mod tests {
 
         assert_eq!(read(&path), Ok(Some(Settings::default())));
         assert_eq!(
-            write(&path, &Change::Correction(true)),
+            write(&path, &Change::Correction(true), &AppLists::new()),
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
@@ -252,7 +256,7 @@ mod tests {
         };
 
         assert_eq!(
-            write(&path, &change),
+            write(&path, &change, &prompts::default_lists(|_| true)),
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
@@ -264,14 +268,14 @@ mod tests {
         let dir = scratch_dir("settings-new");
         let path = dir.join("Bloop").join("config.toml");
 
-        write(&path, &Change::Correction(true)).unwrap();
+        write(&path, &Change::Correction(true), &AppLists::new()).unwrap();
         assert_eq!(
             fs::read_to_string(&path).unwrap(),
             template().replace("enabled = false ", "enabled = true  ")
         );
         assert!(read(&path).unwrap().unwrap().refine.enabled);
 
-        write(&path, &Change::Correction(false)).unwrap();
+        write(&path, &Change::Correction(false), &AppLists::new()).unwrap();
         assert!(!read(&path).unwrap().unwrap().refine.enabled);
         assert!(!path.with_added_extension("tmp").exists());
         fs::remove_dir_all(&dir).unwrap();
@@ -285,7 +289,7 @@ mod tests {
         fs::write(&path, text).unwrap();
 
         assert_eq!(
-            write(&path, &Change::Correction(true)),
+            write(&path, &Change::Correction(true), &AppLists::new()),
             Err(NotSaved::Invalid(Invalid::Parse { line: Some(3) }))
         );
         assert_eq!(fs::read(&path).unwrap(), text);

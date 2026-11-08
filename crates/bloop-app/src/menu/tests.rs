@@ -12,7 +12,7 @@ use super::{Action, AppMenu, AppNames, Facts, Lookups, build};
 use crate::dictionary;
 use crate::files::tests::scratch_dir;
 use crate::hub::{Hub, Summary, View};
-use crate::prompts::{AppLists, PromptError};
+use crate::prompts::{self, AppLists, PromptError};
 use crate::settings::{self, AppId, HoldMs, Paths, PromptName};
 
 const READY: &str = "Ready: hold Right Command to dictate";
@@ -74,11 +74,24 @@ fn lists(lists: &[(&str, &[&str])]) -> AppLists {
         .collect()
 }
 
-/// The applications of the tests: `frontmost` in front, and "Mac Terminal" as the name that macOS gives to Terminal.
+/// Returns the name that macOS gives to an installed application of the tests: Terminal, Ghostty, and `WhatsApp`.
+fn installed_name(app: &str) -> Option<String> {
+    match app {
+        TERMINAL => Some("Mac Terminal".to_owned()),
+        GHOSTTY => Some("Ghostty".to_owned()),
+        WHATSAPP => Some("WhatsApp".to_owned()),
+        _ => None,
+    }
+}
+
+/// The applications of the tests: `frontmost` in front, and the names of the installed applications.
 fn apps(frontmost: Option<&str>) -> AppNames {
     AppNames {
         frontmost: frontmost.map(id),
-        names: [(id(TERMINAL), "Mac Terminal".to_owned())].into(),
+        names: [TERMINAL, GHOSTTY, WHATSAPP]
+            .into_iter()
+            .filter_map(|app| Some((id(app), installed_name(app)?)))
+            .collect(),
     }
 }
 
@@ -447,16 +460,16 @@ fn the_status_line_names_the_prompt_of_a_listed_frontmost_app_and_its_list_has_n
 }
 
 #[test]
-fn an_app_name_is_the_name_of_macos_then_the_built_in_name_then_the_bundle_identifier() {
+fn an_app_name_is_the_name_of_macos_else_the_bundle_identifier() {
     let view = View {
-        lists: lists(&[("code", &[TERMINAL, GHOSTTY, "com.example.editor"])]),
+        lists: lists(&[("code", &[TERMINAL, "com.example.editor"])]),
         ..routing()
     };
     let model = build(&facts(), &view, &apps(Some(TERMINAL)));
 
     assert_eq!(
         titles(submenu(&model.0, &["Prompt by app", "code"])),
-        ["Mac Terminal", "Ghostty", "com.example.editor"]
+        ["Mac Terminal", "com.example.editor"]
     );
     assert_eq!(
         titles(submenu(&model.0, &["Prompt by app"]))[0],
@@ -786,13 +799,19 @@ fn app_menu(dir: &std::path::Path) -> AppMenu {
 }
 
 /// Returns the menu of the settings folder `dir`, with the frontmost application of `frontmost`.
-/// The only installed application is Terminal, with the name "Mac Terminal".
+/// The installed applications are Terminal, Ghostty, and `WhatsApp`. They make the default lists.
 fn menu_in(dir: &std::path::Path, frontmost: fn() -> Option<String>) -> AppMenu {
     let paths = Paths::new(dir);
-    let hub = Rc::new(Hub::start(paths.clone(), &Keys, Duration::from_secs(8)));
+    let defaults = prompts::default_lists(|app| installed_name(app).is_some());
+    let hub = Rc::new(Hub::start(
+        paths.clone(),
+        &Keys,
+        Duration::from_secs(8),
+        defaults,
+    ));
     let lookups = Lookups {
         frontmost,
-        name: |id| (id == TERMINAL).then(|| "Mac Terminal".to_owned()),
+        name: installed_name,
     };
     AppMenu::new(hub, facts(), paths, lookups)
 }
@@ -969,7 +988,7 @@ fn a_click_on_add_moves_the_frontmost_app_and_the_next_model_shows_it() {
     assert_eq!(
         new,
         format!(
-            "{text}\n[refine.apps]\nnatural-light = [\"com.apple.MobileSMS\", \"net.whatsapp.WhatsApp\", \"ru.keepcoder.Telegram\", \"org.telegram.desktop\", \"org.whispersystems.signal-desktop\", \"{GHOSTTY}\"]\ncode = [\"com.apple.Terminal\", \"com.googlecode.iterm2\", \"dev.warp.Warp-Stable\", \"com.microsoft.VSCode\", \"com.todesktop.230313mzl4w4u92\", \"dev.zed.Zed\", \"com.apple.dt.Xcode\", \"com.anthropic.claudefordesktop\"]\n"
+            "{text}\n[refine.apps]\ncode = [\"{TERMINAL}\"]\nnatural-light = [\"{WHATSAPP}\", \"{GHOSTTY}\"]\n"
         )
     );
     let model = menu.model();
@@ -982,7 +1001,7 @@ fn a_click_on_add_moves_the_frontmost_app_and_the_next_model_shows_it() {
 }
 
 #[test]
-fn a_click_on_an_app_of_a_built_in_list_writes_the_rest_of_the_list() {
+fn a_click_on_a_listed_app_removes_it_and_the_first_change_writes_every_default_list() {
     let dir = scratch_dir("menu-remove-app");
     fs::write(dir.join("config.toml"), "schema = 1\n").unwrap();
     let menu = menu_in(&dir, || None);
@@ -997,12 +1016,14 @@ fn a_click_on_an_app_of_a_built_in_list_writes_the_rest_of_the_list() {
 
     assert_eq!(
         fs::read_to_string(dir.join("config.toml")).unwrap(),
-        "schema = 1\n\n[refine.apps]\nnatural-light = [\"com.apple.MobileSMS\", \"ru.keepcoder.Telegram\", \"org.telegram.desktop\", \"org.whispersystems.signal-desktop\"]\n"
+        format!(
+            "schema = 1\n\n[refine.apps]\ncode = [\"{TERMINAL}\", \"{GHOSTTY}\"]\nnatural-light = []\n"
+        )
     );
     let model = menu.model();
     assert_eq!(
         titles(submenu(&model, &["Prompt by app", "natural-light"])),
-        ["Messages", "Telegram", "Telegram Desktop", "Signal"]
+        ["No application"]
     );
     fs::remove_dir_all(&dir).unwrap();
 }

@@ -19,7 +19,8 @@ enabled = false               # The correction by the chat model: "Correct text"
 prompt = "natural-light"      # A built-in prompt, or a file of the prompts folder without ".md".
 
 # The prompt of each application, by bundle identifier. Another application uses "prompt".
-# "code" and "natural-light" have built-in lists. A key replaces the built-in list of its prompt.
+# Without this table, "code" and "natural-light" have default lists of the installed applications.
+# The first application change in the menu writes the table. The table replaces all the default lists.
 # [refine.apps]
 # code = ["com.apple.Terminal", "com.mitchellh.ghostty"]
 # natural-light = ["com.apple.MobileSMS", "net.whatsapp.WhatsApp"]

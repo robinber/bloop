@@ -80,14 +80,11 @@ pub(crate) struct AppNames {
 }
 
 impl AppNames {
-    /// Returns the name of `app`: the name that macOS gives, else its name in a built-in list, else its identifier.
+    /// Returns the name of `app`: the name that macOS gives, else its bundle identifier.
     fn name(&self, app: &AppId) -> String {
-        match self.names.get(app) {
-            Some(name) => name.clone(),
-            None => prompts::built_in_name(app.as_str())
-                .unwrap_or(app.as_str())
-                .to_owned(),
-        }
+        self.names
+            .get(app)
+            .map_or_else(|| app.as_str().to_owned(), Clone::clone)
     }
 }
 

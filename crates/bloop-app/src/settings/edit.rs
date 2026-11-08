@@ -7,18 +7,19 @@ use toml_edit::{
 
 use super::{AppId, Change, Invalid, PromptName, Settings};
 use crate::dictionary::line;
-use crate::prompts;
+use crate::prompts::{self, AppLists};
 
 /// Returns `text` with the keys of `change` set. The other text does not change.
 /// A missing table goes at the end of the text. A missing `[refine.apps]` goes directly after `[refine]`.
 ///
 /// `settings` are the current settings of `text`. A `[chat]` table without `provider` is invalid.
 /// Thus, when a model change creates the table, or the table has no `provider` key, the change also writes `provider`.
-/// An application change computes the new lists from the lists of `settings`, never from an older menu.
+/// An application change computes the new lists from the lists of `settings` and `defaults`, never from an older menu.
 pub(super) fn with_change(
     text: &str,
     change: &Change,
     settings: &Settings,
+    defaults: &AppLists,
 ) -> Result<String, Invalid> {
     let mut document: DocumentMut = text.parse().map_err(|error: TomlError| Invalid::Parse {
         line: error.span().and_then(|span| line(text, span.start)),
@@ -39,11 +40,11 @@ pub(super) fn with_change(
             None,
         ),
         Change::AddApp { prompt, app } => {
-            set_lists(&mut document, &added(settings, prompt, app))?;
+            set_lists(&mut document, &added(settings, defaults, prompt, app))?;
             return Ok(document.to_string());
         }
         Change::RemoveApp { prompt, app } => {
-            set_lists(&mut document, &removed(settings, prompt, app))?;
+            set_lists(&mut document, &removed(settings, defaults, prompt, app))?;
             return Ok(document.to_string());
         }
     };
@@ -61,38 +62,47 @@ pub(super) fn with_change(
     Ok(document.to_string())
 }
 
-/// The new lists of the application change: the key of each list and its applications.
+/// The lists that an application change writes: the key of each list and its applications.
 type Lists = Vec<(PromptName, Vec<AppId>)>;
 
-/// Returns the lists that change when `app` joins the list of `prompt`: that list, and each list that loses `app`.
+/// Returns the lists to write when `app` joins the list of `prompt` and leaves every other list.
 /// It returns no list when the list of `prompt` already contains `app`.
-fn added(settings: &Settings, prompt: &PromptName, app: &AppId) -> Lists {
-    let lists = prompts::app_lists(settings);
-    let mut target = lists.get(prompt).cloned().unwrap_or_default();
-    if target.contains(app) {
+fn added(settings: &Settings, defaults: &AppLists, prompt: &PromptName, app: &AppId) -> Lists {
+    let lists = prompts::app_lists(settings, defaults);
+    if lists.get(prompt).is_some_and(|list| list.contains(app)) {
         return Vec::new();
     }
-    target.push(app.clone());
-    let mut changed = vec![(prompt.clone(), target)];
-    for (name, list) in lists {
-        if list.contains(app) {
-            changed.push((name, without(&list, app)));
-        }
+    let mut new = lists.clone();
+    for list in new.values_mut() {
+        list.retain(|id| id != app);
     }
-    changed
+    new.entry(prompt.clone()).or_default().push(app.clone());
+    to_write(settings, &lists, new)
 }
 
-/// Returns the list of `prompt` without `app`, or no list when the list of `prompt` does not contain `app`.
-fn removed(settings: &Settings, prompt: &PromptName, app: &AppId) -> Lists {
-    prompts::app_lists(settings)
-        .remove(prompt)
-        .filter(|list| list.contains(app))
-        .map(|list| vec![(prompt.clone(), without(&list, app))])
-        .unwrap_or_default()
+/// Returns the lists to write when `app` leaves the list of `prompt`.
+/// It returns no list when the list of `prompt` does not contain `app`.
+fn removed(settings: &Settings, defaults: &AppLists, prompt: &PromptName, app: &AppId) -> Lists {
+    let lists = prompts::app_lists(settings, defaults);
+    if !lists.get(prompt).is_some_and(|list| list.contains(app)) {
+        return Vec::new();
+    }
+    let mut new = lists.clone();
+    if let Some(list) = new.get_mut(prompt) {
+        list.retain(|id| id != app);
+    }
+    to_write(settings, &lists, new)
 }
 
-fn without(list: &[AppId], app: &AppId) -> Vec<AppId> {
-    list.iter().filter(|id| *id != app).cloned().collect()
+/// Returns the lists of `new` to write. Without a `[refine.apps]` table, it returns every list of `new`, even an empty
+/// one, so that the new table keeps the default lists. With the table, it returns the lists that differ from `old`.
+fn to_write(settings: &Settings, old: &AppLists, new: AppLists) -> Lists {
+    if settings.refine.apps.is_none() {
+        return new.into_iter().collect();
+    }
+    new.into_iter()
+        .filter(|(prompt, list)| old.get(prompt) != Some(list))
+        .collect()
 }
 
 /// Sets each list of `lists` in `[refine.apps]`. A new `[refine.apps]` table prints directly after `[refine]`.
