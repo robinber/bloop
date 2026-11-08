@@ -1,17 +1,19 @@
+use std::cell::Cell;
+
 use bloop_core::domain::Generation;
 use bloop_core::session::{Command, Core, Event};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardType, NSPasteboardWriting};
 use objc2_core_graphics::CGEvent;
-use objc2_foundation::{NSArray, NSData, NSInteger, ns_string};
+use objc2_foundation::{NSArray, NSData, NSInteger, NSString, ns_string};
 
 use bloop_core::session::InsertOutcome;
 
 use super::clipboard::{finalize, restore, save_within};
 use super::{
-    KEY_V, Target, Targets, Transaction, is_posted, mark_posted, save, string_type, transient_type,
-    write_text,
+    KEY_V, ProviderIvars, Target, Targets, Transaction, is_posted, mark_posted, save, string_type,
+    transient_type, write_text,
 };
 
 /// The data of each item of the pasteboard, by type, in item order.
@@ -191,6 +193,28 @@ fn a_cancel_keeps_the_restore_and_drops_the_result() {
 
     assert!(transaction.restore_due());
     assert_eq!(transaction.result(InsertOutcome::Landed), None);
+}
+
+#[test]
+fn the_debug_output_of_the_provider_shows_no_text_and_no_saved_item() {
+    let [generation] = generations(1)[..] else {
+        panic!("one generation");
+    };
+    let saved = vec![(
+        NSString::from_str("com.example.bloop.sentinel"),
+        NSData::with_bytes(b"sentinel"),
+    )];
+    let ivars = ProviderIvars {
+        generation,
+        text: NSString::from_str("Bonjour sentinel"),
+        saved: Cell::new(Some(vec![saved])),
+        written: 0,
+        transaction: Cell::new(Transaction::default()),
+    };
+
+    let debug = format!("{ivars:?}");
+
+    assert!(!debug.contains("sentinel"), "{debug}");
 }
 
 #[test]
