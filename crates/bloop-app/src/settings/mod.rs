@@ -89,7 +89,7 @@ pub(crate) enum Change {
 /// Why Bloop did not save a change. It contains no file content.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum NotSaved {
-    /// The current file is invalid. Bloop does not change it.
+    /// The current file is invalid, or the new file is larger than [`LIMIT`]. Bloop does not change the file.
     Invalid(Invalid),
     /// The write of the new file failed.
     Write(io::ErrorKind),
@@ -122,6 +122,9 @@ pub(crate) fn write(path: &Path, change: &Change) -> Result<(), NotSaved> {
     let settings = parse(&text).map_err(NotSaved::Invalid)?;
     let new =
         edit::with_change(&text, change, settings.chat.provider()).map_err(NotSaved::Invalid)?;
+    if u64::try_from(new.len()).map_or(true, |len| len > LIMIT) {
+        return Err(NotSaved::Invalid(Invalid::TooLarge));
+    }
     files::replace(path, &new).map_err(|error| NotSaved::Write(error.kind()))
 }
 
@@ -204,6 +207,26 @@ mod tests {
             Err(NotSaved::Invalid(Invalid::TooLarge))
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_change_that_makes_the_file_larger_than_the_limit_is_not_saved() {
+        let dir = scratch_dir("settings-grows");
+        let path = dir.join("config.toml");
+        let head = "schema = 1\n";
+        let text = format!(
+            "{head}{}\n",
+            "#".repeat(usize::try_from(LIMIT).unwrap() - head.len() - 8)
+        );
+        fs::write(&path, &text).unwrap();
+
+        assert_eq!(read(&path), Ok(Some(Settings::default())));
+        assert_eq!(
+            write(&path, &Change::Correction(true)),
+            Err(NotSaved::Invalid(Invalid::TooLarge))
+        );
+        assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
         fs::remove_dir_all(&dir).unwrap();
     }
 
