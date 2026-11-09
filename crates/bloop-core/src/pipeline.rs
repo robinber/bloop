@@ -28,15 +28,6 @@ pub enum StepResult {
     Failed(StepError),
 }
 
-/// The final text of a transcript and the report of each step that ran.
-#[derive(Debug)]
-struct Processed {
-    /// The text after the last step, or `None` when the transcript contains only whitespace.
-    text: Option<FinalText>,
-    /// One report for each step, in step order. It is empty when `text` is `None`.
-    report: Vec<StepReport>,
-}
-
 /// The result event of a job and the report of each step that ran.
 #[derive(Debug)]
 pub struct PipelineOutput {
@@ -60,19 +51,9 @@ impl Pipeline {
     /// After a failure, the text from before that step continues to the next step.
     /// The event is `TextReady` with the final text, or `NothingHeard` when the transcript contains only whitespace.
     pub async fn run(&self, generation: Generation, transcript: Transcript) -> PipelineOutput {
-        let Processed { text, report } = self.process(transcript).await;
-        let event = match text {
-            Some(text) => Event::TextReady(generation, text),
-            None => Event::NothingHeard(generation),
-        };
-        PipelineOutput { event, report }
-    }
-
-    /// Applies the steps to a complete transcript, without a generation. The final text is the text after the last step.
-    async fn process(&self, transcript: Transcript) -> Processed {
         if transcript.as_str().trim().is_empty() {
-            return Processed {
-                text: None,
+            return PipelineOutput {
+                event: Event::NothingHeard(generation),
                 report: Vec::new(),
             };
         }
@@ -91,8 +72,8 @@ impl Pipeline {
                 result,
             });
         }
-        Processed {
-            text: Some(text),
+        PipelineOutput {
+            event: Event::TextReady(generation, text),
             report,
         }
     }
@@ -103,7 +84,7 @@ mod tests {
     use std::assert_matches;
     use std::sync::Arc;
 
-    use super::{Pipeline, PipelineOutput, Processed, StepReport, StepResult};
+    use super::{Pipeline, PipelineOutput, StepReport, StepResult};
     use crate::domain::{Generation, Transcript};
     use crate::error::{ProviderError, Rejection, StepError};
     use crate::fakes::{FakeChat, Sent, resolve};
@@ -131,11 +112,6 @@ mod tests {
     fn run(pipeline: &Pipeline, transcript: &str) -> PipelineOutput {
         let transcript = Transcript::new(transcript.to_owned());
         resolve(pipeline.run(Generation(1), transcript))
-    }
-
-    fn process(pipeline: &Pipeline, transcript: &str) -> Processed {
-        let transcript = Transcript::new(transcript.to_owned());
-        resolve(pipeline.process(transcript))
     }
 
     fn final_text(output: &PipelineOutput) -> &str {
@@ -272,72 +248,6 @@ mod tests {
                     StepResult::Failed(StepError::Provider(ProviderError::Network))
                 ),
                 ("llm_refine", StepResult::Applied),
-            ]
-        );
-    }
-
-    #[test]
-    fn process_gives_no_text_for_a_transcript_without_words_and_no_step_runs() {
-        let model = FakeChat::replying(REPLY, Finish::Complete);
-        let pipeline = correction(&model);
-
-        for text in ["", " ", "\n\t ", "\u{a0}\n"] {
-            let processed = process(&pipeline, text);
-
-            assert!(processed.text.is_none(), "{text:?}");
-            assert!(processed.report.is_empty(), "{text:?}");
-        }
-        assert_eq!(model.sent(), [] as [Sent; 0]);
-    }
-
-    #[test]
-    fn process_gives_the_text_after_the_last_step_and_one_report_for_each_step() {
-        let model = FakeChat::replying(REPLY, Finish::Complete);
-
-        let processed = process(&correction(&model), RAW);
-
-        assert_eq!(processed.text.unwrap().as_str(), REPLY_FINAL);
-        assert_matches!(
-            processed.report.as_slice(),
-            [
-                StepReport {
-                    step: "llm_refine",
-                    result: StepResult::Applied
-                },
-                StepReport {
-                    step: "typography",
-                    result: StepResult::Applied
-                },
-                StepReport {
-                    step: "trim",
-                    result: StepResult::Applied
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn process_keeps_the_text_from_before_a_failed_step() {
-        let model = FakeChat::failing(ProviderError::Timeout);
-
-        let processed = process(&correction(&model), RAW);
-
-        assert_eq!(processed.text.unwrap().as_str(), RAW_FINAL);
-        assert_matches!(
-            processed.report.as_slice(),
-            [
-                StepReport {
-                    step: "llm_refine",
-                    result: StepResult::Failed(StepError::Provider(ProviderError::Timeout))
-                },
-                StepReport {
-                    step: "typography",
-                    result: StepResult::Applied
-                },
-                StepReport {
-                    step: "trim",
-                    result: StepResult::Applied
-                },
             ]
         );
     }
