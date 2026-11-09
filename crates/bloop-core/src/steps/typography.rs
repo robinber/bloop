@@ -10,8 +10,8 @@ use crate::ports::ai::{BoxFuture, TextStep};
 /// Replaces `’` (U+2019) with `'`.
 ///
 /// The step changes no other character. It does not add a space, and it does not change line breaks.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Typography;
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Typography;
 
 impl TextStep for Typography {
     fn name(&self) -> &'static str {

@@ -15,7 +15,7 @@ const CEILING: NonZeroU32 = NonZeroU32::new(2_048).unwrap();
 /// The system message contains the prompt. The user message contains the text
 /// between a `<transcript>` line and a `</transcript>` line.
 /// The step rejects a reply that is not `Complete`, and a reply that is empty or contains only whitespace.
-pub struct LlmRefine {
+pub(crate) struct LlmRefine {
     model: Arc<dyn ChatModel>,
     prompt: String,
 }
@@ -23,7 +23,7 @@ pub struct LlmRefine {
 impl LlmRefine {
     /// Creates the step with the chat model and the prompt.
     #[must_use]
-    pub fn new(model: Arc<dyn ChatModel>, prompt: String) -> Self {
+    pub(crate) fn new(model: Arc<dyn ChatModel>, prompt: String) -> Self {
         Self { model, prompt }
     }
 }

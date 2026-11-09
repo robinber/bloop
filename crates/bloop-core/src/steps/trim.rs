@@ -6,8 +6,8 @@ use crate::error::StepError;
 use crate::ports::ai::{BoxFuture, TextStep};
 
 /// Removes `\n` and `\r` at the start and at the end of the text. It keeps the spaces and the other characters.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Trim;
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Trim;
 
 impl TextStep for Trim {
     fn name(&self) -> &'static str {

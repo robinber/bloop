@@ -6,9 +6,9 @@ mod typography;
 
 use std::sync::Arc;
 
-pub use refine::LlmRefine;
-pub use trim::Trim;
-pub use typography::Typography;
+pub(crate) use refine::LlmRefine;
+use trim::Trim;
+use typography::Typography;
 
 use crate::ports::ai::{ChatModel, TextStep};
 
