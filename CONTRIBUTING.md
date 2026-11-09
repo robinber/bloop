@@ -11,7 +11,7 @@ Bloop is a Rust 2024 virtual workspace with five crates in `crates/`. The manife
 | --- | --- |
 | `bloop-core` | Domain types, the session state machine, the text pipeline and steps, and the ports. No I/O, no async runtime, no platform API. Its only external dependency is `secrecy`. |
 | `bloop-audio` | Microphone capture with `cpal`, the input device choice, the bounded sample queue, and the conversion to 16 kHz. |
-| `bloop-providers` | The AI provider adapters. One module and one Cargo feature for each vendor. `mistral` is the default feature. |
+| `bloop-providers` | The AI provider adapters, with one module for each vendor. |
 | `bloop-macos` | AppKit integration: application, event tap, orb, paste and clipboard, status menu, permissions, Keychain, sleep observer, and workspace: the frontmost and open applications, file and folder opening, and the application panel. The only crate with `unsafe` code. |
 | `bloop-app` | The application: settings, hub, driver, worker, menu model, and logging. |
 
@@ -63,7 +63,7 @@ cargo test --workspace
 
 The workspace has no CI. The lint floor is in `[workspace.lints]` of `Cargo.toml`: the rust-strict starter policy plus `raw_borrows_via_references`. Every crate inherits it with `[lints] workspace = true`.
 Outside tests, it denies `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!`, and `dbg!`. `clippy.toml` allows them in tests.
-`rustfmt.toml` sets `style_edition = "2024"`. The toolchain is stable, without `rust-toolchain.toml`. Verify with the default features.
+`rustfmt.toml` sets `style_edition = "2024"`. The toolchain is stable, without `rust-toolchain.toml`.
 
 ## Tests
 
@@ -93,7 +93,7 @@ Miri cannot run FFI calls to macOS frameworks. For `bloop-macos`, test the safe 
 ## Dependencies
 
 Add a dependency with `cargo add` to `[workspace.dependencies]` first, then reference it in the crate with `workspace = true`. Check the crate with `cargo info` before you use its API.
-Keep features additive. Provider dependencies are optional behind their vendor feature. `Cargo.lock` is under version control, and `scripts/bundle.sh` builds with `--locked`.
+Keep features additive. `Cargo.lock` is under version control, and `scripts/bundle.sh` builds with `--locked`.
 
 ## Unsafe code
 

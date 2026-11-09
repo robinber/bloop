@@ -31,8 +31,7 @@ The workspace manifests are the source of truth. When they change, update this s
 - Toolchain policy: stable, without `rust-toolchain.toml`. Report the actual toolchain when running checks.
   Do not introduce nightly without a documented need.
 - Platform: macOS on arm64 only. Do not infer support for other targets.
-- Features: `bloop-providers` has one vendor feature, `mistral`, enabled by default. Its dependencies are optional behind the feature.
-  Verify with the default features unless the task changes a feature.
+- Features: no package declares a Cargo feature.
 - Lint floor: the rust-strict starter policy (`references/project-setup.md`, section 3) in `[workspace.lints]`,
   plus `raw_borrows_via_references`. Every member inherits it with `[lints] workspace = true`. Do not weaken it.
 - Formatting: `rustfmt.toml` with `style_edition = "2024"`. `clippy.toml` allows `unwrap`, `expect`, `panic`, and `dbg` in tests only.

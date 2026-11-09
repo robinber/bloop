@@ -40,7 +40,7 @@ For each invariant, it names the component that enforces it and the tests that c
 - `bloop-core` has no I/O, no async runtime, and no platform API. Its only external dependency is `secrecy`.
 - `bloop-macos`, `bloop-audio`, and `bloop-providers` do not depend on each other.
 - `bloop-app` builds the adapters from the settings and connects them to the driver.
-- HTTP, WebSocket, and vendor-specific code stay in `bloop-providers`. One Cargo feature selects each vendor. `mistral` is the default.
+- HTTP, WebSocket, and vendor-specific code stay in `bloop-providers`.
 - Only `bloop-macos` contains `unsafe` code. Its approved surfaces are in [AGENTS.md](../AGENTS.md). The other crates have `#![forbid(unsafe_code)]`.
 - The AI ports return `BoxFuture`, so that the settings select the adapter at run time through trait objects.
 

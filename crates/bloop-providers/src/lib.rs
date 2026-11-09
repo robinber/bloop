@@ -5,13 +5,10 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "mistral")]
 mod http;
-#[cfg(feature = "mistral")]
 pub mod mistral;
 
 #[cfg(test)]
-#[cfg(feature = "mistral")]
 mod test_log;
 
 use std::sync::Arc;
@@ -24,15 +21,10 @@ use secrecy::SecretString;
 /// The transcription provider and its settings.
 ///
 /// In the settings file, the `provider` key selects the variant, in snake case.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(
-    feature = "mistral",
-    derive(serde::Deserialize),
-    serde(tag = "provider", rename_all = "snake_case")
-)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
 pub enum TranscriberConfig {
     /// Voxtral realtime transcription.
-    #[cfg(feature = "mistral")]
     Mistral(mistral::TranscribeConfig),
 }
 
@@ -41,14 +33,10 @@ impl TranscriberConfig {
     #[must_use]
     pub fn account(&self) -> &'static str {
         match *self {
-            #[cfg(feature = "mistral")]
             Self::Mistral(_) => mistral::ACCOUNT,
         }
     }
-}
 
-#[cfg(feature = "mistral")]
-impl TranscriberConfig {
     /// The commented `[transcriber]` table of the default provider, with its default values, for the settings template.
     #[must_use]
     pub fn template() -> &'static str {
@@ -56,7 +44,6 @@ impl TranscriberConfig {
     }
 }
 
-#[cfg(feature = "mistral")]
 impl Default for TranscriberConfig {
     fn default() -> Self {
         Self::Mistral(mistral::TranscribeConfig::default())
@@ -66,15 +53,10 @@ impl Default for TranscriberConfig {
 /// The chat provider and its settings.
 ///
 /// In the settings file, the `provider` key selects the variant, in snake case.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(
-    feature = "mistral",
-    derive(serde::Deserialize),
-    serde(tag = "provider", rename_all = "snake_case")
-)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
 pub enum ChatConfig {
     /// Mistral chat completions.
-    #[cfg(feature = "mistral")]
     Mistral(mistral::ChatConfig),
 }
 
@@ -83,7 +65,6 @@ impl ChatConfig {
     #[must_use]
     pub fn account(&self) -> &'static str {
         match *self {
-            #[cfg(feature = "mistral")]
             Self::Mistral(_) => mistral::ACCOUNT,
         }
     }
@@ -92,7 +73,6 @@ impl ChatConfig {
     #[must_use]
     pub fn provider(&self) -> &'static str {
         match *self {
-            #[cfg(feature = "mistral")]
             Self::Mistral(_) => mistral::PROVIDER,
         }
     }
@@ -101,7 +81,6 @@ impl ChatConfig {
     #[must_use]
     pub fn model(&self) -> &str {
         match *self {
-            #[cfg(feature = "mistral")]
             Self::Mistral(ref config) => &config.model,
         }
     }
@@ -110,14 +89,10 @@ impl ChatConfig {
     #[must_use]
     pub fn models(&self) -> &[String] {
         match *self {
-            #[cfg(feature = "mistral")]
             Self::Mistral(ref config) => &config.models,
         }
     }
-}
 
-#[cfg(feature = "mistral")]
-impl ChatConfig {
     /// The commented `[chat]` table of the default provider, with its default values, for the settings template.
     #[must_use]
     pub fn template() -> &'static str {
@@ -125,7 +100,6 @@ impl ChatConfig {
     }
 }
 
-#[cfg(feature = "mistral")]
 impl Default for ChatConfig {
     fn default() -> Self {
         Self::Mistral(mistral::ChatConfig::default())
@@ -134,17 +108,8 @@ impl Default for ChatConfig {
 
 /// Builds the transcriber that `config` selects. `key` is the API key of its provider.
 #[must_use]
-#[cfg_attr(
-    not(feature = "mistral"),
-    expect(
-        unused_variables,
-        clippy::needless_pass_by_value,
-        reason = "without a provider feature, no config exists"
-    )
-)]
 pub fn build_transcriber(config: TranscriberConfig, key: SecretString) -> Box<dyn Transcriber> {
     match config {
-        #[cfg(feature = "mistral")]
         TranscriberConfig::Mistral(config) => {
             Box::new(mistral::transcribe::Transcriber::new(key, config))
         }
@@ -158,21 +123,12 @@ pub fn build_transcriber(config: TranscriberConfig, key: SecretString) -> Box<dy
 /// # Errors
 ///
 /// `ProviderError::Network` when the HTTP client does not start, for example because the TLS setup failed.
-#[cfg_attr(
-    not(feature = "mistral"),
-    expect(
-        unused_variables,
-        clippy::needless_pass_by_value,
-        reason = "without a provider feature, no config exists"
-    )
-)]
 pub fn build_chat_model(
     config: ChatConfig,
     key: SecretString,
     limit: Duration,
 ) -> Result<Arc<dyn ChatModel>, ProviderError> {
     match config {
-        #[cfg(feature = "mistral")]
         ChatConfig::Mistral(config) => Ok(Arc::new(mistral::chat::Chat::new(
             http::client(limit)?,
             key,
@@ -181,7 +137,7 @@ pub fn build_chat_model(
     }
 }
 
-#[cfg(all(test, feature = "mistral"))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 

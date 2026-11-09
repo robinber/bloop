@@ -32,7 +32,7 @@ Each key of `config.toml` is optional. A missing key has its default value. Each
 | `schema` | `1` | Only `1`. |
 | `[dictation] hold_ms` | `220` | The hold time of the dictation key before the recording starts, from 100 to 1000 ms. The **Hold delay** submenu lists 150, 220, 300, and 400 ms. Another value of the file shows at the end of the list. |
 | `[dictation] language` | `"fr"` | The language of the dictation: two lowercase ASCII letters. Bloop sends it to the speech provider. |
-| `[transcriber] provider` | `"mistral"` | The speech provider. The key is required when the table exists. `mistral` is the only provider in this build. |
+| `[transcriber] provider` | `"mistral"` | The speech provider. The key is required when the table exists. `mistral` is the only provider. |
 | `[transcriber] model` | `"voxtral-mini-transcribe-realtime-3-0"` | The realtime transcription model. 1 to 255 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, and `-`, because the model goes into the connection URL. |
 | `[transcriber] target_streaming_delay_ms` | `480` | The balance between delay and accuracy, in milliseconds. Bloop sends the value to the provider without a local range check. |
 | `[chat] provider` | `"mistral"` | The correction provider. The key is required when the table exists. |
