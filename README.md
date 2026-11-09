@@ -27,7 +27,6 @@ The default language is French, and the built-in prompts are written for French.
 - A Mac with Apple silicon. Bloop supports macOS on arm64 only.
 - Rust 1.99 or later. The workspace declares `rust-version = "1.99"`.
 - Xcode Command Line Tools, for the linker and `codesign`.
-- Python 3. `scripts/bundle.sh` uses it to read the package version.
 - A Mistral API key. Transcription and correction use the same key.
 - An internet connection. Bloop sends the audio and the text to the Mistral API.
 
