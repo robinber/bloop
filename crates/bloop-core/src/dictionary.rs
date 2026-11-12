@@ -4,11 +4,21 @@ use std::collections::HashSet;
 use std::fmt;
 
 /// One entry of the dictionary.
+///
+/// `Debug` shows only whether the entry has a heard form, never its text.
 pub struct DictionaryEntry {
     /// The form that the speech model writes instead, if the user knows it.
     pub heard: Option<String>,
     /// The form that the text must contain.
     pub written: String,
+}
+
+impl fmt::Debug for DictionaryEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DictionaryEntry")
+            .field("heard", &self.heard.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The entries of the dictionary, in file order.
@@ -89,5 +99,20 @@ mod tests {
         let debug = format!("{dictionary:?}");
 
         assert_eq!(debug, "Dictionary { entries: 2 }");
+    }
+
+    #[test]
+    fn the_debug_of_an_entry_shows_no_text() {
+        let with_heard = entry(Some("private heard"), "private written");
+        let without_heard = entry(None, "private written");
+
+        assert_eq!(
+            format!("{with_heard:?}"),
+            "DictionaryEntry { heard: true, .. }"
+        );
+        assert_eq!(
+            format!("{without_heard:?}"),
+            "DictionaryEntry { heard: false, .. }"
+        );
     }
 }

@@ -1,13 +1,24 @@
 //! Text pipeline: turns the complete transcript of a job into its result event and its step report.
 
+use std::fmt;
+
 use crate::domain::{FinalText, Generation, Transcript};
 use crate::error::StepError;
 use crate::ports::ai::TextStep;
 use crate::session::Event;
 
 /// The text steps of one generation, in order.
+///
+/// `Debug` shows only the names of the steps, never a prompt.
 pub struct Pipeline {
     steps: Vec<Box<dyn TextStep>>,
+}
+
+impl fmt::Debug for Pipeline {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names: Vec<&'static str> = self.steps.iter().map(|step| step.name()).collect();
+        f.debug_struct("Pipeline").field("steps", &names).finish()
+    }
 }
 
 /// The result of one text step, for the log.
@@ -249,6 +260,18 @@ mod tests {
                 ),
                 ("llm_refine", StepResult::Applied),
             ]
+        );
+    }
+
+    #[test]
+    fn the_pipeline_debug_shows_the_step_names_and_no_prompt() {
+        let model = FakeChat::replying(REPLY, Finish::Complete);
+
+        let debug = format!("{:?}", correction(&model));
+
+        assert_eq!(
+            debug,
+            r#"Pipeline { steps: ["llm_refine", "typography", "trim"] }"#
         );
     }
 
