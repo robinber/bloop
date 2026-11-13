@@ -77,6 +77,9 @@ The correction sends a prompt to the chat model as its system message, and the t
 | `natural-light` | The default prompt, for everyday text. It adds punctuation and capital letters, removes hesitations and stutters, and applies spoken corrections. It keeps the spoken words, the negations, the numbers, and the register. |
 | `code` | Technical dictation, for example to a coding agent or a terminal. It applies the same corrections, writes technical terms in their usual form, and writes a spoken symbol as the symbol. |
 
+Both prompts write a short dictation on one line. In a long dictation, they start a new paragraph for each new subject, with one empty line between two paragraphs.
+A program in a terminal that does not support bracketed paste reads each line break of a pasted text as the Return key.
+
 With `code`, "point", "slash", "tiret", "underscore" or "tiret du bas", "arobase", "dièse", and "deux points" become `.`, `/`, `-`, `_`, `@`, `#`, and `:` in a technical context.
 For example, "package point json" becomes `package.json`, "tiret tiret workspace" becomes `--workspace`, and "arobase types slash node" becomes `@types/node`.
 When the whole dictation is a command line, `code` writes it without a capital letter and without a final period.
