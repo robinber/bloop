@@ -186,7 +186,7 @@ Forced termination or a crash cannot guarantee the restoration.
 ## Orb
 
 The orb (`bloop-macos/src/orb/`) is a borderless, nonactivating `NSPanel` at the bottom center of the visible frame of the screen that contains the mouse pointer, 16 points above the bottom edge of that frame (`BOTTOM_MARGIN` in `orb/panel.rs`). It never takes the focus.
-The listening view shows the icon of the frontmost application and seven bars that follow the level meter every 33 ms. The error view shows red bars for 1 s. The card shows the first 240 characters of the final text, with `…` when the text is longer, for 8 s.
+The listening view shows the icon of the frontmost application and seven bars that follow the level meter every 16 ms, without a Core Animation animation between two frames. The bar heights show the level in decibels below a ceiling that follows the voice: the ceiling rises slowly, so a short peak does not lower the bars. The center bar shows the newest level, and each bar farther from the center shows an older level (`BarHeights` in `orb/layers.rs` and its tests). The error view shows red bars for 1 s. The card shows the first 240 characters of the final text, with `…` when the text is longer, for 8 s.
 Each view change starts a new timer epoch, so the timers of a previous view have no effect (`orb/mod.rs` tests).
 
 ## Settings hub and menu

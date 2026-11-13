@@ -217,7 +217,7 @@ impl Orb {
     fn tick(&mut self) -> Next {
         self.update_icon();
         let heights = self.bars.next(self.meter.get());
-        self.layers.move_bars(&heights);
+        self.layers.set_bars(&heights);
         Next::After(TICK, Self::tick)
     }
 
